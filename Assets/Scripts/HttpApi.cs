@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -16,13 +17,21 @@ public static class HttpApi
         }
     }
 
-    public static IEnumerator NewPlayer()
+    public static IEnumerator NewPlayer(System.Action<Dictionary<string, string>> callback)
     {
         Dictionary<string, string> args = new Dictionary<string, string>();
         args.Add("player_name", "Player1");
         args.Add("ship", "{\"position\":\"0,0\",\"facing\":\"N\"}");
         args.Add("spawn_location", "0,0");
-        yield return Get("new_player", args, PrintCallback);
+        yield return Get("new_player", args, callback);
+    }
+
+    //http://127.0.0.1:5001/functions-project-98551/us-central1/zone_read_ping?zone_name=zone_0_0
+    public static IEnumerator ZoneReadPing(string zone_name, System.Action<Dictionary<string, string>> callback)
+    {
+        Dictionary<string, string> args = new Dictionary<string, string>();
+        args.Add("zone_name", zone_name);
+        yield return Get("zone_read_ping", args, callback);
     }
 
     public static IEnumerator Get(string endpoint, Dictionary<string, string> args, System.Action<Dictionary<string, string>> callback)
@@ -58,17 +67,7 @@ public static class HttpApi
             Dictionary<string, string> responseArgs = new Dictionary<string, string>();
             if (responseJson != null && responseJson.Length > 0)
             {
-                // Parse the keys and value strings into a dictionary
-                // responseJson looks like: {"key1":"value1","key2":"value2"}
-                responseJson = responseJson.TrimStart('{').TrimEnd('}');
-                string[] keyValuePairs = responseJson.Split(',');
-                foreach (var keyValuePair in keyValuePairs)
-                {
-                    string[] keyAndValue = keyValuePair.Split(':');
-                    string key = keyAndValue[0].Trim().TrimStart('"').TrimEnd('"');
-                    string value = keyAndValue[1].Trim().TrimStart('"').TrimEnd('"');
-                    responseArgs.Add(key, value);
-                }
+                responseArgs = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, string>>(responseJson);
             }
             callback?.Invoke(responseArgs);
         }
