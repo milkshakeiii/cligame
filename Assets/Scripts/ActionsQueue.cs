@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 public class ActionsQueue : MonoBehaviour
@@ -68,5 +69,12 @@ public class ActionsQueue : MonoBehaviour
         {
             // TODO
         }
+    }
+
+    private void SetAndReportActions(List<string> newActions)
+    {
+        actions = newActions;
+        string actionsString = string.Join(',', newActions);
+
     }
 }
