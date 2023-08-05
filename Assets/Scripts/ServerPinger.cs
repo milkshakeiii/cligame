@@ -7,6 +7,9 @@ public class ServerPinger: MonoBehaviour
     public delegate void ZoneStateReceived(Dictionary<string, string> args, string myShipUuid);
     public static event ZoneStateReceived OnZoneStateReceived;
 
+    public delegate void NewShipUuidReceived(string myShipUuid);
+    public static event NewShipUuidReceived OnNewShipUuidReceived;
+
     private string currentShipUuid;
     private float lastPingTime = 0;
     
@@ -20,6 +23,7 @@ public class ServerPinger: MonoBehaviour
     private void SetUuid(Dictionary<string, string> args)
     {
         currentShipUuid = args["ship_uuid"];
+        OnNewShipUuidReceived?.Invoke(currentShipUuid);
     }
 
     // Update is called once per frame

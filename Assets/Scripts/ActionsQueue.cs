@@ -8,6 +8,24 @@ public class ActionsQueue : MonoBehaviour
     public GameDisplayer gameDisplayer;
 
     private List<string> actions = new();
+    private string myShipUuid;
+
+    private void OnEnable()
+    {
+        //ServerPinger.OnZoneStateReceived += ZoneStateReceived;
+        ServerPinger.OnNewShipUuidReceived += NewShipUuidReceived;
+    }
+
+    private void OnDisable()
+    {
+        //ServerPinger.OnZoneStateReceived -= ZoneStateReceived;
+        ServerPinger.OnNewShipUuidReceived -= NewShipUuidReceived;
+    }
+
+    private void NewShipUuidReceived(string myShipUuid)
+    {
+        this.myShipUuid = myShipUuid;
+    }
 
     // Start is called before the first frame update
     void Start()
@@ -63,7 +81,9 @@ public class ActionsQueue : MonoBehaviour
     {
         if (Input.GetKey(KeyCode.LeftControl))
         {
-            // TODO
+            List<string> newCommands = gameDisplayer.GetActionsToReachPoint(myShipUuid, boardPosition, "N");
+            // TODO need to allow for choosing a direction and need to allow for starting from the end of the current actions queue
+            SetAndReportActions(newCommands);
         }
         else if (Input.GetKey(KeyCode.LeftAlt))
         {
@@ -75,6 +95,6 @@ public class ActionsQueue : MonoBehaviour
     {
         actions = newActions;
         string actionsString = string.Join(',', newActions);
-
+        // TODO: report actions to server
     }
 }
