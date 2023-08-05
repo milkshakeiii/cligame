@@ -90,8 +90,26 @@ public class ActionsQueue : MonoBehaviour
 
         while (Input.GetMouseButton(0))
         {
-            // TODO start here, a and d should rotate the ghost ship
+            yield return null;
+            // a and d should rotate the ghost ship
+            if (Input.GetKey(KeyCode.A))
+            {
+                targetFacing = GameDisplayer.GetLeftFacing(targetFacing);
+                Ship.Initialize(ghostShip, targetFacing, currentPosition);
+                pendingCommands = CommandsAfterInput(targetPosition, targetFacing);
+                ShowActionLine(pendingCommands);
+            }
+            else if (Input.GetKey(KeyCode.D))
+            {
+                targetFacing = GameDisplayer.GetLeftFacing(targetFacing);
+                Ship.Initialize(ghostShip, targetFacing, currentPosition);
+                pendingCommands = CommandsAfterInput(targetPosition, targetFacing);
+                ShowActionLine(pendingCommands);
+            }
         }
+
+        Destroy(ghostShip);
+        SetAndReportActions(pendingCommands);
     }
 
     private void ShowActionLine(List<string> pendingCommands)
