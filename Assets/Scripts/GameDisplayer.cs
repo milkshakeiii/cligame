@@ -6,8 +6,6 @@ using UnityEngine;
 public class GameDisplayer : MonoBehaviour
 {
     public GameObject shipPrefab;
-    public GameObject shipGhostPrefab;
-    public GameObject courseLinePrefab;
 
     private Dictionary<string, Ship> uuidsToShips = new();
     private Dictionary<Vector2Int, bool> occupiedDict = new();
@@ -31,10 +29,16 @@ public class GameDisplayer : MonoBehaviour
         
     }
 
-    public List<string> GetActionsToReachPoint(string myShipUuid, Vector2Int targetPoint, string targetFacing)
+    public Tuple<string, Vector2Int> GetFacingAndPosition(string uuid)
     {
-        string currentFacing = uuidsToShips[myShipUuid].GetFacing();
-        Vector2Int currentPoint = uuidsToShips[myShipUuid].GetPosition();
+        Ship ship = uuidsToShips[uuid];
+        return new Tuple<string, Vector2Int>(ship.GetFacing(), ship.GetPosition());
+    }
+
+    public List<string> GetActionsToReachPoint(string myShipUuid, Vector2Int startingPoint, string startingFacing, Vector2Int targetPoint, string targetFacing)
+    {
+        string currentFacing = startingFacing;
+        Vector2Int currentPoint = startingPoint;
         HashSet<Tuple<string, Vector2Int>> explored = new(); // (facing, position)
         Queue<Tuple<string, Vector2Int>> frontier = new();
         frontier.Enqueue(new Tuple<string, Vector2Int>(currentFacing, currentPoint));
@@ -113,7 +117,7 @@ public class GameDisplayer : MonoBehaviour
         return neighbors;
     }
 
-    private static string GetRightFacing(string currentFacing)
+    public static string GetRightFacing(string currentFacing)
     {
         return currentFacing switch
         {
@@ -125,7 +129,7 @@ public class GameDisplayer : MonoBehaviour
         };
     }
 
-    private static string GetLeftFacing(string currentFacing)
+    public static string GetLeftFacing(string currentFacing)
     {
         return currentFacing switch
         {
@@ -137,7 +141,7 @@ public class GameDisplayer : MonoBehaviour
         };
     }
 
-    private static Vector2Int GetFacingVector(string facing)
+    public static Vector2Int GetFacingVector(string facing)
     {
         return facing switch
         {

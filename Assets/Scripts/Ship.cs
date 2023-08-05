@@ -22,24 +22,29 @@ public class Ship : MonoBehaviour
     public void Initialize(Vector2Int newGamePosition, string newGameRotation)
     {
         gamePosition = newGamePosition;
-        transform.transform.position = new Vector3(gamePosition.x, gamePosition.y, 0);
-
         gameRotation = newGameRotation;
+        Ship.Initialize(this.gameObject, newGameRotation, newGamePosition);
+    }
+
+    public static void Initialize(GameObject ship, string newGameRotation, Vector2Int newGamePosition)
+    {        
+        ship.transform.transform.position = new Vector3(newGamePosition.x, newGamePosition.y, 0);
+
         if (newGameRotation == "N")
         {
-            transform.eulerAngles = new Vector3(0, 0, 0);
+            ship.transform.eulerAngles = new Vector3(0, 0, 0);
         }
         else if (newGameRotation == "S")
         {
-            transform.eulerAngles = new Vector3(0, 0, -180);
+            ship.transform.eulerAngles = new Vector3(0, 0, -180);
         }
         else if (newGameRotation == "W")
         {
-            transform.eulerAngles = new Vector3(0, 0, 90);
+            ship.transform.eulerAngles = new Vector3(0, 0, 90);
         }
         else if (newGameRotation == "E")
         {
-            transform.eulerAngles = new Vector3(0, 0, 270);
+            ship.transform.eulerAngles = new Vector3(0, 0, 270);
         }
     }
 

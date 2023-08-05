@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -6,6 +7,8 @@ using UnityEngine;
 public class ActionsQueue : MonoBehaviour
 {
     public GameDisplayer gameDisplayer;
+    public GameObject shipGhostPrefab;
+    public GameObject courseLinePrefab;
 
     private List<string> actions = new();
     private string myShipUuid;
@@ -59,36 +62,143 @@ public class ActionsQueue : MonoBehaviour
         return new Vector3(boardPosition.x, boardPosition.y, 0);
     }
 
-    private void MouseDown(Vector2Int boardPosition)
+    private void MouseUp(Vector2Int _)
     {
-
+        return;
     }
 
-    private void MouseUp(Vector2Int boardPosition)
+    private void MouseDown(Vector2Int boardPosition)
+    {
+        StartCoroutine(MoveCommandCoroutine(boardPosition));
+    }
+
+    private IEnumerator MoveCommandCoroutine(Vector2Int targetPosition)
+    {
+        Tuple<string, Vector2Int> currentPositionAndFacing = gameDisplayer.GetFacingAndPosition(myShipUuid);
+        Vector2Int currentPosition = currentPositionAndFacing.Item2;
+        string currentFacing = currentPositionAndFacing.Item1;
+        if (Input.GetKey(KeyCode.LeftShift))
+        {
+            currentPosition = FacingAndPositionAtEndOfQueue().Item2;
+        }
+        string targetFacing = NaturalFacingForMove(currentPosition, targetPosition);
+
+        GameObject ghostShip = Instantiate(shipGhostPrefab, BoardPositionToWorldPosition(currentPosition), Quaternion.identity);
+        Ship.Initialize(ghostShip, targetFacing, currentPosition);
+        List<string> pendingCommands = CommandsAfterInput(targetPosition, targetFacing);
+        ShowActionLine(pendingCommands);
+
+        while (Input.GetMouseButton(0))
+        {
+            // TODO start here
+        }
+    }
+
+    private void ShowActionLine(List<string> pendingCommands)
+    {
+        Vector2Int currentPosition = gameDisplayer.GetFacingAndPosition(myShipUuid).Item2;
+        Vector2Int lastPosition = currentPosition;
+        string currentFacing = gameDisplayer.GetFacingAndPosition(myShipUuid).Item1;
+        foreach (string command in pendingCommands)
+        {
+            Vector2Int nextPosition = gameDisplayer.GetNextPosition(currentPosition, currentFacing, command);
+            GameObject courseLine = Instantiate(courseLinePrefab, BoardPositionToWorldPosition(currentPosition), Quaternion.identity);
+            courseLine.GetComponent<CourseLine>().Initialize(BoardPositionToWorldPosition(currentPosition), BoardPositionToWorldPosition(nextPosition));
+            currentPosition = nextPosition;
+            currentFacing = gameDisplayer.GetNextFacing(currentFacing, command);
+        }
+    }
+    
+    private string NaturalFacingForMove(Vector2Int currentPosition, Vector2Int targetPosition)
+    {
+        Vector2Int delta = targetPosition - currentPosition;
+        if (delta.x > 0)
+        {
+            return "right";
+        }
+        else if (delta.x < 0)
+        {
+            return "left";
+        }
+        else if (delta.y > 0)
+        {
+            return "up";
+        }
+        else if (delta.y < 0)
+        {
+            return "down";
+        }
+        else
+        {
+            return "up";
+        }
+    }
+
+    private List<string> CommandsAfterInput(Vector2Int targetPosition, string targetFacing)
+    {
+        List<string> newCommands;
+        if (Input.GetKey(KeyCode.LeftShift))
+        {
+            // start from the end of the current actions queue
+            Tuple<string, Vector2Int> facingAndPositionAtEndOfQueue = FacingAndPositionAtEndOfQueue();
+            newCommands = new();
+            newCommands.AddRange(actions);
+            newCommands.AddRange(gameDisplayer.GetActionsToReachPoint(myShipUuid, facingAndPositionAtEndOfQueue.Item2, facingAndPositionAtEndOfQueue.Item1, targetPosition, targetFacing));
+        }
+        else
+        {
+            // start from the current position and facing
+            Tuple<string, Vector2Int> facingAndPosition = gameDisplayer.GetFacingAndPosition(myShipUuid);
+            newCommands = gameDisplayer.GetActionsToReachPoint(myShipUuid, facingAndPosition.Item2, facingAndPosition.Item1, targetPosition, targetFacing);
+        }
+        return newCommands;
+    }
+
+    private void FinalizeCommand(string targetFacing, Vector2Int targetBoardPosition)
     {
         if (Input.GetKey(KeyCode.LeftShift))
         {
-            QueueCommand(boardPosition);
+            // start from the end of the current actions queue
+            Tuple<string, Vector2Int> facingAndPositionAtEndOfQueue = FacingAndPositionAtEndOfQueue();
+            QueueCommand(facingAndPositionAtEndOfQueue.Item2, facingAndPositionAtEndOfQueue.Item1, targetBoardPosition, targetFacing);
         }
         else
         {
             actions.Clear();
-            QueueCommand(boardPosition);
+            // start from the current position and facing
+            Tuple<string, Vector2Int> facingAndPosition = gameDisplayer.GetFacingAndPosition(myShipUuid);
+            QueueCommand(facingAndPosition.Item2, facingAndPosition.Item1, targetBoardPosition, targetFacing);
         }
     }
 
-    private void QueueCommand(Vector2Int boardPosition)
+    private Tuple<string, Vector2Int> FacingAndPositionAtEndOfQueue()
     {
-        if (Input.GetKey(KeyCode.LeftControl))
+        Tuple<string, Vector2Int> currentPositionAndFacing = gameDisplayer.GetFacingAndPosition(myShipUuid);
+        Vector2Int currentPosition = currentPositionAndFacing.Item2;
+        string currentFacing = currentPositionAndFacing.Item1;
+        foreach (string action in actions)
         {
-            List<string> newCommands = gameDisplayer.GetActionsToReachPoint(myShipUuid, boardPosition, "N");
-            // TODO need to allow for choosing a direction and need to allow for starting from the end of the current actions queue
-            SetAndReportActions(newCommands);
+            if (action.StartsWith("step"))
+            {
+                currentPosition += GameDisplayer.GetFacingVector(currentFacing);
+            }
+            else if (action.StartsWith("left"))
+            {
+                currentFacing = GameDisplayer.GetLeftFacing(currentFacing);
+            }
+            else if (action.StartsWith("right"))
+            {
+                currentFacing = GameDisplayer.GetRightFacing(currentFacing);
+            }
         }
-        else if (Input.GetKey(KeyCode.LeftAlt))
-        {
-            // TODO
-        }
+        return new Tuple<string, Vector2Int>(currentFacing, currentPosition);
+    }
+
+    private void QueueCommand(Vector2Int startingPosition, string startingFacing, Vector2Int targetPosition, string targetFacing)
+    {
+        List<string> newCommands = gameDisplayer.GetActionsToReachPoint(myShipUuid, startingPosition, startingFacing, targetPosition, targetFacing);
+        // TODO need to allow for choosing a direction and need to allow for starting from the end of the current actions queue
+        SetAndReportActions(newCommands);
     }
 
     private void SetAndReportActions(List<string> newActions)
