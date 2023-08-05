@@ -90,7 +90,7 @@ public class ActionsQueue : MonoBehaviour
 
         while (Input.GetMouseButton(0))
         {
-            // TODO start here
+            // TODO start here, a and d should rotate the ghost ship
         }
     }
 
@@ -197,7 +197,6 @@ public class ActionsQueue : MonoBehaviour
     private void QueueCommand(Vector2Int startingPosition, string startingFacing, Vector2Int targetPosition, string targetFacing)
     {
         List<string> newCommands = gameDisplayer.GetActionsToReachPoint(myShipUuid, startingPosition, startingFacing, targetPosition, targetFacing);
-        // TODO need to allow for choosing a direction and need to allow for starting from the end of the current actions queue
         SetAndReportActions(newCommands);
     }
 
