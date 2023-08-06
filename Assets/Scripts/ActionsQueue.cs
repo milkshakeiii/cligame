@@ -12,6 +12,7 @@ public class ActionsQueue : MonoBehaviour
 
     private List<string> actions = new();
     private string myShipUuid;
+    private List<GameObject> courseLines = new();
 
     private void OnEnable()
     {
@@ -114,6 +115,12 @@ public class ActionsQueue : MonoBehaviour
 
     private void ShowActionLine(List<string> pendingCommands)
     {
+        foreach (GameObject courseLine in courseLines)
+        {
+            Destroy(courseLine);
+        }
+        courseLines.Clear();
+
         Vector2Int currentPosition = gameDisplayer.GetFacingAndPosition(myShipUuid).Item2;
         Vector2Int lastPosition = currentPosition;
         string currentFacing = gameDisplayer.GetFacingAndPosition(myShipUuid).Item1;
@@ -130,6 +137,7 @@ public class ActionsQueue : MonoBehaviour
                 currentFacing = GameDisplayer.GetRightFacing(currentFacing);
             else if (command == "left")
                 currentFacing = GameDisplayer.GetLeftFacing(currentFacing);
+            courseLines.Add(courseLine);
         }
     }
     
