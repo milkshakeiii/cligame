@@ -35,7 +35,7 @@ class Spaceship(models.Model):
         return self.jobs.filter(paused_at__isnull=True, completed_at__isnull=True).exists()
 
     def compute_resource_flow(self):
-        """Compute available resource flow through the part graph.
+        """Compute available resource flow through the node graph.
 
         PLACEHOLDER: Currently returns empty dict.
 
@@ -43,16 +43,39 @@ class Spaceship(models.Model):
         - Part supplies (with min/max/variability from stats)
         - Part demands
         - Conduit capacity and efficiency
-        - Graph connectivity (parts must be connected via conduits)
+        - Graph connectivity (nodes must be connected via conduits)
         """
         return {}
 
 
-class Part(models.Model):
-    """A part attached to a spaceship.
+class Node(models.Model):
+    """A node in the spaceship's resource graph.
 
-    Parts form nodes in the ship's resource graph. They can supply
-    or demand resources. Behavior is determined by part_type + stats.
+    Nodes define the graph topology. Parts attach to nodes.
+    Conduits connect nodes to allow resource flow.
+
+    Node types:
+        mount - External mount point for swappable parts (mining arm, camera, etc.)
+        internal - Internal node for fixed infrastructure (power routing, etc.)
+    """
+    NODE_TYPES = [
+        ('mount', 'Mount Point'),
+        ('internal', 'Internal'),
+    ]
+
+    spaceship = models.ForeignKey(Spaceship, on_delete=models.CASCADE, related_name='nodes')
+    node_type = models.CharField(max_length=20, choices=NODE_TYPES)
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"{self.name} ({self.node_type})"
+
+
+class Part(models.Model):
+    """A part attached to a node on a spaceship.
+
+    Parts provide functionality and can supply or demand resources.
+    Behavior is determined by part_type + stats.
 
     stats JSON structure:
         supplies: {resource_name: {"base": float, "variability": float}}
@@ -61,16 +84,20 @@ class Part(models.Model):
     Example generator:
         {"supplies": {"electrical": {"base": 100, "variability": 0.1}}}
 
-    Example weapon:
-        {"demands": {"electrical": 50, "quantum": 10}}
+    Example mining arm:
+        {"demands": {"mechanical": 50}}
     """
-    spaceship = models.ForeignKey(Spaceship, on_delete=models.CASCADE, related_name='parts')
+    node = models.OneToOneField(Node, on_delete=models.CASCADE, related_name='part')
     name = models.CharField(max_length=100)
     part_type = models.CharField(max_length=50)
     stats = models.JSONField(default=dict)
 
     def __str__(self):
         return f"{self.name} ({self.part_type})"
+
+    @property
+    def spaceship(self):
+        return self.node.spaceship
 
     def get_behavior(self):
         """Get the behavior class instance for this part type.
@@ -84,21 +111,21 @@ class Part(models.Model):
 
 
 class Conduit(models.Model):
-    """An edge in the part graph that transfers resources.
+    """An edge in the node graph that transfers resources.
 
-    Conduits connect parts and allow resource flow. They are typed
+    Conduits connect nodes and allow resource flow. They are typed
     to a specific resource and can be upgraded for better capacity/efficiency.
     """
     spaceship = models.ForeignKey(Spaceship, on_delete=models.CASCADE, related_name='conduits')
-    from_part = models.ForeignKey(Part, on_delete=models.CASCADE, related_name='outputs')
-    to_part = models.ForeignKey(Part, on_delete=models.CASCADE, related_name='inputs')
+    from_node = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='outputs')
+    to_node = models.ForeignKey(Node, on_delete=models.CASCADE, related_name='inputs')
     resource_type = models.ForeignKey(ResourceType, on_delete=models.CASCADE)
     capacity = models.FloatField()  # max flow per second
     efficiency = models.FloatField(default=1.0)  # 0.85 = 15% loss
     level = models.IntegerField(default=1)  # upgrade level
 
     def __str__(self):
-        return f"{self.from_part.name} -> {self.to_part.name} ({self.resource_type.name})"
+        return f"{self.from_node.name} -> {self.to_node.name} ({self.resource_type.name})"
 
 
 class Job(models.Model):
