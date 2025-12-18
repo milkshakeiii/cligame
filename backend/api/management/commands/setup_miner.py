@@ -7,11 +7,11 @@ Ship structure:
     - Mechanical hub (internal) - routes mechanical from mount
     - Compute hub (internal) - routes compute, has data link to mechanical mount
 
-Conduits (all bidirectional energy comes from center):
+Conduits:
     - Power -> Mechanical hub (electrical)
     - Power -> Compute hub (electrical)
-    - Mechanical hub -> Mechanical mount (mechanical)
-    - Compute hub -> Compute mount (compute)
+    - Mechanical hub -> Mechanical mount (electrical passthrough + mechanical)
+    - Compute hub -> Compute mount (electrical passthrough + compute)
     - Compute hub -> Mechanical mount (data - for camera to control arm)
 """
 from django.core.management.base import BaseCommand
@@ -94,7 +94,7 @@ class Command(BaseCommand):
             efficiency=0.95
         )
 
-        # Mechanical routing
+        # Mechanical hub -> mount (mechanical + electrical passthrough)
         Conduit.objects.create(
             spaceship=ship,
             from_node=mech_hub,
@@ -103,13 +103,29 @@ class Command(BaseCommand):
             capacity=40,
             efficiency=0.90
         )
+        Conduit.objects.create(
+            spaceship=ship,
+            from_node=mech_hub,
+            to_node=mech_mount,
+            resource_type=electrical,
+            capacity=30,
+            efficiency=0.95
+        )
 
-        # Compute routing
+        # Compute hub -> mount (compute + electrical passthrough)
         Conduit.objects.create(
             spaceship=ship,
             from_node=compute_hub,
             to_node=compute_mount,
             resource_type=classical_compute,
+            capacity=30,
+            efficiency=0.95
+        )
+        Conduit.objects.create(
+            spaceship=ship,
+            from_node=compute_hub,
+            to_node=compute_mount,
+            resource_type=electrical,
             capacity=30,
             efficiency=0.95
         )
