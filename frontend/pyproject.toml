@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mm-cli"
 version = "0.1.0"
-description = "Command-line interface for MonsterMakers"
+description = "Command-line interface for django backend"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.0",
