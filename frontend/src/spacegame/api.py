@@ -1,4 +1,4 @@
-"""API client for MonsterMakers backend."""
+"""API client for SpaceGame backend."""
 
 import os
 import sys
@@ -11,12 +11,12 @@ class APIError(Exception):
     pass
 
 
-class MmAPI:
-    """Client for the MonsterMakers API."""
+class SpaceGameAPI:
+    """Client for the SpaceGame API."""
 
     def __init__(self, base_url: str = None, token: str = None):
-        self.base_url = base_url or os.environ.get("MM_URL", "http://localhost:8000/api/")
-        self.token = token or os.environ.get("MM_TOKEN")
+        self.base_url = base_url or os.environ.get("SPACEGAME_URL", "http://localhost:8000/api/")
+        self.token = token or os.environ.get("SPACEGAME_TOKEN")
 
     def _post(self, endpoint: str, data: dict = None) -> dict:
         """Make a POST request to the API."""
