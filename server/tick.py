@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import random
 from typing import Optional
 
 from sqlmodel import select
@@ -475,7 +476,7 @@ def _process_mining(
     cargo_full_emitted = False
 
     for module in ship.modules:
-        if module.module_type != ModuleType.mining_laser:
+        if module.module_type not in (ModuleType.mining_laser, ModuleType.strip_miner):
             continue
         if not module.active:
             continue
@@ -611,8 +612,8 @@ def _process_physics(
     """
     position: Vec3 = (ship.pos_x, ship.pos_y, ship.pos_z)
     velocity: Vec3 = (ship.vel_x, ship.vel_y, ship.vel_z)
-    max_speed = ship.max_speed()
-    accel_mag = ship.acceleration()
+    max_speed = ship.effective_max_speed()
+    accel_mag = ship.effective_acceleration()
 
     # Find the first active order
     active_order: Optional[MovementOrder] = None

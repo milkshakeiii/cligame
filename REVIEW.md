@@ -1,325 +1,437 @@
-# Code Review
+# Code Review: Space Simulation CLI Game
 
-**Reviewer:** Code Reviewer Agent (Opus)
-**Date:** 2026-02-21
-**Scope:** Full codebase review against SPEC.md — server/, client/, tests/
-**Test status:** 233 tests passing
-
----
-
-## Critical Issues
-
-### C1. Docking does not validate ship class or bay capacity
-
-**Files:** `server/tick.py` lines 515-543, `server/routes/orders.py` lines 212-264
-
-**Problem:** The SPEC states: "Only ships of a **smaller class** can dock. A corvette can dock in a frigate's bay, but a frigate cannot dock in another frigate." and "Target ship must have a docking bay with sufficient remaining capacity (capacity >= docking ship's volume)." Neither the `dock_ship` route handler nor the tick loop's `_process_physics` docking-complete path enforces these constraints.
-
-The dock route (`POST /api/ships/{id}/dock`) checks that the target has a docking bay with `docking_capacity() > 0`, but does not:
-1. Verify the docking ship's class is strictly smaller than the target's class.
-2. Verify the target's remaining docking capacity (total minus already-docked ships' volumes) is sufficient.
-3. Account for ships already docked in the target bay.
-
-When docking completes in the tick loop, the ship is simply marked `docked_in_id = target_ship.id` with no capacity or class check at all.
-
-**Suggested fix:** In both the route handler (pre-validation) and the tick loop (at the point where `docking_ticks_remaining` reaches zero), add:
-1. A class ordering check: `CLASS_ORDER.index(ship.ship_class.value) < CLASS_ORDER.index(target.ship_class.value)`.
-2. A remaining capacity check: sum the `total_volume` of all ships currently docked in the target, subtract from `target.docking_capacity()`, and verify the requesting ship's `total_volume` fits.
+**Reviewer:** Code Reviewer Agent
+**Date:** 2026-02-22
+**Scope:** Full codebase review — `server/`, `client/`, `tests/`, specs, config
+**Focus Areas:** Combat (Phase 4), Research (Phase 5), Cross-cutting concerns
 
 ---
 
-### C2. `resolve_target_position` silently treats coordinate `0.0` as unset
+## Summary
 
-**File:** `server/physics.py` lines 402-429
-
-**Problem:** The function uses `order_target_y or 0.0` and `order_target_z or 0.0` when constructing the coordinate target. The `or` operator in Python treats `0.0` as falsy, so if a player intentionally targets coordinate `(100, 0, 0)`, the y and z will still be 0.0 (correct by coincidence). However, the guard `if order_target_x is not None` only checks the x component -- if a player sets `target_x=0.0`, the condition evaluates as `True` (correct), but `target_y` and `target_z` being `None` would be replaced by `0.0` via the `or` fallback. This is acceptable only if `None` means "not set" and defaults to zero. The real concern is that `order_target_y or 0.0` would turn `order_target_y=0.0` into `0.0` (via the `or` fallback path, which is the same value), so it happens to work, but the logic is fragile and semantically wrong -- it conflates "unset" with "zero."
-
-**Suggested fix:** Replace `order_target_y or 0.0` with `order_target_y if order_target_y is not None else 0.0` (and likewise for z). This makes the intent explicit and avoids future bugs if the fallback value ever changes.
+The codebase implements Phases 1-5 of the spec (mining, production, scanning, combat, research) with a FastAPI backend, async SQLite database, and Typer CLI client. The architecture is well-structured with clear separation of concerns. However, there are two **critical runtime bugs** that will crash the server during combat and research event creation, several **high-severity** logic issues enabling exploits or deviating from spec, and a range of medium/low issues worth addressing.
 
 ---
 
-### C3. `cap_was_depleted` variable is declared but never set to `True`
+## Critical
 
-**File:** `server/tick.py` lines 253-286
+### C-1: Missing `import random` in `server/tick.py` — turret fire crashes with NameError
 
-**Problem:** In `_process_modules`, the variable `cap_was_depleted` is initialized to `False` on line 253 and then used in the guard `if depleted and not cap_was_depleted` on line 280, but it is never set to `True` anywhere in the function. The intent appears to be to prevent emitting the `cap_depleted` event more than once per tick per ship, but since `cap_was_depleted` is always `False`, this guard has no effect.
+**File:** `server/tick.py`, line 1025
 
-The issue is mostly cosmetic for now (since `check_depletion` will only return `True` once per call because it deactivates all modules the first time), but the variable is misleading dead code.
+The weapon fire phase calls `random.random()` to determine hit/miss for turret shots, but `random` is never imported in `tick.py`. The imports (lines 27-94) include `asyncio`, `logging`, `math`, and various project modules, but not `random`. This will raise `NameError: name 'random' is not defined` the first time a turret fires during the tick loop.
 
-**Suggested fix:** Either remove the `cap_was_depleted` variable entirely (since `check_depletion` is idempotent) or set `cap_was_depleted = True` after emitting the event to match the apparent intent.
+```python
+# tick.py line 1025
+roll = random.random()  # NameError — random is not imported
+```
 
----
+**Impact:** All turret combat is completely broken at runtime. The tick loop's exception handler will catch this and log it, but no turret damage will ever be applied. No test catches this because there are no tick-loop combat integration tests.
 
-## Important Issues
-
-### I1. Mining laser ore extraction consumes asteroid ore even when cargo is full (spec-correct but wasteful per UX)
-
-**File:** `server/mining.py` lines 92-111
-
-**Problem:** When cargo is full, the code still decrements `asteroid.ore_remaining` by the yield amount (lines 96-97). This matches the SPEC's statement that "mining laser continues to cycle (consuming cap) but ore is lost," which also implies the asteroid is depleted. However, the SPEC says "ore is lost" -- it's ambiguous whether the asteroid should still lose ore, or only the ship loses the ore. The current implementation depletes the asteroid even when the player's cargo is full. This is a gameplay concern: a player who forgets to stop mining will permanently destroy asteroid ore.
-
-**Suggested fix:** Clarify this with the Game Developer agent. If the intent is that ore is extracted and then lost (asteroid depletes), the current implementation is correct. If ore should remain in the asteroid when cargo is full, change the cargo-full branch to not decrement `asteroid.ore_remaining`.
+**Fix:** Add `import random` to the imports at the top of `tick.py`.
 
 ---
 
-### I2. Orbit and Keep-at-Range orders always use `target_ship_id` in CLI, never `target_object_id`
+### C-2: Research events use wrong field name `type=` instead of `event_type=`
 
-**File:** `client/cli.py` lines 247-280
+**File:** `server/research.py`, lines 211-217 and 236-242
 
-**Problem:** The `order orbit` and `order keep-distance` CLI commands always set `target_ship_id` in the payload, even when the player may want to orbit or keep distance from a celestial object (like an asteroid). The `--target` option is described as "Target ship or object ID" but always populates `target_ship_id`. There is no way for the CLI user to specify `target_object_id`.
+The `Event` model (defined in `server/models.py` line 1056) uses the field name `event_type`, not `type`. The research module creates events with `type=EventType.research_paused` and `type=EventType.research_complete`:
 
-**Suggested fix:** Add a `--target-type` option (values: `ship`, `object`) or separate `--ship` / `--object` options so the user can target celestial objects. The `approach` command has the same issue.
+```python
+# research.py lines 211-213
+session.add(Event(
+    tick=current_tick,
+    type=EventType.research_paused,   # WRONG — should be event_type=
+    ship_id=ship.id,
+    ...
+))
+```
 
----
+Compare with the correct usage in `tick.py` line 220-227:
+```python
+Event(
+    tick=current_tick,
+    user_id=user_id,
+    ship_id=ship_id,
+    event_type=event_type,  # CORRECT
+    message=message,
+)
+```
 
-### I3. Approach order in CLI only supports `--target` (ship) or `--point`, not object targeting
+**Impact:** Research pause and completion events will fail with a SQLModel/Pydantic validation error at runtime. The research status (`rp.status`) may be set before the Event creation fails, leaving the research in an inconsistent state. No test catches this because `tick_research()` has no integration tests.
 
-**File:** `client/cli.py` lines 213-244
-
-**Problem:** Similar to I2, the `order approach` command's `--target` option only sets `target_ship_id`. There is no way to approach a celestial object (asteroid) by ID. Players would need to use `--point` with manual coordinates, which is poor UX when they know the object ID from a scan.
-
-**Suggested fix:** Add `--object` or `--asteroid` option that sets `target_object_id` in the payload.
-
----
-
-### I4. `create_ship` route may trigger MissingGreenlet error
-
-**File:** `server/routes/ships.py` lines 206-226
-
-**Problem:** The `create_ship` endpoint calls `await session.refresh(ship, attribute_names=["modules"])` after committing. The test file (`test_api_ships.py` lines 88-101) documents this as a known bug but the tests currently pass. The issue is that `_ship_to_out(ship)` accesses `ship.modules` to compute `used_volume`, `cargo_capacity`, `max_speed`, and `acceleration`. If the refresh with `attribute_names=["modules"]` doesn't properly eager-load modules in all SQLAlchemy/SQLModel versions, the subsequent property access could trigger a lazy load in the async context, resulting in a `MissingGreenlet` error.
-
-The tests pass because the in-memory SQLite test setup with `expire_on_commit=False` keeps the relationship data available. This may fail in production with a different database or configuration.
-
-**Suggested fix:** After `session.commit()`, do a full query with `selectinload(Spaceship.modules)` rather than relying on `session.refresh` with `attribute_names`.
-
----
-
-### I5. No validation that `order approach` target actually exists
-
-**File:** `server/routes/orders.py` lines 148-183
-
-**Problem:** When creating a movement order (approach, orbit, keep-distance), the route handler does not verify that the `target_ship_id` or `target_object_id` refers to an existing entity. If a player targets a non-existent ship or object, the order is created, and the tick loop's `_process_physics` will resolve `target_ship` or `target_object` as `None`, causing `resolve_target_position` to fall through to the default `(0, 0, 0)` position. The ship would then fly toward the origin silently.
-
-The `dock` endpoint validates target existence, but the generic `create_order` endpoint does not.
-
-**Suggested fix:** Add a DB lookup to verify that `target_ship_id` or `target_object_id` exists before creating the order. Return 404 if not found.
+**Fix:** Change `type=` to `event_type=` on both lines (213 and 238).
 
 ---
 
-### I6. Tick loop loads ALL ships and objects on every tick -- no pagination or filtering
+## High
 
-**File:** `server/tick.py` lines 142-154
+### H-1: Physics uses `max_speed()` instead of `effective_max_speed()`, ignoring armor plate penalty
 
-**Problem:** Every tick, the loop loads every single `Spaceship` (with eager-loaded modules, orders, and build orders) and every `CelestialObject` into memory. For a small game this is fine, but it will not scale. With hundreds of players and thousands of ships/asteroids, this will cause significant memory pressure and slow tick processing.
+**File:** `server/tick.py`, lines 614-615
 
-**Suggested fix:** For Phase 1 this is acceptable. For Phase 2+, consider:
-1. Loading only non-docked ships.
-2. Batching physics processing by spatial regions.
-3. Only loading ships with active orders/modules for the relevant phases.
+The physics phase calculates speed and acceleration without armor plate penalties:
 
----
+```python
+max_speed = ship.max_speed()       # ignores armor plate penalty
+accel_mag = ship.acceleration()    # also ignores armor plate penalty
+```
 
-### I7. Login endpoint reveals token to anyone who knows the username
+The `Spaceship` model has `effective_max_speed()` and `effective_acceleration()` methods that account for armor plate speed penalties (per SPEC_PHASES.md: armor plates reduce max speed by 5-10%).
 
-**File:** `server/routes/auth.py` lines 171-184
+**Impact:** Ships with armor plates move at full speed instead of reduced speed. Armor plates become a pure benefit with no downside, undermining the intended combat tradeoff.
 
-**Problem:** `POST /api/auth/login` returns the bearer token for any username without requiring a password or any form of credential. Anyone who knows a username can obtain full access to that player's account. While the SPEC doesn't mention passwords, this is a significant security concern in a multiplayer context.
-
-**Suggested fix:** At minimum, add a password field to registration and login. Alternatively, if password-less auth is intentional for Phase 1 simplicity, document this limitation clearly and add a note about securing it before Phase 5 (multiplayer).
+**Fix:** Use `ship.effective_max_speed()` and `ship.effective_acceleration()`.
 
 ---
 
-### I8. The `_process_mining` cycle detection relies on fragile timer state
+### H-2: Shield/armor HP reset to max when extender/plate installed — combat exploit
 
-**File:** `server/tick.py` lines 314-384
+**File:** `server/routes/ships.py`, lines 473-478
 
-**Problem:** The mining phase detects whether a cycle just fired by checking `module.ticks_until_cycle == module.cycle_time` (line 343). This works because `_process_modules` sets `ticks_until_cycle = cycle_time` when a cycle fires. However, this is fragile coupling between the module phase and mining phase -- the mining phase depends on specific internal state set by the module phase. If the module phase logic changes (e.g., timer reset order), the mining detection breaks silently.
+When a shield extender or armor plate is installed, the code recalculates the max value and then resets current HP to the new max:
 
-The same pattern is used for detection phase (line 587, 608).
+```python
+if body.module_type.value in SHIELD_EXTENDER_TYPES:
+    recalculate_max_shield(ship)
+    ship.shield_hp = ship.max_shield_hp  # resets to full!
+if body.module_type.value in ARMOR_PLATE_TYPES:
+    recalculate_max_armor(ship)
+    ship.armor_hp = ship.max_armor_hp    # resets to full!
+```
 
-**Suggested fix:** Instead of relying on timer state, have `_process_modules` return a list of modules that fired this tick, and pass that list to subsequent phases. Or use a boolean flag on the module (`cycle_fired_this_tick`) that is reset at the start of each tick.
+**Impact:** A player can take heavy damage, then install a small shield extender to instantly restore all shields to full. Combined with H-4 (no combat refitting restriction), this is a severe exploit.
 
----
-
-### I9. Ore transfer is a one-shot API call, not continuous
-
-**File:** `server/routes/resources.py` lines 82-154
-
-**Problem:** The SPEC says: "Ore transfers at 100 ore per tick until source cargo is empty or target cargo is full." The route handler performs a single call to `tick_ore_transfer` (one tick's worth of transfer) and returns. The docstring mentions the tick loop will also run transfers automatically, but there is no transfer logic in the tick loop (`server/tick.py`). The tick loop does not call `tick_ore_transfer` at all.
-
-This means ore transfer only happens when the player manually calls the API endpoint, and only transfers 100 ore per call. The player would need to call it repeatedly to transfer large amounts.
-
-**Suggested fix:** Either:
-1. Implement continuous transfer in the tick loop (create a `TransferOrder` model or flag on the ship, process in each tick).
-2. Or change the single API call to loop until transfer is complete (simpler but blocks the request).
-3. At minimum, document this limitation in the CLI help text.
+**Fix:** After recalculating max, keep HP at its current value (clamped to the new max), or only add HP proportional to the newly installed module's bonus.
 
 ---
 
-## Minor Issues
+### H-3: Strip miner not processed in tick loop mining phase
 
-### M1. `from __future__ import annotations` used in physics.py, energy.py, mining.py, production.py, scanning.py
+**File:** `server/tick.py` (mining phase, `_process_mining`)
 
-**Files:** `server/physics.py` line 8, `server/energy.py` line 8, `server/mining.py` line 8, `server/production.py` line 8, `server/scanning.py` line 8
+The mining phase only checks for `ModuleType.mining_laser`. The `strip_miner` module type exists in the models and is research-gated behind `1b_strip_mining`, but once installed, it will never mine because the tick loop does not process it.
 
-**Problem:** CLAUDE.md warns: "Don't use `from __future__ import annotations` in models.py -- breaks SQLAlchemy relationship resolution." The warning is specific to `models.py` (which correctly omits it). The other simulation files use it safely because they don't define SQLModel table classes. This is not a bug, but worth noting for future developers who might add SQLModel classes to these files.
+**Impact:** Strip miners are useless — they can be installed and activated but will never extract ore.
 
----
-
-### M2. Duplicate `_get_owned_ship` helper across multiple route files
-
-**Files:** `server/routes/orders.py` lines 111-125, `server/routes/production.py` lines 65-79, `server/routes/resources.py` lines 57-68, `server/routes/scanning.py` lines 105-116, `server/routes/ships.py` lines 154-183
-
-**Problem:** Each route file defines its own `_get_owned_ship` helper with slight variations (some load modules, some load orders, etc.). This duplicates authorization/ownership logic.
-
-**Suggested fix:** Extract a shared utility function in a common module (e.g., `server/routes/common.py`) with configurable eager-loading options.
+**Fix:** Add strip miner handling to the mining phase, similar to mining laser but with the strip miner's own yield, range, and cycle parameters.
 
 ---
 
-### M3. `order_approach` target could be an object ID but there's no way to specify it
+### H-4: Module install/uninstall not blocked during combat
 
-**File:** `client/cli.py` lines 213-244
+**File:** `server/routes/ships.py` (`install_module` and `uninstall_module`)
 
-**Problem:** The `CreateOrderRequest` schema supports `target_object_id`, but the CLI's `order approach` command only exposes `--target` which maps to `target_ship_id`. This is covered in I2/I3 above but worth noting here as a CLI completeness gap.
+SPEC_PHASES.md states: "Modules cannot be installed or uninstalled while the ship has an active target lock (on it or by it)." This check is completely absent from both endpoints.
 
----
+**Impact:** Players can refit ships during combat, swapping weapons, adding shield extenders (with the H-2 exploit compounding this), or removing damaged armor plates to install fresh ones.
 
-### M4. The `watch` command uses `time.sleep` (blocking) instead of async polling
-
-**File:** `client/cli.py` lines 581-649
-
-**Problem:** The `watch` command uses synchronous `time.sleep(poll_interval)` which blocks the thread. Since the CLI is synchronous (Typer), this is acceptable. However, it means the polling interval is `poll_interval + request_duration`, not exactly `poll_interval`. For LLM playability this is fine.
+**Fix:** Check for active `TargetLock` rows (both `ship_id=ship.id` and `target_ship_id=ship.id` with status `locking` or `locked`) before allowing module changes.
 
 ---
 
-### M5. No `--json` support for `spacegame whoami`
+### H-5: Lock initiation does not check scanner range
 
-**File:** `client/cli.py` lines 100-129
+**File:** `server/routes/combat.py`, `lock_target` endpoint (lines 68-145)
 
-**Problem:** The `whoami` command has a `--json` flag but the displayed data is incomplete -- it only shows a token prefix and ship count because there is no `/me` endpoint. The JSON output for `whoami` is thus not very useful for an LLM.
+Per SPEC_PHASES.md: "Locking requires the target to be within scanner range (200km if scanner fitted) or default visibility range (1km if no scanner)." The `lock_target` endpoint verifies the target exists and is not destroyed, but never checks the distance between the ships or whether the locking ship has a scanner.
 
-**Suggested fix:** Add a `GET /api/auth/me` endpoint that returns the user's username and ID, and use it in `whoami`.
+```python
+# routes/combat.py — no range check after target lookup
+target = target_result.first()
+if target is None:
+    raise HTTPException(status_code=404, detail="Target ship not found")
+# Lock is created immediately without checking distance
+```
 
----
+**Impact:** Ships can lock targets at any distance, including across the entire map. This removes the intended tactical constraint requiring proximity for combat engagement.
 
-### M6. `_random_point_in_sphere` does not produce uniform distribution
-
-**File:** `server/main.py` lines 45-53, `server/routes/auth.py` lines 61-70
-
-**Problem:** The function generates `phi = random.uniform(0, math.pi)` which produces points clustered near the poles of the sphere rather than uniformly distributed. For a true uniform distribution inside a sphere, `phi` should be derived as `math.acos(1 - 2 * random.random())`. However, for game purposes (asteroid placement, spawn locations), perfect uniformity is not critical.
-
-**Suggested fix:** Use `phi = math.acos(1 - 2 * random.random())` for proper uniform distribution, or accept the current distribution as "good enough."
-
----
-
-### M7. `spawn_new_ship` random direction has same non-uniform issue
-
-**File:** `server/models.py` lines 578-616
-
-**Problem:** The `spawn_new_ship` function generates a random direction using `theta = random.uniform(0, 2*pi)` and `phi = random.uniform(0, pi)`, which has the same polar clustering issue as M6. Since it only determines the spawn offset direction (100m away from builder), this is inconsequential.
+**Fix:** Calculate distance between attacker and target. If attacker has a scanner module, lock range should be 200km. If no scanner, lock range should be the default visibility range (1km).
 
 ---
 
-### M8. No API endpoint for undocking a ship
+### H-6: Docking does not validate ship class or bay capacity
 
-**Problem:** The SPEC defines docking but does not define undocking. Ships can dock but there is no mechanism to undock them. Once docked, a ship is permanently removed from the physics simulation.
+**File:** `server/tick.py` (docking completion), `server/routes/orders.py` (dock endpoint)
 
-**Suggested fix:** Add an `undock` movement order or API endpoint, or document this as a Phase 2 feature.
+The SPEC states: "Only ships of a smaller class can dock." and "Target ship must have a docking bay with sufficient remaining capacity." Neither the dock route handler nor the tick loop's docking-complete path enforces:
+1. That the docking ship's class is strictly smaller than the target's.
+2. That the target's remaining docking capacity (total minus already-docked ships) is sufficient.
 
----
+**Impact:** Any ship can dock in any ship with a docking bay, regardless of class or capacity.
 
-### M9. Missing test coverage for several important paths
-
-**Problem:** The test suite has good coverage of unit logic and basic API routes but is missing:
-1. **Tick loop integration tests** -- no tests exercise the full `_run_tick` function, so the interaction between phases (module cycling -> mining -> production -> physics -> detection) is untested.
-2. **Movement order API tests** -- `test_api_ships.py` does not test `POST /api/ships/{id}/orders` (approach, orbit, stop, etc.).
-3. **Scan endpoint tests** -- `POST /api/ships/{id}/scan` is not tested via the API.
-4. **Transfer endpoint tests** -- `POST /api/ships/{id}/transfer` is not tested via the API.
-5. **Build endpoint tests** -- `POST /api/ships/{id}/build` and `GET /api/ships/{id}/build` are not tested via the API.
-6. **CLI tests** -- No tests for the Typer CLI commands at all.
-
-**Suggested fix:** Prioritize adding integration tests for the tick loop and the remaining API endpoints. CLI tests can use `typer.testing.CliRunner`.
+**Fix:** Add class ordering check using `CLASS_ORDER` and remaining capacity check summing volumes of already-docked ships.
 
 ---
 
-### M10. `order orbit` always sends `target_ship_id` even for celestial targets
+## Medium
 
-**File:** `client/cli.py` line 258
+### M-1: Partial cargo mining wastes asteroid ore
 
-**Problem:** The orbit command hardcodes `"target_ship_id": target` regardless of whether the target is a ship or an object. Same issue as I2, listed here for tracking.
+**File:** `server/mining.py`, lines 96-110
 
----
+When cargo is completely full (`available_space <= 0`), the asteroid's ore is correctly preserved. But when there's partial space (e.g., 3 units free, 10 unit yield), the asteroid loses the full yield while the ship only stores what fits. The difference is destroyed:
 
-### M11. `HTTP_422_UNPROCESSABLE_ENTITY` deprecation warning
+```python
+ore_added = min(yield_amount, available_space)  # 3
+ore_lost = yield_amount - ore_added              # 7
+asteroid.ore_remaining -= yield_amount           # loses all 10 from asteroid
+```
 
-**Files:** Multiple route files using `status.HTTP_422_UNPROCESSABLE_ENTITY`
+**Impact:** Asteroids deplete faster than expected when ships mine with nearly-full cargo.
 
-**Problem:** The test output shows a deprecation warning: `'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.`
-
-**Suggested fix:** Replace all occurrences of `HTTP_422_UNPROCESSABLE_ENTITY` with `HTTP_422_UNPROCESSABLE_CONTENT` or just the integer `422`.
-
----
-
-### M12. `_process_modules` deactivates module on insufficient cap but doesn't emit event
-
-**File:** `server/tick.py` lines 268-273
-
-**Problem:** When a module cannot drain capacitor (line 268-273), the module is deactivated silently. No event is emitted to inform the player that a specific module went offline due to insufficient capacitor. The `cap_depleted` event only fires when the entire capacitor pool hits zero (via `check_depletion`). A player might not know their scanner or mining laser went offline.
-
-**Suggested fix:** Emit a module-specific deactivation event, e.g., "Mining Laser #5 deactivated: insufficient capacitor."
+**Fix:** Change to `asteroid.ore_remaining -= ore_added` to preserve unextracted ore, or document this as intentional.
 
 ---
 
-### M13. Build orders start in `building` status, not `queued`
+### M-2: No wreck expiration
 
-**File:** `server/production.py` lines 117-122
+**File:** `server/tick.py` (destruction phase), `server/models.py`
 
-**Problem:** `start_build` sets the initial status to `BuildStatus.building` (line 118). The SPEC mentions "additional orders queue" and `BuildStatus.queued` exists as an enum value. But `start_build` always returns a `building` order. The `get_next_queued_order` function exists but is never called anywhere -- queued orders are never promoted to building status in the tick loop.
+SPEC_PHASES.md states wrecks should persist for 300 ticks and then despawn. The `CelestialObject` model has no `created_tick` or `expiration_tick` field, and the tick loop has no wreck cleanup logic.
 
-This means the queuing system is partially implemented but non-functional. If a second build is queued on the same factory (the route handler blocks this with a 409), the queued status would never be used.
+**Impact:** Wrecks accumulate indefinitely, cluttering the game world.
 
-**Suggested fix:** If queuing is desired, the route handler should create orders as `queued` when the factory is busy, and the tick loop should promote them to `building` when the factory becomes free. Alternatively, remove the queuing infrastructure if single-build-at-a-time is the intended behavior.
+**Fix:** Add a `created_tick` field to `CelestialObject`, set it when creating wrecks, and add a wreck cleanup phase to the tick loop.
 
 ---
 
-## Positive Observations
+### M-3: Lock break range is hardcoded at 250km regardless of scanner presence
 
-### P1. Clean separation of concerns
+**File:** `server/tick.py`, line 934
 
-The simulation logic (physics, energy, mining, production, scanning) is well-separated from the API layer. Functions in the simulation modules are pure or take explicit parameters, making them easy to test in isolation. The tick loop orchestrates them without tight coupling.
+Lock break distance is hardcoded to 250,000m (250km). If a ship has no scanner, this exceeds the spec's intent that unscanned ships should only interact at close range.
 
-### P2. Comprehensive spec-aligned constants
+**Impact:** Ships without scanners maintain locks at distances far beyond their detection capability.
 
-`SHIP_CLASSES`, `BUILD_COSTS`, `FACTORY_REQUIREMENTS`, `MODULE_PARAMS`, and `MODULE_FIXED_VOLUMES` in `models.py` faithfully reproduce all numbers from SPEC.md. The test suite verifies these against the spec tables.
+**Fix:** Calculate break distance based on the locking ship's scanner range (200km if fitted, 1km if not) multiplied by 1.25.
 
-### P3. Robust capacitor regen formula
+---
 
-The EVE-inspired capacitor regen curve in `energy.py` correctly implements the `sqrt(cap/max) * (1 - cap/max)` formula with proper edge case handling (zero max cap, empty cap, full cap, negative cap). Tests verify the peak is near 25% capacity.
+### M-4: Docking during combat not restricted
 
-### P4. Good auth/authorization patterns
+**File:** `server/routes/orders.py`
 
-Every protected endpoint uses `Depends(get_current_user)`, and ship ownership is verified consistently across all route handlers. Token generation uses `secrets.token_urlsafe(32)`.
+The spec implies docked ships are immune to damage and safe from targeting. There is no check preventing a ship from issuing a dock order while it has active locks on it. This allows instant combat evasion.
 
-### P5. LLM playability is well-supported
+**Impact:** A losing ship can dock into a friendly mothership to become immune to damage mid-combat.
 
-Every CLI command supports `--json` output. The `watch` command provides a streaming event interface suitable for background execution. The event system covers all important game states. The API is fully documented with docstrings.
+**Fix:** Prevent dock orders while the ship has active target locks (incoming or outgoing).
 
-### P6. Thorough unit test coverage for simulation logic
+---
 
-The test suite has excellent coverage of the physics behaviors, energy system, mining system, production system, and scanning system. Edge cases (zero-length vectors, depleted asteroids, insufficient capacitor) are well-covered.
+### M-5: `cap_was_depleted` variable declared but never set to True
 
-### P7. Correct MovementOrder dual-FK handling
+**File:** `server/tick.py`, line 253
 
-The `MovementOrder` model correctly specifies `foreign_keys` in `sa_relationship_kwargs` to disambiguate the two FKs to `spaceship` (`ship_id` and `target_ship_id`), as warned about in CLAUDE.md.
+In `_process_modules`, `cap_was_depleted` is initialized to `False` and used in a guard condition on line 280, but is never set to `True`. This is dead code.
 
-### P8. Token file security
+**Impact:** Cosmetic — the guard has no effect but misleads readers about intent.
 
-The client stores the auth token at `~/.spacegame_token` with `chmod 0o600`, which is appropriate file permission handling.
+**Fix:** Either remove the variable or set it to `True` after emitting the `cap_depleted` event.
 
-### P9. Resilient tick loop
+---
 
-The tick loop catches exceptions per-tick and logs them without crashing the server, and properly handles `asyncio.CancelledError` for clean shutdown.
+### M-6: `create_ship` route may trigger MissingGreenlet error
 
-### P10. Well-structured CLI with intuitive command hierarchy
+**File:** `server/routes/ships.py` (~line 228)
 
-The CLI uses Typer sub-apps (`ship`, `order`, `mine`, `module`) for logical grouping, with good help text and `--help` available on every command.
+The `create_ship` endpoint assigns `ship.modules = []` after `await session.refresh(ship)`. In async context, this can trigger a synchronous lazy-load resulting in `MissingGreenlet`. Tests pass because in-memory SQLite with `expire_on_commit=False` masks the issue. The test file (`test_api_ships.py` lines 88-102) explicitly documents this as a known bug.
+
+**Impact:** Creating new bare ships may crash in production.
+
+**Fix:** Use `selectinload(Spaceship.modules)` when querying the ship after creation.
+
+---
+
+### M-7: `resolve_target_position` treats `0.0` coordinates as falsy
+
+**File:** `server/physics.py`, lines 402-429
+
+The function uses `order_target_y or 0.0` which treats `0.0` as falsy. While the result happens to be correct (0.0 falls back to 0.0), the logic is fragile and semantically wrong.
+
+**Fix:** Replace with `order_target_y if order_target_y is not None else 0.0`.
+
+---
+
+### M-8: No rate limiting on auth endpoints
+
+**File:** `server/routes/auth.py`
+
+Register and login endpoints have no rate limiting. An attacker could brute-force passwords or create unlimited accounts.
+
+**Impact:** Low for a local game, but problematic in a shared server environment.
+
+---
+
+### M-9: Undock does not update ship position to match parent ship
+
+**File:** `server/routes/ships.py` (undock logic)
+
+When a ship undocks, its `docked_in_id` is cleared but its position may be stale from when it originally docked. If the parent ship moved, the undocking ship would appear at the wrong location.
+
+**Fix:** On undock, set the child ship's position to the parent ship's current position with a small offset.
+
+---
+
+### M-10: Ore transfer is a one-shot API call, not continuous
+
+**File:** `server/routes/resources.py`
+
+The SPEC says ore transfers at 100 ore per tick until source is empty or target is full. The route handler performs a single call to `tick_ore_transfer` (one tick's worth), and the tick loop never calls `tick_ore_transfer` at all. Players must call the endpoint repeatedly.
+
+**Fix:** Either implement continuous transfer in the tick loop or loop until complete in the endpoint.
+
+---
+
+### M-11: Movement order creation does not validate target existence
+
+**File:** `server/routes/orders.py`
+
+Creating movement orders (approach, orbit, keep-distance) does not verify that `target_ship_id` or `target_object_id` exists. If a player targets a non-existent entity, `resolve_target_position` falls through to `(0, 0, 0)` and the ship flies toward the origin silently.
+
+**Fix:** Add a DB lookup to verify the target entity exists. Return 404 if not found.
+
+---
+
+### M-12: Password hashing uses SHA-256 instead of a proper KDF
+
+**File:** `server/routes/auth.py`
+
+SHA-256 is too fast for password hashing, making brute-force attacks feasible. Industry standard is bcrypt, scrypt, or Argon2.
+
+**Impact:** Low severity for a game, but poor security practice.
+
+---
+
+### M-13: Research is per-user, but spec mentions team-based research
+
+**File:** `server/research.py`
+
+`ResearchProgress` is scoped to `user_id`. SPEC_PHASES.md Phase 7 mentions team-based matches where research should be team-scoped. No immediate impact but will require refactoring.
+
+---
+
+## Low
+
+### L-1: Duplicate vector math in `server/combat.py` and `server/physics.py`
+
+**File:** `server/combat.py` lines 18-45
+
+`combat.py` reimplements vector subtraction, dot product, magnitude, and cross product that already exist in `physics.py`. The implementations are functionally identical.
+
+**Fix:** Import and reuse the `physics.py` vector utilities.
+
+---
+
+### L-2: CLI commands only support ship targeting, not celestial object targeting
+
+**Files:** `client/cli.py` (approach, orbit, keep-distance commands)
+
+The `--target` option always sets `target_ship_id`. There is no way to target celestial objects by ID, forcing players to use manual `--point` coordinates instead.
+
+**Fix:** Add `--object` option or `--target-type ship|object` flag.
+
+---
+
+### L-3: Missing type hints on `session` parameters in route handlers
+
+**Files:** All files in `server/routes/`
+
+Route handler `session` parameters use `session=Depends(get_session)` without `AsyncSession` type annotation. This reduces IDE support and readability.
+
+---
+
+### L-4: `# noqa` comments on router imports in `server/main.py`
+
+**File:** `server/main.py`, lines 168-176
+
+Late imports with `# noqa: E402` suppress linting. A factory function or separate module would be cleaner.
+
+---
+
+### L-5: Client `display.py` has no error handling for malformed server responses
+
+**File:** `client/display.py`
+
+Display functions assume specific dict keys exist. Unexpected server responses will crash the CLI with `KeyError` instead of a graceful error.
+
+---
+
+### L-6: Event query parameter name mismatch in tests
+
+**File:** `tests/test_api_game.py`, line 82
+
+Test uses `?since=100` but the server endpoint expects `since_tick`. The parameter is silently ignored, so the test passes vacuously without actually testing the filter.
+
+---
+
+### L-7: `pyproject.toml` specifies `python >= 3.11` but `CLAUDE.md` says Python 3.13
+
+**File:** `pyproject.toml` line 8
+
+Inconsistency between the minimum Python version requirement and the documented development Python version.
+
+---
+
+### L-8: Module deactivation on insufficient cap emits no event
+
+**File:** `server/tick.py`, lines 268-273
+
+When a module cannot drain capacitor, it is deactivated silently. No event informs the player which module went offline. The `cap_depleted` event only fires when the entire capacitor pool hits zero.
+
+**Fix:** Emit a module-specific deactivation event.
+
+---
+
+### L-9: Build order queuing system is partially implemented
+
+**File:** `server/production.py`
+
+`BuildStatus.queued` exists and `get_next_queued_order` is implemented, but orders always start in `building` status and the tick loop never promotes queued orders. The queuing infrastructure is non-functional.
+
+**Fix:** Either implement full queuing or remove the unused infrastructure.
+
+---
+
+## Test Suite Assessment
+
+### Strengths
+- Good unit test coverage for core subsystems: physics, energy, mining, production, scanning, combat formulas
+- Integration tests cover auth, ship CRUD, module install/uninstall, combat API, and research gating
+- Test fixtures use in-memory SQLite databases with proper isolation per test
+- Tests verify spec values (ship stats, build costs, regen curves, resistance profiles)
+- Combat formula tests are thorough: transversal velocity, angular velocity, tracking, range factor, turret/missile damage, damage application, shield regen, lock time
+
+### Gaps
+- **No tick loop integration tests** — the most complex and error-prone code paths are never tested as an integrated tick. Both C-1 and C-2 live undetected in tick-related code.
+- **No combat tick loop tests** — turret fire, missile resolution, ship destruction, and lock advancement during ticks are untested
+- **No research tick tests** — `tick_research()` is untested, so C-2 is undetected
+- **Event parameter name mismatch in test** — `test_api_game.py` uses `?since=100` but the query parameter is `since_tick`
+- **No movement order API tests** — `POST /api/ships/{id}/orders` is not tested via the API
+- **No scan endpoint tests** — `POST /api/ships/{id}/scan` is untested via API
+- **No transfer endpoint tests** — `POST /api/ships/{id}/transfer` is untested via API
+- **No CLI tests** — no tests for Typer CLI commands at all
+- **No adversarial/concurrent tests** — no tests for race conditions, session state corruption, or exploit scenarios
+
+---
+
+## Architecture Notes
+
+### What Works Well
+1. **Clean separation of concerns:** Simulation logic (energy, mining, production, scanning, combat, research) is separate from routes and the tick loop
+2. **All CLI commands support `--json`** for LLM playability as required by spec
+3. **Tick loop resilience:** Per-tick exceptions are caught and logged without crashing the server
+4. **Auth is simple but functional:** Token-based auth with proper 401 handling, `secrets.token_urlsafe(32)` for token generation, `chmod 0o600` on token file
+5. **Test infrastructure is solid:** In-memory DB fixtures, dependency injection overrides, helper factories
+6. **Correct MovementOrder dual-FK handling** with explicit `foreign_keys` in `sa_relationship_kwargs`
+7. **Comprehensive spec-aligned constants** in `models.py` faithfully reproduce all SPEC numbers
+8. **Robust capacitor regen formula** correctly implements EVE-style curve with proper edge cases
+
+### Areas for Improvement
+1. **Tick loop is monolithic:** `tick.py` handles all phases in one large function; consider breaking each phase into a separate module
+2. **No database migrations being generated:** Alembic is configured but no migration files exist; relies on `create_all()` which won't handle schema evolution
+3. **Tick loop loads ALL ships/objects every tick** — won't scale beyond small games
+4. **No WebSocket/SSE for real-time updates** — the CLI `watch` command polls
+5. **No transaction isolation testing** — single-commit-per-tick approach could lead to partial state on failure

@@ -210,7 +210,7 @@ async def tick_research(session, ships_by_id: Dict[int, Spaceship], current_tick
                 module.active = False
                 session.add(Event(
                     tick=current_tick,
-                    type=EventType.research_paused,
+                    event_type=EventType.research_paused,
                     ship_id=ship.id,
                     user_id=ship.user_id,
                     message=f"Research paused ({get_tech_name(rp.tech_id)}): insufficient capacitor",
@@ -235,7 +235,7 @@ async def tick_research(session, ships_by_id: Dict[int, Spaceship], current_tick
 
             session.add(Event(
                 tick=current_tick,
-                type=EventType.research_complete,
+                event_type=EventType.research_complete,
                 ship_id=ship.id,
                 user_id=ship.user_id,
                 message=f"Research complete: {get_tech_name(rp.tech_id)}",

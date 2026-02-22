@@ -32,10 +32,12 @@ from server.models import (
     SHIELD_EXTENDER_TYPES,
     TURRET_TYPES,
     WEAPON_TYPES,
+    LockStatus,
     ModuleType,
     ShipClass,
     ShipModule,
     Spaceship,
+    TargetLock,
     User,
     ResearchProgress,
     create_default_ship,
@@ -419,6 +421,21 @@ async def install_module(
     """
     ship = await _get_owned_ship(ship_id, current_user, session, load_relations=True)
 
+    # Block module changes during combat (active target locks)
+    lock_result = await session.exec(
+        select(TargetLock).where(
+            (
+                (TargetLock.ship_id == ship.id) | (TargetLock.target_ship_id == ship.id)
+            ),
+            TargetLock.status.in_([LockStatus.locking.value, LockStatus.locked.value]),  # type: ignore[attr-defined]
+        )
+    )
+    if lock_result.first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Cannot modify modules while in combat (active target locks)",
+        )
+
     # Variable-size modules need an explicit volume
     VARIABLE_SIZE_MODULES = {
         ModuleType.engine,
@@ -471,11 +488,16 @@ async def install_module(
     if body.module_type == ModuleType.reactor:
         recalculate_max_capacitor(ship)
     if body.module_type.value in SHIELD_EXTENDER_TYPES:
+        old_max = ship.max_shield_hp
         recalculate_max_shield(ship)
-        ship.shield_hp = ship.max_shield_hp  # start full
+        # Add only the newly contributed HP (don't reset to full)
+        bonus = ship.max_shield_hp - old_max
+        ship.shield_hp = min(ship.shield_hp + bonus, ship.max_shield_hp)
     if body.module_type.value in ARMOR_PLATE_TYPES:
+        old_max = ship.max_armor_hp
         recalculate_max_armor(ship)
-        ship.armor_hp = ship.max_armor_hp  # start full
+        bonus = ship.max_armor_hp - old_max
+        ship.armor_hp = min(ship.armor_hp + bonus, ship.max_armor_hp)
 
     await session.commit()
     await session.refresh(module)
@@ -496,6 +518,21 @@ async def uninstall_module(
     max_capacitor; if current capacitor exceeds the new max it is clamped.
     """
     ship = await _get_owned_ship(ship_id, current_user, session, load_relations=True)
+
+    # Block module changes during combat (active target locks)
+    lock_result = await session.exec(
+        select(TargetLock).where(
+            (
+                (TargetLock.ship_id == ship.id) | (TargetLock.target_ship_id == ship.id)
+            ),
+            TargetLock.status.in_([LockStatus.locking.value, LockStatus.locked.value]),  # type: ignore[attr-defined]
+        )
+    )
+    if lock_result.first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Cannot modify modules while in combat (active target locks)",
+        )
 
     module = next((m for m in ship.modules if m.id == module_id), None)
     if module is None:

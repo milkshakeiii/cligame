@@ -472,7 +472,10 @@ class TestFinalHitChance:
 
 
 async def _setup_two_users(client: AsyncClient):
-    """Register two users and return their auth data with ship IDs."""
+    """Register two users and return their auth data with ship IDs.
+
+    Also installs a scanner on ship1 so it can lock targets at 200km range.
+    """
     auth1 = await register_user(client, "combat_user1")
     auth2 = await register_user(client, "combat_user2")
 
@@ -485,6 +488,13 @@ async def _setup_two_users(client: AsyncClient):
     )
     ship1_id = resp1.json()[0]["id"]
     ship2_id = resp2.json()[0]["id"]
+
+    # Install scanner on ship1 so it can lock targets at 200km range
+    await client.post(
+        f"/api/ships/{ship1_id}/modules",
+        json={"module_type": "scanner", "volume": 0},
+        headers={"Authorization": f"Bearer {auth1['token']}"},
+    )
 
     return auth1, auth2, ship1_id, ship2_id
 

@@ -11,6 +11,7 @@ POST   /api/ships/{id}/weapons/hold          — Deactivate all weapon modules
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,6 +25,7 @@ from server.database import get_session
 from server.models import (
     LockStatus,
     MAX_LOCKS,
+    ModuleType,
     SHIP_CLASSES,
     Spaceship,
     ShipModule,
@@ -118,6 +120,21 @@ async def lock_target(
     target = target_result.first()
     if target is None:
         raise HTTPException(status_code=404, detail="Target ship not found")
+
+    # Range check — scanner range (200km) if ship has scanner, else default visibility (1km)
+    has_scanner = any(
+        m.module_type == ModuleType.scanner for m in ship.modules
+    )
+    lock_range = 200_000.0 if has_scanner else 1_000.0  # meters
+    dx = ship.pos_x - target.pos_x
+    dy = ship.pos_y - target.pos_y
+    dz = ship.pos_z - target.pos_z
+    distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if distance > lock_range:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Target out of range: {distance/1000:.1f} km (max {lock_range/1000:.0f} km)",
+        )
 
     # Compute lock time
     consts = SHIP_CLASSES[ship.ship_class.value]
