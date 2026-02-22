@@ -1,0 +1,795 @@
+"""
+The game tick loop.
+
+Runs as an asyncio background task started by FastAPI's lifespan context.
+Each tick (default 1 real second) executes the following phases in order:
+
+  1. Increment GameState.current_tick
+  2. Energy phase   — capacitor regen for all ships
+  3. Module phase   — advance cycle timers, fire cycles, drain cap
+  4. Mining phase   — ore extraction for ships with active mining lasers
+  5. Production phase — advance build orders, spawn completed ships
+  6. Physics phase  — apply movement behaviors, integrate positions
+  7. Detection phase — passive detectors + scan-reveal alerts
+  8. Generate Event records for noteworthy occurrences
+  9. Commit once
+
+The loop is resilient: per-tick exceptions are caught, logged, and the loop
+continues rather than crashing the server.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import math
+from typing import Optional
+
+from sqlmodel import select
+from sqlalchemy.orm import selectinload
+
+from server.config import settings
+from server.database import async_session
+from server.models import (
+    BuildStatus,
+    CLASS_ORDER,
+    CelestialObject,
+    Event,
+    EventType,
+    GameState,
+    ModuleType,
+    MovementOrder,
+    OrderStatus,
+    OrderType,
+    Spaceship,
+    ShipModule,
+    BuildOrder,
+)
+from server.energy import apply_regen, check_depletion, drain_module
+from server.mining import tick_mining_laser, tick_ore_transfer
+from server.production import tick_build_order, FACTORY_CAP_PER_TICK, get_next_queued_order
+from server.physics import (
+    DT,
+    DOCK_TICKS,
+    Vec3,
+    behavior_approach,
+    behavior_dock,
+    behavior_keep_at_range,
+    behavior_orbit,
+    behavior_stop,
+    integrate,
+    resolve_target_position,
+)
+from server.scanning import (
+    tick_active_scanner,
+    tick_passive_detector,
+    get_ships_that_detect_scan,
+    DETAIL_CLASSIFICATION,
+)
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-memory state for detection deduplication (BUG-04)
+# ---------------------------------------------------------------------------
+
+# Maps module_id -> set of contact keys (type:id strings) seen on the previous
+# detector cycle.  Not persisted — resets on server restart, which is fine
+# because players only need "new contact" events going forward.
+_detection_previous_contacts: dict[int, set[str]] = {}
+
+# ---------------------------------------------------------------------------
+# In-memory state for mining out-of-range suppression (MISS-05)
+# ---------------------------------------------------------------------------
+
+# Maps ship_id -> set of module IDs that are currently in an "out of range"
+# state for the mining laser.  An event is only emitted on the *first* cycle
+# where no asteroid is found, not on every subsequent cycle.
+_mining_out_of_range: dict[int, set[int]] = {}
+
+# ---------------------------------------------------------------------------
+# Public control API (called from FastAPI lifespan)
+# ---------------------------------------------------------------------------
+
+_tick_task: Optional[asyncio.Task] = None
+
+
+async def start_tick_loop() -> None:
+    """Start the background tick loop task."""
+    global _tick_task
+    if _tick_task is None or _tick_task.done():
+        _tick_task = asyncio.create_task(_tick_loop())
+        logger.info("Tick loop started")
+
+
+async def stop_tick_loop() -> None:
+    """Cancel the background tick loop task and wait for it to finish."""
+    global _tick_task
+    if _tick_task is not None and not _tick_task.done():
+        _tick_task.cancel()
+        try:
+            await _tick_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Tick loop stopped")
+
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+
+
+async def _tick_loop() -> None:
+    """
+    Infinite loop that runs one game tick per ``settings.tick_interval`` seconds.
+    Errors within a single tick are caught and logged; the loop continues.
+    """
+    while True:
+        try:
+            await _run_tick()
+        except asyncio.CancelledError:
+            raise  # re-raise so the task ends cleanly
+        except Exception:
+            logger.exception("Unhandled error during tick — continuing")
+
+        await asyncio.sleep(settings.tick_interval)
+
+
+# ---------------------------------------------------------------------------
+# Single tick
+# ---------------------------------------------------------------------------
+
+
+async def _run_tick() -> None:
+    """Execute one complete game tick."""
+    async with async_session() as session:
+        # ------------------------------------------------------------------
+        # Load game state
+        # ------------------------------------------------------------------
+        gs_result = await session.exec(select(GameState))
+        game_state = gs_result.first()
+        if game_state is None:
+            # Server not fully initialised yet — skip
+            return
+
+        game_state.current_tick += 1
+        current_tick = game_state.current_tick
+
+        # ------------------------------------------------------------------
+        # Load all active ships with their modules, orders, build orders
+        # ------------------------------------------------------------------
+        ships_result = await session.exec(
+            select(Spaceship)
+            .options(
+                selectinload(Spaceship.modules),
+                selectinload(Spaceship.movement_orders),
+                selectinload(Spaceship.build_orders),
+            )
+        )
+        ships: list[Spaceship] = list(ships_result.all())
+
+        # Load all celestial objects
+        objects_result = await session.exec(select(CelestialObject))
+        celestial_objects: list[CelestialObject] = list(objects_result.all())
+
+        # Collect events to bulk-insert at the end
+        pending_events: list[Event] = []
+
+        def emit(
+            event_type: EventType,
+            message: str,
+            user_id: int,
+            ship_id: Optional[int] = None,
+        ) -> None:
+            pending_events.append(
+                Event(
+                    tick=current_tick,
+                    user_id=user_id,
+                    ship_id=ship_id,
+                    event_type=event_type,
+                    message=message,
+                )
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 1: Energy — capacitor regen
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked():
+                continue
+            apply_regen(ship)
+
+        # ------------------------------------------------------------------
+        # Phase 2: Module cycling
+        # ------------------------------------------------------------------
+        # fired_modules_by_ship maps ship.id -> set of module IDs that fired
+        fired_modules_by_ship: dict[int, set[int]] = {}
+        for ship in ships:
+            if ship.is_docked():
+                continue
+            fired_modules_by_ship[ship.id] = _process_modules(ship, current_tick, emit)
+
+        # ------------------------------------------------------------------
+        # Phase 3: Mining
+        # ------------------------------------------------------------------
+        _asteroid_map = {obj.id: obj for obj in celestial_objects}
+        for ship in ships:
+            if ship.is_docked():
+                continue
+            _process_mining(
+                ship,
+                _asteroid_map,
+                current_tick,
+                emit,
+                fired_modules_by_ship.get(ship.id, set()),
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 4: Production
+        # ------------------------------------------------------------------
+        new_ships: list[Spaceship] = []
+        for ship in ships:
+            if ship.is_docked():
+                continue
+            _process_production(ship, current_tick, emit, new_ships)
+
+        # Add newly spawned ships to the session
+        for new_ship in new_ships:
+            session.add(new_ship)
+
+        # ------------------------------------------------------------------
+        # Phase 5: Physics
+        # ------------------------------------------------------------------
+        _ship_map = {s.id: s for s in ships}
+        for ship in ships:
+            if ship.is_docked():
+                continue
+            _process_physics(ship, _ship_map, _asteroid_map, current_tick, emit, session)
+
+        # ------------------------------------------------------------------
+        # Phase 6: Detection
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked():
+                continue
+            _process_detection(
+                ship,
+                ships,
+                celestial_objects,
+                current_tick,
+                emit,
+                fired_modules_by_ship.get(ship.id, set()),
+            )
+
+        # ------------------------------------------------------------------
+        # Persist everything
+        # ------------------------------------------------------------------
+        for event in pending_events:
+            session.add(event)
+
+        await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Phase helpers
+# ---------------------------------------------------------------------------
+
+
+def _process_modules(
+    ship: Spaceship,
+    current_tick: int,
+    emit,
+) -> set[int]:
+    """
+    Advance cycle timers for all active non-passive modules.
+    Drain cap when a cycle fires.  Handle cap depletion.
+
+    Returns a set of module IDs whose cycles fired this tick.
+    """
+    fired_module_ids: set[int] = set()
+
+    for module in ship.modules:
+        if not module.active:
+            continue
+        if module.is_passive:
+            continue  # passive modules don't cycle
+
+        # Count down
+        module.ticks_until_cycle = max(0, module.ticks_until_cycle - 1)
+
+        if module.ticks_until_cycle > 0:
+            continue  # not yet time to cycle
+
+        # Cycle fires — drain cap
+        success = drain_module(ship, module)
+        if not success:
+            # Insufficient cap — don't fire the cycle; deactivate non-engine modules
+            if module.module_type != ModuleType.engine:
+                module.active = False
+                if ship.user_id is not None:
+                    emit(
+                        EventType.cap_depleted,
+                        f"{module.module_type.value.replace('_', ' ').title()} "
+                        f"deactivated: insufficient capacitor",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+            continue
+
+        # Reset cycle timer and record that this module fired
+        module.ticks_until_cycle = module.cycle_time
+        fired_module_ids.add(module.id)
+
+    # Check for cap depletion after module drain
+    depleted = check_depletion(ship)
+    if depleted and ship.user_id is not None:
+        emit(
+            EventType.cap_depleted,
+            "Capacitor depleted, all modules offline",
+            user_id=ship.user_id,
+            ship_id=ship.id,
+        )
+
+    return fired_module_ids
+
+
+def _find_nearest_asteroid(
+    ship: Spaceship,
+    asteroid_map: dict[int, CelestialObject],
+    laser_range: float,
+) -> Optional[CelestialObject]:
+    """Return the nearest non-depleted asteroid within laser_range, or None."""
+    from server.models import CelestialType
+
+    best: Optional[CelestialObject] = None
+    best_dist = float("inf")
+    for obj in asteroid_map.values():
+        if obj.object_type != CelestialType.asteroid:
+            continue
+        if obj.ore_remaining <= 0.0:
+            continue
+        dx = ship.pos_x - obj.pos_x
+        dy = ship.pos_y - obj.pos_y
+        dz = ship.pos_z - obj.pos_z
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if dist <= laser_range and dist < best_dist:
+            best = obj
+            best_dist = dist
+    return best
+
+
+def _process_mining(
+    ship: Spaceship,
+    asteroid_map: dict[int, CelestialObject],
+    current_tick: int,
+    emit,
+    fired_module_ids: set[int],
+) -> None:
+    """
+    Fire mining laser cycles for all active mining lasers that fired this tick.
+
+    ``fired_module_ids`` is the set of module IDs returned by ``_process_modules``
+    for this ship — it contains exactly the modules whose cycles completed this tick.
+    """
+    cargo_full_emitted = False
+
+    for module in ship.modules:
+        if module.module_type != ModuleType.mining_laser:
+            continue
+        if not module.active:
+            continue
+
+        # Only process lasers whose cycle fired this tick
+        if module.id not in fired_module_ids:
+            continue  # not a cycle-fire tick
+
+        asteroid = _find_nearest_asteroid(ship, asteroid_map, module.mining_range)
+        result = tick_mining_laser(ship, module, asteroid)
+
+        if result["no_asteroid"] or result["out_of_range"]:
+            # MISS-05: emit an event the first time the laser fires with nothing
+            # in range, then suppress repeats until a successful cycle resets it.
+            ship_oor_set = _mining_out_of_range.setdefault(ship.id, set())
+            if module.id not in ship_oor_set:
+                ship_oor_set.add(module.id)
+                if ship.user_id is not None:
+                    emit(
+                        EventType.mining,
+                        "Mining Laser: no asteroid within range",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+            continue
+
+        if result["asteroid_done"]:
+            module.active = False
+            if ship.user_id is not None:
+                target_id = asteroid.id if asteroid else "?"
+                emit(
+                    EventType.asteroid_depleted,
+                    f"Asteroid #{target_id} depleted",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+            continue
+
+        if result["ore_mined"] > 0 and ship.user_id is not None:
+            asteroid_id = asteroid.id if asteroid else "?"
+            emit(
+                EventType.mining,
+                f"Mined {result['ore_mined']:.0f} ore from asteroid #{asteroid_id}",
+                user_id=ship.user_id,
+                ship_id=ship.id,
+            )
+            # MISS-05: successful cycle clears the "out of range" flag so the
+            # next out-of-range period will emit a fresh event.
+            _mining_out_of_range.get(ship.id, set()).discard(module.id)
+
+        # Cargo-full check (emit once per tick per ship)
+        cargo_cap = ship.cargo_capacity()
+        if not cargo_full_emitted and cargo_cap > 0 and ship.ore >= cargo_cap:
+            cargo_full_emitted = True
+            if ship.user_id is not None:
+                emit(
+                    EventType.cargo_full,
+                    f"Cargo bay full ({ship.ore:.0f}/{cargo_cap:.0f} ore) — "
+                    f"asteroid ore preserved, stop mining to avoid wasting capacitor",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+
+
+def _process_production(
+    ship: Spaceship,
+    current_tick: int,
+    emit,
+    new_ships: list[Spaceship],
+) -> None:
+    """
+    Advance all active/paused build orders on this ship.
+    Spawn new ships when builds complete.
+
+    Queued orders are promoted to 'building' when their factory has no active
+    or paused order (i.e., the factory just became free or was never busy).
+    """
+    # Collect factory module IDs that have an active (building/paused) order
+    active_factory_ids: set[int] = {
+        o.factory_module_id
+        for o in ship.build_orders
+        if o.status in (BuildStatus.building, BuildStatus.paused)
+    }
+
+    # Promote the next queued order for each factory that is now free
+    for order in ship.build_orders:
+        if order.status != BuildStatus.queued:
+            continue
+        if order.factory_module_id in active_factory_ids:
+            continue  # factory is still busy
+        # Promote this queued order to building
+        order.status = BuildStatus.building
+        active_factory_ids.add(order.factory_module_id)
+
+    for order in ship.build_orders:
+        if order.status not in (BuildStatus.building, BuildStatus.paused):
+            continue
+
+        result = tick_build_order(ship, order)
+
+        if result["paused"] and ship.user_id is not None:
+            emit(
+                EventType.build_paused,
+                f"Construction of {order.blueprint.value} paused: capacitor depleted",
+                user_id=ship.user_id,
+                ship_id=ship.id,
+            )
+
+        if result["completed"] and ship.user_id is not None:
+            new_ship: Optional[Spaceship] = result["new_ship"]
+            if new_ship is not None:
+                new_ship.user_id = ship.user_id
+                new_ships.append(new_ship)
+                emit(
+                    EventType.build_complete,
+                    f"{order.blueprint.value.replace('_', ' ').title()} construction "
+                    f"complete, spawned nearby",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+
+
+def _process_physics(
+    ship: Spaceship,
+    ship_map: dict[int, Spaceship],
+    asteroid_map: dict[int, CelestialObject],
+    current_tick: int,
+    emit,
+    session,
+) -> None:
+    """
+    Process all active movement orders for a ship and integrate position/velocity.
+    """
+    position: Vec3 = (ship.pos_x, ship.pos_y, ship.pos_z)
+    velocity: Vec3 = (ship.vel_x, ship.vel_y, ship.vel_z)
+    max_speed = ship.max_speed()
+    accel_mag = ship.acceleration()
+
+    # Find the first active order
+    active_order: Optional[MovementOrder] = None
+    for order in ship.movement_orders:
+        if order.status == OrderStatus.active:
+            active_order = order
+            break
+
+    if active_order is None:
+        # BUG-02: ships with nonzero velocity still drift even without an order.
+        speed_sq = ship.vel_x ** 2 + ship.vel_y ** 2 + ship.vel_z ** 2
+        if speed_sq > 0.0:
+            ship.pos_x += ship.vel_x * DT
+            ship.pos_y += ship.vel_y * DT
+            ship.pos_z += ship.vel_z * DT
+        return
+
+    # Resolve target
+    target_ship = ship_map.get(active_order.target_ship_id) if active_order.target_ship_id else None
+    target_object = asteroid_map.get(active_order.target_object_id) if active_order.target_object_id else None
+
+    target_pos, target_vel = resolve_target_position(
+        order_target_ship=target_ship,
+        order_target_object=target_object,
+        order_target_x=active_order.target_x,
+        order_target_y=active_order.target_y,
+        order_target_z=active_order.target_z,
+    )
+
+    # Dispatch behavior
+    completed = False
+    accel_vec: Vec3 = (0.0, 0.0, 0.0)
+    dock_initiated = False
+
+    if active_order.order_type == OrderType.approach:
+        res = behavior_approach(
+            position=position,
+            velocity=velocity,
+            target_pos=target_pos,
+            target_vel=target_vel,
+            max_speed=max_speed,
+            acceleration_mag=accel_mag,
+        )
+        accel_vec = res.acceleration
+        completed = res.completed
+
+    elif active_order.order_type == OrderType.orbit:
+        res = behavior_orbit(
+            position=position,
+            velocity=velocity,
+            target_pos=target_pos,
+            target_vel=target_vel,
+            orbit_radius=active_order.orbit_radius,
+            max_speed=max_speed,
+            acceleration_mag=accel_mag,
+        )
+        accel_vec = res.acceleration
+
+    elif active_order.order_type == OrderType.keep_distance:
+        res = behavior_keep_at_range(
+            position=position,
+            velocity=velocity,
+            target_pos=target_pos,
+            target_vel=target_vel,
+            desired_range=active_order.desired_distance,
+            max_speed=max_speed,
+            acceleration_mag=accel_mag,
+        )
+        accel_vec = res.acceleration
+
+    elif active_order.order_type == OrderType.stop:
+        res = behavior_stop(
+            velocity=velocity,
+            acceleration_mag=accel_mag,
+        )
+        accel_vec = res.acceleration
+        if res.completed:
+            ship.vel_x = 0.0
+            ship.vel_y = 0.0
+            ship.vel_z = 0.0
+            completed = True
+
+    elif active_order.order_type == OrderType.dock:
+        res = behavior_dock(
+            position=position,
+            velocity=velocity,
+            target_pos=target_pos,
+            target_vel=target_vel,
+            max_speed=max_speed,
+            acceleration_mag=accel_mag,
+            docking_ticks_remaining=active_order.docking_ticks_remaining,
+        )
+        accel_vec = res.acceleration
+        dock_initiated = res.docking_initiated
+
+        # Manage docking countdown
+        if dock_initiated and active_order.docking_ticks_remaining == 0:
+            active_order.docking_ticks_remaining = DOCK_TICKS
+        elif active_order.docking_ticks_remaining > 0:
+            active_order.docking_ticks_remaining -= 1
+            if active_order.docking_ticks_remaining <= 0:
+                # Docking complete — re-validate class and capacity before docking
+                dock_valid = True
+                if target_ship is None:
+                    dock_valid = False
+                else:
+                    # C1: Class check
+                    ship_class_idx = CLASS_ORDER.index(ship.ship_class.value)
+                    target_class_idx = CLASS_ORDER.index(target_ship.ship_class.value)
+                    if ship_class_idx >= target_class_idx:
+                        dock_valid = False
+                        if ship.user_id is not None:
+                            emit(
+                                EventType.order_complete,
+                                (
+                                    f"Docking failed: ship class '{ship.ship_class.value}' "
+                                    f"must be smaller than target '{target_ship.ship_class.value}'"
+                                ),
+                                user_id=ship.user_id,
+                                ship_id=ship.id,
+                            )
+                    else:
+                        # C1: Capacity check — sum volumes of ships already docked
+                        used_capacity = sum(
+                            s.total_volume
+                            for s in ship_map.values()
+                            if s.docked_in_id == target_ship.id
+                        )
+                        remaining_capacity = target_ship.docking_capacity() - used_capacity
+                        if ship.total_volume > remaining_capacity:
+                            dock_valid = False
+                            if ship.user_id is not None:
+                                emit(
+                                    EventType.order_complete,
+                                    (
+                                        f"Docking failed: insufficient capacity in "
+                                        f"ship #{target_ship.id} "
+                                        f"(need {ship.total_volume} m³, "
+                                        f"available {remaining_capacity:.0f} m³)"
+                                    ),
+                                    user_id=ship.user_id,
+                                    ship_id=ship.id,
+                                )
+
+                if dock_valid and target_ship is not None and ship.user_id is not None:
+                    ship.docked_in_id = target_ship.id
+                    completed = True
+                    emit(
+                        EventType.dock_complete,
+                        f"Docked with ship #{target_ship.id} ({target_ship.name})",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+                elif not dock_valid:
+                    # MISS-06: emit a cancellation event for every case where
+                    # the simulation cancels a dock order.  The class/capacity
+                    # failure branches above already emit a specific reason; the
+                    # target-not-found branch (target_ship is None) does not, so
+                    # we cover it here with a generic message.
+                    if target_ship is None and ship.user_id is not None:
+                        emit(
+                            EventType.order_complete,
+                            "Docking cancelled: target ship no longer exists",
+                            user_id=ship.user_id,
+                            ship_id=ship.id,
+                        )
+                    # Cancel the order so it doesn't loop
+                    active_order.status = OrderStatus.cancelled
+
+    # Integrate position and velocity
+    new_pos, new_vel = integrate(
+        position=position,
+        velocity=velocity,
+        acceleration_vec=accel_vec,
+        max_speed=max_speed,
+        dt=DT,
+    )
+
+    # Write back (but not if docking just completed — ship is now "inside")
+    if not ship.is_docked():
+        ship.pos_x, ship.pos_y, ship.pos_z = new_pos
+        ship.vel_x, ship.vel_y, ship.vel_z = new_vel
+
+    # Mark order complete
+    if completed:
+        active_order.status = OrderStatus.completed
+        if ship.user_id is not None and active_order.order_type != OrderType.dock:
+            emit(
+                EventType.order_complete,
+                f"{active_order.order_type.value.replace('_', ' ').title()} order completed",
+                user_id=ship.user_id,
+                ship_id=ship.id,
+            )
+
+
+def _process_detection(
+    ship: Spaceship,
+    all_ships: list[Spaceship],
+    all_objects: list[CelestialObject],
+    current_tick: int,
+    emit,
+    fired_module_ids: set[int],
+) -> None:
+    """
+    Run passive detectors and active scanners for one tick.
+
+    ``fired_module_ids`` is the set of module IDs returned by ``_process_modules``
+    for this ship — only modules in this set had their cycles fire this tick.
+    """
+    for module in ship.modules:
+        if not module.active:
+            continue
+
+        # Passive detector — fires when its module ID is in fired_module_ids
+        if module.module_type == ModuleType.passive_detector:
+            if module.id not in fired_module_ids:
+                continue  # not a cycle-fire tick
+            result = tick_passive_detector(ship, module, all_ships, all_objects)
+
+            # BUG-04: build the set of contact keys seen this cycle, then only
+            # emit events for contacts that weren't present last cycle.
+            current_keys: set[str] = set()
+            for contact in result.new_contacts:
+                key = f"{contact['type']}:{contact['id']}"
+                current_keys.add(key)
+
+            previous_keys = _detection_previous_contacts.get(module.id, set())
+
+            for contact in result.new_contacts:
+                key = f"{contact['type']}:{contact['id']}"
+                if key in previous_keys:
+                    continue  # already reported — skip to suppress flood
+                if ship.user_id is not None:
+                    dist_km = contact["distance"] / 1000.0
+                    pos = (contact["pos_x"], contact["pos_y"], contact["pos_z"])
+                    msg = (
+                        f"Unknown contact detected at "
+                        f"({pos[0]:.0f}, {pos[1]:.0f}, {pos[2]:.0f}), "
+                        f"range {dist_km:.1f} km"
+                    )
+                    emit(
+                        EventType.detection,
+                        msg,
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+
+            # Update the previous-contacts registry for next cycle
+            _detection_previous_contacts[module.id] = current_keys
+
+        # Active scanner — fires when its module ID is in fired_module_ids
+        elif module.module_type == ModuleType.scanner:
+            if module.id not in fired_module_ids:
+                continue  # not a cycle-fire tick
+            scan_result = tick_active_scanner(ship, module, all_ships, all_objects)
+            contact_count = len(scan_result.contacts)
+            if ship.user_id is not None:
+                emit(
+                    EventType.scan_complete,
+                    f"Scan complete: {contact_count} contact(s) found",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+
+            # Notify ships with passive detectors that they were scanned
+            detecting_ships = get_ships_that_detect_scan(ship, all_ships)
+            for other_ship in detecting_ships:
+                if other_ship.user_id is not None:
+                    dist_km = math.sqrt(
+                        (ship.pos_x - other_ship.pos_x) ** 2
+                        + (ship.pos_y - other_ship.pos_y) ** 2
+                        + (ship.pos_z - other_ship.pos_z) ** 2
+                    ) / 1000.0
+                    emit(
+                        EventType.scan_detected,
+                        f"Scan detected from "
+                        f"({ship.pos_x:.0f}, {ship.pos_y:.0f}, {ship.pos_z:.0f}), "
+                        f"range {dist_km:.1f} km",
+                        user_id=other_ship.user_id,
+                        ship_id=other_ship.id,
+                    )
