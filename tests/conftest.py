@@ -82,6 +82,7 @@ def _build_test_app(test_session_factory) -> FastAPI:
     from server.routes.production import router as production_router
     from server.routes.resources import router as resources_router
     from server.routes.scanning import router as scanning_router
+    from server.routes.combat import router as combat_router
 
     async def override_get_session():
         async with test_session_factory() as session:
@@ -102,6 +103,7 @@ def _build_test_app(test_session_factory) -> FastAPI:
     test_app.include_router(production_router)
     test_app.include_router(resources_router)
     test_app.include_router(scanning_router)
+    test_app.include_router(combat_router)
 
     return test_app
 

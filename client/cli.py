@@ -33,11 +33,15 @@ ship_app = typer.Typer(help="Ship management commands.", no_args_is_help=True)
 order_app = typer.Typer(help="Movement order commands.", no_args_is_help=True)
 mine_app = typer.Typer(help="Mining laser commands.", no_args_is_help=True)
 module_app = typer.Typer(help="Module management commands.", no_args_is_help=True)
+target_app = typer.Typer(help="Target lock commands.", no_args_is_help=True)
+weapon_app = typer.Typer(help="Weapon commands.", no_args_is_help=True)
 
 app.add_typer(ship_app, name="ship")
 app.add_typer(order_app, name="order")
 app.add_typer(mine_app, name="mine")
 app.add_typer(module_app, name="module")
+app.add_typer(target_app, name="target")
+app.add_typer(weapon_app, name="weapon")
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +616,95 @@ def module_deactivate(
     client = _client()
     data = _handle(client.deactivate_module, ship_id, module_id)
     display.display_module(data, json, action="Module deactivated")
+
+
+# ---------------------------------------------------------------------------
+# Target lock commands
+# ---------------------------------------------------------------------------
+
+
+@target_app.command("lock")
+def target_lock(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    target: int = typer.Option(..., "--target", "-t", help="Target ship ID to lock."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Begin locking a target ship. Lock time depends on scan resolution and target signature."""
+    client = _client()
+    data = _handle(client.lock_target, ship_id, target)
+    display.display_lock(data, json)
+
+
+@target_app.command("unlock")
+def target_unlock(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    target: int = typer.Option(..., "--target", "-t", help="Target ship ID to unlock."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Release a target lock and remove associated weapon assignments."""
+    client = _client()
+    _handle(client.unlock_target, ship_id, target)
+    if json:
+        import json as _json
+        print(_json.dumps({"status": "unlocked", "target_ship_id": target}))
+    else:
+        display.print_success(f"Lock on Ship #{target} released.")
+
+
+@target_app.command("list")
+def target_list(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """List all active target locks on a ship."""
+    client = _client()
+    locks = _handle(client.list_locks, ship_id)
+    display.display_locks(locks, json)
+
+
+# ---------------------------------------------------------------------------
+# Weapon commands
+# ---------------------------------------------------------------------------
+
+
+@weapon_app.command("assign")
+def weapon_assign(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    module_id: int = typer.Argument(..., help="Weapon module ID to assign."),
+    target: int = typer.Option(..., "--target", "-t", help="Target ship ID (must be locked)."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Assign a weapon module to a locked target and activate it."""
+    client = _client()
+    data = _handle(client.assign_weapon, ship_id, module_id, target)
+    display.display_weapon_assign(data, json)
+
+
+@weapon_app.command("fire-all")
+def weapon_fire_all(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    target: int = typer.Option(..., "--target", "-t", help="Target ship ID (must be locked)."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Assign all weapon modules to a locked target and activate them."""
+    client = _client()
+    data = _handle(client.fire_all_weapons, ship_id, target)
+    display.display_weapon_assignments(data, json)
+
+
+@weapon_app.command("hold")
+def weapon_hold(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Deactivate all weapons and clear weapon assignments (cease fire)."""
+    client = _client()
+    _handle(client.hold_fire, ship_id)
+    if json:
+        import json as _json
+        print(_json.dumps({"status": "holding_fire"}))
+    else:
+        display.print_success("All weapons deactivated. Holding fire.")
 
 
 # ---------------------------------------------------------------------------

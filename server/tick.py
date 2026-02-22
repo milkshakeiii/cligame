@@ -5,12 +5,17 @@ Runs as an asyncio background task started by FastAPI's lifespan context.
 Each tick (default 1 real second) executes the following phases in order:
 
   1. Increment GameState.current_tick
-  2. Energy phase   — capacitor regen for all ships
-  3. Module phase   — advance cycle timers, fire cycles, drain cap
-  4. Mining phase   — ore extraction for ships with active mining lasers
+  2. Energy phase     — capacitor regen for all ships
+  3. Module phase     — advance cycle timers, fire cycles, drain cap
+  4. Mining phase     — ore extraction for ships with active mining lasers
   5. Production phase — advance build orders, spawn completed ships
-  6. Physics phase  — apply movement behaviors, integrate positions
-  7. Detection phase — passive detectors + scan-reveal alerts
+  6. Physics phase    — apply movement behaviors, integrate positions
+  6.5 Target lock phase — advance lock timers, complete/break locks
+  6.6 Weapon fire phase — turret tracking, hit/miss, damage application
+  6.7 Shield regen phase — passive shield regeneration
+  6.8 Missile phase    — resolve in-flight missiles (delayed damage)
+  6.9 Destruction phase — destroy ships at 0 armor, create wrecks
+  7. Detection phase  — passive detectors + scan-reveal alerts
   8. Generate Event records for noteworthy occurrences
   9. Commit once
 
@@ -32,18 +37,30 @@ from server.config import settings
 from server.database import async_session
 from server.models import (
     BuildStatus,
+    CelestialType,
     CLASS_ORDER,
     CelestialObject,
     Event,
     EventType,
     GameState,
+    LockStatus,
+    MAX_LOCKS,
     ModuleType,
     MovementOrder,
     OrderStatus,
     OrderType,
+    PendingMissile,
+    SHIP_CLASSES,
     Spaceship,
     ShipModule,
     BuildOrder,
+    TargetLock,
+    TURRET_TYPES,
+    MISSILE_TYPES,
+    WEAPON_TYPES,
+    SHIELD_BOOSTER_TYPES,
+    ARMOR_REPAIRER_TYPES,
+    WeaponAssignment,
 )
 from server.energy import apply_regen, check_depletion, drain_module
 from server.mining import tick_mining_laser, tick_ore_transfer
@@ -65,6 +82,14 @@ from server.scanning import (
     tick_passive_detector,
     get_ships_that_detect_scan,
     DETAIL_CLASSIFICATION,
+)
+from server.combat import (
+    apply_damage,
+    apply_shield_regen,
+    compute_final_hit_chance,
+    compute_lock_time,
+    compute_missile_damage,
+    compute_turret_damage,
 )
 
 logger = logging.getLogger(__name__)
@@ -160,10 +185,12 @@ async def _run_tick() -> None:
         # ------------------------------------------------------------------
         ships_result = await session.exec(
             select(Spaceship)
+            .where(Spaceship.is_destroyed == False)  # noqa: E712
             .options(
                 selectinload(Spaceship.modules),
                 selectinload(Spaceship.movement_orders),
                 selectinload(Spaceship.build_orders),
+                selectinload(Spaceship.target_locks),
             )
         )
         ships: list[Spaceship] = list(ships_result.all())
@@ -171,6 +198,13 @@ async def _run_tick() -> None:
         # Load all celestial objects
         objects_result = await session.exec(select(CelestialObject))
         celestial_objects: list[CelestialObject] = list(objects_result.all())
+
+        # Load weapon assignments and pending missiles for combat
+        wa_result = await session.exec(select(WeaponAssignment))
+        weapon_assignments: list[WeaponAssignment] = list(wa_result.all())
+
+        pm_result = await session.exec(select(PendingMissile))
+        pending_missiles: list[PendingMissile] = list(pm_result.all())
 
         # Collect events to bulk-insert at the end
         pending_events: list[Event] = []
@@ -247,7 +281,67 @@ async def _run_tick() -> None:
             _process_physics(ship, _ship_map, _asteroid_map, current_tick, emit, session)
 
         # ------------------------------------------------------------------
-        # Phase 6: Detection
+        # Phase 6.5: Target Lock Processing
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked() or ship.is_destroyed:
+                continue
+            _process_target_locks(ship, _ship_map, current_tick, emit)
+
+        # ------------------------------------------------------------------
+        # Phase 6.6: Weapon Fire
+        # ------------------------------------------------------------------
+        _module_map: dict[int, ShipModule] = {}
+        for ship in ships:
+            for m in ship.modules:
+                _module_map[m.id] = m
+
+        # Build weapon assignment lookup: module_id -> WeaponAssignment
+        _wa_by_module: dict[int, WeaponAssignment] = {
+            wa.module_id: wa for wa in weapon_assignments
+        }
+
+        for ship in ships:
+            if ship.is_docked() or ship.is_destroyed:
+                continue
+            _process_weapon_fire(
+                ship, _ship_map, _wa_by_module,
+                fired_modules_by_ship.get(ship.id, set()),
+                current_tick, emit, session, pending_missiles,
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 6.7: Shield Regen
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked() or ship.is_destroyed:
+                continue
+            apply_shield_regen(ship)
+
+        # ------------------------------------------------------------------
+        # Phase 6.7b: Shield Boosters + Armor Repairers
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked() or ship.is_destroyed:
+                continue
+            _process_repair_modules(
+                ship, fired_modules_by_ship.get(ship.id, set()),
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 6.8: Missile Resolution
+        # ------------------------------------------------------------------
+        _process_pending_missiles(
+            pending_missiles, _ship_map, current_tick, emit, session,
+        )
+
+        # ------------------------------------------------------------------
+        # Phase 6.9: Destruction
+        # ------------------------------------------------------------------
+        _process_destruction(ships, _ship_map, current_tick, emit, session)
+
+        # ------------------------------------------------------------------
+        # Phase 7: Detection
         # ------------------------------------------------------------------
         for ship in ships:
             if ship.is_docked():
@@ -793,3 +887,401 @@ def _process_detection(
                         user_id=other_ship.user_id,
                         ship_id=other_ship.id,
                     )
+
+
+# ---------------------------------------------------------------------------
+# Combat phase helpers
+# ---------------------------------------------------------------------------
+
+
+def _process_target_locks(
+    ship: Spaceship,
+    ship_map: dict[int, Spaceship],
+    current_tick: int,
+    emit,
+) -> None:
+    """Advance target lock timers, complete or break locks."""
+    for lock in ship.target_locks:
+        if lock.status == LockStatus.broken:
+            continue
+
+        target = ship_map.get(lock.target_ship_id)
+
+        # Break lock if target is gone, destroyed, or out of range
+        if target is None or target.is_destroyed:
+            lock.status = LockStatus.broken
+            if ship.user_id is not None:
+                emit(
+                    EventType.target_lost,
+                    f"Target lock lost: target destroyed or gone",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+            continue
+
+        # Check range: lock breaks at 250km (1.25x scanner range of 200km)
+        dx = target.pos_x - ship.pos_x
+        dy = target.pos_y - ship.pos_y
+        dz = target.pos_z - ship.pos_z
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if dist > 250_000:
+            lock.status = LockStatus.broken
+            if ship.user_id is not None:
+                emit(
+                    EventType.target_lost,
+                    f"Target lock lost on Ship #{target.id}: out of range ({dist/1000:.1f} km)",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+            continue
+
+        if lock.status == LockStatus.locking:
+            lock.ticks_remaining -= 1
+            if lock.ticks_remaining <= 0:
+                lock.status = LockStatus.locked
+                if ship.user_id is not None:
+                    emit(
+                        EventType.target_locked,
+                        f"Target lock acquired on Ship #{target.id} "
+                        f"({target.ship_class.value.replace('_', ' ')}, {dist/1000:.1f} km)",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+                # Notify the target they're being locked
+                if target.user_id is not None:
+                    emit(
+                        EventType.incoming_lock,
+                        f"Warning: locked by Ship #{ship.id} "
+                        f"({ship.ship_class.value.replace('_', ' ')})",
+                        user_id=target.user_id,
+                        ship_id=target.id,
+                    )
+
+
+def _process_weapon_fire(
+    ship: Spaceship,
+    ship_map: dict[int, Spaceship],
+    wa_by_module: dict[int, WeaponAssignment],
+    fired_module_ids: set[int],
+    current_tick: int,
+    emit,
+    session,
+    pending_missiles_list: list[PendingMissile],
+) -> None:
+    """
+    Fire weapons that cycled this tick.
+    Only fires if the weapon's assigned target has a completed lock.
+    """
+    # Build set of locked target IDs for this ship
+    locked_targets: set[int] = set()
+    for lock in ship.target_locks:
+        if lock.status == LockStatus.locked:
+            locked_targets.add(lock.target_ship_id)
+
+    for module in ship.modules:
+        mt = module.module_type.value
+        if mt not in WEAPON_TYPES:
+            continue
+        if not module.active:
+            continue
+        if module.id not in fired_module_ids:
+            continue
+
+        # Check weapon assignment
+        wa = wa_by_module.get(module.id)
+        if wa is None:
+            continue
+        if wa.target_ship_id not in locked_targets:
+            continue
+
+        target = ship_map.get(wa.target_ship_id)
+        if target is None or target.is_destroyed:
+            continue
+
+        attacker_pos = (ship.pos_x, ship.pos_y, ship.pos_z)
+        attacker_vel = (ship.vel_x, ship.vel_y, ship.vel_z)
+        target_pos = (target.pos_x, target.pos_y, target.pos_z)
+        target_vel = (target.vel_x, target.vel_y, target.vel_z)
+
+        # --- TURRETS ---
+        if mt in TURRET_TYPES:
+            hit_chance = compute_final_hit_chance(
+                attacker_pos, attacker_vel,
+                target_pos, target_vel,
+                module.tracking_speed,
+                module.sig_resolution,
+                target.effective_signature_radius(),
+                module.optimal_range,
+                module.falloff_range,
+            )
+
+            roll = random.random()
+            if roll > hit_chance:
+                # Miss
+                if ship.user_id is not None:
+                    emit(
+                        EventType.weapon_miss,
+                        f"{mt.replace('_', ' ').title()} missed Ship #{target.id} "
+                        f"(chance: {hit_chance*100:.0f}%)",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+                continue
+
+            # Hit — apply sig ratio damage reduction
+            applied = compute_turret_damage(
+                module.damage_per_cycle,
+                module.sig_resolution,
+                target.effective_signature_radius(),
+            )
+
+            dmg_result = apply_damage(target, applied, module.damage_type or "kinetic")
+
+            if ship.user_id is not None:
+                layer = "shield" if dmg_result["shield_damage"] > 0 else "armor"
+                emit(
+                    EventType.weapon_hit,
+                    f"{mt.replace('_', ' ').title()} hit Ship #{target.id} "
+                    f"for {dmg_result['total_applied']:.0f} {module.damage_type} damage ({layer})",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+
+            _emit_damage_events(target, dmg_result, ship.id, emit)
+
+        # --- MISSILES ---
+        elif mt in MISSILE_TYPES:
+            dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(attacker_pos, target_pos)))
+
+            # Check if target is in range and missile can reach
+            if dist > module.optimal_range:
+                if ship.user_id is not None:
+                    emit(
+                        EventType.weapon_miss,
+                        f"{mt.replace('_', ' ').title()}: target out of range "
+                        f"({dist/1000:.1f} km)",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+                continue
+
+            # Check if target is moving away faster than missile
+            direction = tuple((t - a) for a, t in zip(attacker_pos, target_pos))
+            dir_mag = max(1e-6, math.sqrt(sum(d * d for d in direction)))
+            dir_unit = tuple(d / dir_mag for d in direction)
+            relative_vel = tuple(tv - av for av, tv in zip(attacker_vel, target_vel))
+            radial_speed = sum(rv * du for rv, du in zip(relative_vel, dir_unit))
+
+            if radial_speed > module.missile_speed:
+                if ship.user_id is not None:
+                    emit(
+                        EventType.weapon_miss,
+                        f"{mt.replace('_', ' ').title()}: target outrunning missile",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+                continue
+
+            # Calculate flight time
+            flight_time = int(dist / max(1, module.missile_speed))
+            if flight_time > module.missile_flight_time:
+                if ship.user_id is not None:
+                    emit(
+                        EventType.weapon_miss,
+                        f"{mt.replace('_', ' ').title()}: target too far for missile flight time",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+                continue
+
+            # Create pending missile (delayed damage)
+            missile = PendingMissile(
+                source_ship_id=ship.id,
+                target_ship_id=target.id,
+                damage=module.damage_per_cycle,
+                damage_type=module.damage_type or "explosive",
+                explosion_radius=module.explosion_radius,
+                explosion_velocity=module.explosion_velocity,
+                ticks_remaining=max(1, flight_time),
+                source_user_id=ship.user_id or 0,
+            )
+            session.add(missile)
+            pending_missiles_list.append(missile)
+
+
+def _emit_damage_events(
+    target: Spaceship,
+    dmg_result: dict,
+    attacker_id: int,
+    emit,
+) -> None:
+    """Emit incoming_damage, shield_depleted, armor_critical events on the target."""
+    if target.user_id is None:
+        return
+
+    if dmg_result["total_applied"] > 0:
+        if dmg_result["shield_damage"] > 0:
+            layer_info = f"shield: {target.shield_hp:.0f}/{target.max_shield_hp:.0f}"
+        else:
+            layer_info = f"armor: {target.armor_hp:.0f}/{target.max_armor_hp:.0f}"
+        emit(
+            EventType.incoming_damage,
+            f"Hit by Ship #{attacker_id} for {dmg_result['total_applied']:.0f} damage "
+            f"({layer_info})",
+            user_id=target.user_id,
+            ship_id=target.id,
+        )
+
+    if dmg_result["shields_broken"]:
+        emit(
+            EventType.shield_depleted,
+            "Shields depleted! Armor taking damage.",
+            user_id=target.user_id,
+            ship_id=target.id,
+        )
+
+    if dmg_result["armor_critical"]:
+        emit(
+            EventType.armor_critical,
+            f"Armor critical: {target.armor_hp:.0f}/{target.max_armor_hp:.0f} HP remaining",
+            user_id=target.user_id,
+            ship_id=target.id,
+        )
+
+
+def _process_repair_modules(
+    ship: Spaceship,
+    fired_module_ids: set[int],
+) -> None:
+    """Apply shield booster and armor repairer effects for modules that cycled."""
+    for module in ship.modules:
+        if not module.active:
+            continue
+        if module.id not in fired_module_ids:
+            continue
+
+        mt = module.module_type.value
+
+        if mt in SHIELD_BOOSTER_TYPES:
+            ship.shield_hp = min(
+                ship.max_shield_hp,
+                ship.shield_hp + module.shield_repair_per_cycle,
+            )
+        elif mt in ARMOR_REPAIRER_TYPES:
+            ship.armor_hp = min(
+                ship.max_armor_hp,
+                ship.armor_hp + module.armor_repair_per_cycle,
+            )
+
+
+def _process_pending_missiles(
+    pending_missiles: list[PendingMissile],
+    ship_map: dict[int, Spaceship],
+    current_tick: int,
+    emit,
+    session,
+) -> None:
+    """Advance missile flight timers and apply damage on arrival."""
+    for missile in pending_missiles:
+        missile.ticks_remaining -= 1
+        if missile.ticks_remaining > 0:
+            continue
+
+        target = ship_map.get(missile.target_ship_id)
+        if target is None or target.is_destroyed:
+            # Target gone — missile wasted
+            await_delete = missile
+            session.delete(await_delete)
+            continue
+
+        # Apply missile damage with sig/speed reduction
+        applied = compute_missile_damage(
+            missile.damage,
+            missile.explosion_radius,
+            missile.explosion_velocity,
+            target.effective_signature_radius(),
+            target.speed(),
+        )
+
+        dmg_result = apply_damage(target, applied, missile.damage_type)
+
+        # Emit events for the attacker
+        source = ship_map.get(missile.source_ship_id)
+        if source and source.user_id is not None:
+            emit(
+                EventType.weapon_hit,
+                f"Missile hit Ship #{target.id} for {dmg_result['total_applied']:.0f} "
+                f"{missile.damage_type} damage",
+                user_id=source.user_id,
+                ship_id=source.id,
+            )
+
+        _emit_damage_events(target, dmg_result, missile.source_ship_id, emit)
+
+        session.delete(missile)
+
+
+def _process_destruction(
+    ships: list[Spaceship],
+    ship_map: dict[int, Spaceship],
+    current_tick: int,
+    emit,
+    session,
+) -> None:
+    """Handle ships whose armor has reached 0."""
+    for ship in ships:
+        if not ship.is_destroyed:
+            continue
+        if ship.armor_hp > 0:
+            continue  # Not actually destroyed (shouldn't happen, but safe)
+
+        # Emit destruction event to owner
+        if ship.user_id is not None:
+            emit(
+                EventType.you_destroyed,
+                f"Ship #{ship.id} ({ship.name}) destroyed! "
+                f"Wreck at ({ship.pos_x:.0f}, {ship.pos_y:.0f}, {ship.pos_z:.0f})",
+                user_id=ship.user_id,
+                ship_id=ship.id,
+            )
+
+        # Notify attackers (anyone with a lock on this ship)
+        for other in ships:
+            if other.id == ship.id:
+                continue
+            for lock in other.target_locks:
+                if lock.target_ship_id == ship.id and lock.status == LockStatus.locked:
+                    if other.user_id is not None:
+                        emit(
+                            EventType.ship_destroyed,
+                            f"Ship #{ship.id} ({ship.name}) destroyed!",
+                            user_id=other.user_id,
+                            ship_id=other.id,
+                        )
+                    lock.status = LockStatus.broken
+
+        # Eject docked ships
+        for other in ships:
+            if other.docked_in_id == ship.id:
+                other.docked_in_id = None
+                other.pos_x = ship.pos_x
+                other.pos_y = ship.pos_y
+                other.pos_z = ship.pos_z
+                other.vel_x = 0.0
+                other.vel_y = 0.0
+                other.vel_z = 0.0
+
+        # Create wreck with 25% of cargo
+        wreck = CelestialObject(
+            name=f"Wreck of {ship.name}",
+            object_type=CelestialType.wreck,
+            pos_x=ship.pos_x,
+            pos_y=ship.pos_y,
+            pos_z=ship.pos_z,
+            ore_remaining=ship.ore * 0.25,
+            ore_initial=ship.ore * 0.25,
+        )
+        session.add(wreck)
+
+        # Clean up weapon assignments targeting this ship
+        # (they'll be cleaned up naturally when the ship is filtered out next tick)

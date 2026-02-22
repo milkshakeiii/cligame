@@ -276,6 +276,50 @@ class SpaceGameClient:
         """GET /api/nearby?ship_id={ship_id}"""
         return self._request("GET", "/api/nearby", params={"ship_id": ship_id})
 
+    # ------------------------------------------------------------------
+    # Combat (Phase 4)
+    # ------------------------------------------------------------------
+
+    def lock_target(self, ship_id: int, target_ship_id: int) -> dict:
+        """POST /api/ships/{ship_id}/lock"""
+        return self._request(
+            "POST",
+            f"/api/ships/{ship_id}/lock",
+            json_body={"target_ship_id": target_ship_id},
+        )
+
+    def unlock_target(self, ship_id: int, target_id: int) -> None:
+        """DELETE /api/ships/{ship_id}/lock/{target_id}"""
+        self._request("DELETE", f"/api/ships/{ship_id}/lock/{target_id}")
+
+    def list_locks(self, ship_id: int) -> list:
+        """GET /api/ships/{ship_id}/locks"""
+        return self._request("GET", f"/api/ships/{ship_id}/locks")
+
+    def assign_weapon(self, ship_id: int, module_id: int, target_ship_id: int) -> dict:
+        """POST /api/ships/{ship_id}/weapons/{module_id}/assign"""
+        return self._request(
+            "POST",
+            f"/api/ships/{ship_id}/weapons/{module_id}/assign",
+            json_body={"target_ship_id": target_ship_id},
+        )
+
+    def fire_all_weapons(self, ship_id: int, target_ship_id: int) -> list:
+        """POST /api/ships/{ship_id}/weapons/fire-all"""
+        return self._request(
+            "POST",
+            f"/api/ships/{ship_id}/weapons/fire-all",
+            json_body={"target_ship_id": target_ship_id},
+        )
+
+    def hold_fire(self, ship_id: int) -> None:
+        """POST /api/ships/{ship_id}/weapons/hold"""
+        self._request("POST", f"/api/ships/{ship_id}/weapons/hold")
+
+    # ------------------------------------------------------------------
+    # Alerts
+    # ------------------------------------------------------------------
+
     def subscribe_alerts(
         self,
         ship_id: int,

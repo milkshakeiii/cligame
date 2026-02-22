@@ -59,6 +59,17 @@ def _cap_bar(cap: float, max_cap: float, width: int = 20) -> str:
     return f"|{bar}| {pct * 100:.0f}%"
 
 
+def _hp_bar(current: float, maximum: float, color: str = "green", width: int = 20) -> str:
+    """ASCII bar for shield/armor HP with color."""
+    if maximum <= 0:
+        pct = 0.0
+    else:
+        pct = max(0.0, min(1.0, current / maximum))
+    filled = round(pct * width)
+    bar = "#" * filled + "-" * (width - filled)
+    return f"[{color}]|{bar}|[/{color}] {pct * 100:.0f}%"
+
+
 def _detail_label(level: int) -> str:
     labels = {1: "Contact", 2: "Classification", 3: "Identification", 4: "Detailed"}
     return labels.get(level, f"Level {level}")
@@ -210,9 +221,21 @@ def display_ship_info(data: dict, json_mode: bool) -> None:
     # Header panel
     docked = data.get("docked_in_id")
     docked_str = f"  Docked in ship #{docked}\n" if docked else ""
+    # Combat stats
+    shield_hp = data.get("shield_hp", 0)
+    max_shield = data.get("max_shield_hp", 0)
+    armor_hp = data.get("armor_hp", 0)
+    max_armor = data.get("max_armor_hp", 0)
+    destroyed = data.get("is_destroyed", False)
+    scan_res = data.get("scan_resolution", 0)
+    eff_sig = data.get("effective_signature_radius", data.get("signature_radius", 0))
+
+    destroyed_str = "  [bold red]*** DESTROYED ***[/bold red]\n" if destroyed else ""
+
     header = (
         f"[bold]{data['name']}[/bold]  —  [cyan]{data['ship_class'].upper()}[/cyan]  "
         f"(ID #{data['id']})\n"
+        f"{destroyed_str}"
         f"{docked_str}"
         f"  Position   : ({data['pos_x']:.1f}, {data['pos_y']:.1f}, {data['pos_z']:.1f}) m\n"
         f"  Velocity   : ({data['vel_x']:.1f}, {data['vel_y']:.1f}, {data['vel_z']:.1f}) m/s"
@@ -222,8 +245,13 @@ def display_ship_info(data: dict, json_mode: bool) -> None:
         f"  Ore        : {data['ore']:.0f} / {data['cargo_capacity']:.0f} m³\n"
         f"  Capacitor  : {_cap_bar(data['capacitor'], data['max_capacitor'])}  "
         f"({data['capacitor']:.0f}/{data['max_capacitor']:.0f})\n"
+        f"  Shield     : {_hp_bar(shield_hp, max_shield, 'blue')}  "
+        f"({shield_hp:.0f}/{max_shield:.0f})\n"
+        f"  Armor      : {_hp_bar(armor_hp, max_armor, 'yellow')}  "
+        f"({armor_hp:.0f}/{max_armor:.0f})\n"
         f"  Volume     : {data['used_volume']} / {data['total_volume']} m³   "
-        f"Sig. Radius: {data['signature_radius']:.0f} m"
+        f"Sig. Radius: {eff_sig:.0f} m   "
+        f"Scan Res: {scan_res:.0f}"
     )
     console.print(Panel(header, title=f"Ship #{data['id']} Detail", border_style="cyan"))
 
@@ -274,6 +302,23 @@ def display_modules(modules: list, json_mode: bool, _title: str = "Modules") -> 
             details_parts.append(f"builds≤{m['factory_max_class']}")
         if m.get("module_type") == "mining_laser" and m.get("active"):
             details_parts.append("active - mines nearest asteroid within 500m range")
+        # Combat module details
+        if (m.get("damage_per_cycle") or 0) > 0:
+            details_parts.append(f"dmg={m['damage_per_cycle']:.0f} {m.get('damage_type', '?')}")
+        if (m.get("optimal_range") or 0) > 0:
+            details_parts.append(f"opt={_fmt_dist(m['optimal_range'])}")
+        if (m.get("falloff_range") or 0) > 0:
+            details_parts.append(f"fall={_fmt_dist(m['falloff_range'])}")
+        if (m.get("tracking_speed") or 0) > 0:
+            details_parts.append(f"track={m['tracking_speed']:.4f}")
+        if (m.get("shield_hp_bonus") or 0) > 0:
+            details_parts.append(f"+shield={m['shield_hp_bonus']:.0f}")
+        if (m.get("armor_hp_bonus") or 0) > 0:
+            details_parts.append(f"+armor={m['armor_hp_bonus']:.0f}")
+        if (m.get("shield_repair_per_cycle") or 0) > 0:
+            details_parts.append(f"shield rep={m['shield_repair_per_cycle']:.0f}/cycle")
+        if (m.get("armor_repair_per_cycle") or 0) > 0:
+            details_parts.append(f"armor rep={m['armor_repair_per_cycle']:.0f}/cycle")
 
         t.add_row(
             str(m["id"]),
@@ -566,6 +611,17 @@ EVENT_COLORS: dict[str, str] = {
     "dock_complete": "cyan",
     "cap_depleted": "bold red",
     "transfer_complete": "green",
+    # Combat events
+    "target_locked": "bold yellow",
+    "target_lost": "yellow",
+    "weapon_hit": "bold red",
+    "weapon_miss": "dim",
+    "missile_launched": "magenta",
+    "missile_hit": "bold red",
+    "shield_depleted": "bold yellow",
+    "ship_destroyed": "bold red",
+    "wreck_created": "dim red",
+    "kill": "bold green",
 }
 
 
@@ -597,6 +653,84 @@ def format_event_line(event: dict, json_mode: bool) -> str:
 
 def _print_event_line(event: dict) -> None:
     console.print(format_event_line(event, json_mode=False))
+
+
+# ---------------------------------------------------------------------------
+# Combat: target locks
+# ---------------------------------------------------------------------------
+
+
+def display_lock(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    status = data.get("status", "locking")
+    ticks = data.get("ticks_remaining", 0)
+    if status == "locked":
+        console.print(
+            f"[bold green]Lock acquired[/bold green] on Ship #{data['target_ship_id']}"
+        )
+    else:
+        console.print(
+            f"[yellow]Locking[/yellow] Ship #{data['target_ship_id']}  "
+            f"— {ticks} tick(s) remaining"
+        )
+
+
+def display_locks(locks: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(locks)
+        return
+
+    if not locks:
+        console.print("[dim]No active target locks.[/dim]")
+        return
+
+    t = Table(box=box.SIMPLE, title="Target Locks", show_lines=False)
+    t.add_column("Lock ID", style="dim", justify="right")
+    t.add_column("Target Ship", justify="right")
+    t.add_column("Status")
+    t.add_column("Ticks Left", justify="right")
+
+    for l in locks:
+        status = l.get("status", "?")
+        color = "green" if status == "locked" else "yellow"
+        t.add_row(
+            str(l["id"]),
+            f"#{l['target_ship_id']}",
+            f"[{color}]{status}[/{color}]",
+            str(l.get("ticks_remaining", 0)),
+        )
+
+    console.print(t)
+
+
+# ---------------------------------------------------------------------------
+# Combat: weapons
+# ---------------------------------------------------------------------------
+
+
+def display_weapon_assign(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    console.print(
+        f"[green]Weapon #{data['module_id']} assigned[/green] → Ship #{data['target_ship_id']}"
+    )
+
+
+def display_weapon_assignments(assignments: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(assignments)
+        return
+
+    if not assignments:
+        console.print("[dim]No weapon modules found on this ship.[/dim]")
+        return
+
+    console.print(f"[bold green]{len(assignments)} weapon(s) assigned and active:[/bold green]")
+    for a in assignments:
+        console.print(f"  Weapon #{a['module_id']} → Ship #{a['target_ship_id']}")
 
 
 # ---------------------------------------------------------------------------

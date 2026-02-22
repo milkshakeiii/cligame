@@ -172,6 +172,7 @@ from server.routes.orders import router as orders_router      # noqa: E402
 from server.routes.production import router as production_router  # noqa: E402
 from server.routes.resources import router as resources_router    # noqa: E402
 from server.routes.scanning import router as scanning_router  # noqa: E402
+from server.routes.combat import router as combat_router      # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(game_router)
@@ -180,3 +181,4 @@ app.include_router(orders_router)
 app.include_router(production_router)
 app.include_router(resources_router)
 app.include_router(scanning_router)
+app.include_router(combat_router)

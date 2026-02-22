@@ -28,6 +28,18 @@ class ShipClass(str, Enum):
     mothership = "mothership"
 
 
+class DamageType(str, Enum):
+    kinetic = "kinetic"
+    thermal = "thermal"
+    explosive = "explosive"
+
+
+class LockStatus(str, Enum):
+    locking = "locking"
+    locked = "locked"
+    broken = "broken"
+
+
 class ModuleType(str, Enum):
     engine = "engine"
     reactor = "reactor"
@@ -38,6 +50,49 @@ class ModuleType(str, Enum):
     mining_laser = "mining_laser"
     scanner = "scanner"
     passive_detector = "passive_detector"
+    # --- Phase 4: Turrets ---
+    small_turret_kinetic = "small_turret_kinetic"
+    small_turret_thermal = "small_turret_thermal"
+    medium_turret_kinetic = "medium_turret_kinetic"
+    medium_turret_thermal = "medium_turret_thermal"
+    large_turret_kinetic = "large_turret_kinetic"
+    large_turret_thermal = "large_turret_thermal"
+    # --- Phase 4: Missile launchers ---
+    light_missile_launcher = "light_missile_launcher"
+    heavy_missile_launcher = "heavy_missile_launcher"
+    torpedo_launcher = "torpedo_launcher"
+    # --- Phase 4: Shield modules ---
+    small_shield_extender = "small_shield_extender"
+    medium_shield_extender = "medium_shield_extender"
+    large_shield_extender = "large_shield_extender"
+    small_shield_hardener_kinetic = "small_shield_hardener_kinetic"
+    small_shield_hardener_thermal = "small_shield_hardener_thermal"
+    small_shield_hardener_explosive = "small_shield_hardener_explosive"
+    medium_shield_hardener_kinetic = "medium_shield_hardener_kinetic"
+    medium_shield_hardener_thermal = "medium_shield_hardener_thermal"
+    medium_shield_hardener_explosive = "medium_shield_hardener_explosive"
+    large_shield_hardener_kinetic = "large_shield_hardener_kinetic"
+    large_shield_hardener_thermal = "large_shield_hardener_thermal"
+    large_shield_hardener_explosive = "large_shield_hardener_explosive"
+    small_shield_booster = "small_shield_booster"
+    medium_shield_booster = "medium_shield_booster"
+    large_shield_booster = "large_shield_booster"
+    # --- Phase 4: Armor modules ---
+    small_armor_plate = "small_armor_plate"
+    medium_armor_plate = "medium_armor_plate"
+    large_armor_plate = "large_armor_plate"
+    small_armor_hardener_kinetic = "small_armor_hardener_kinetic"
+    small_armor_hardener_thermal = "small_armor_hardener_thermal"
+    small_armor_hardener_explosive = "small_armor_hardener_explosive"
+    medium_armor_hardener_kinetic = "medium_armor_hardener_kinetic"
+    medium_armor_hardener_thermal = "medium_armor_hardener_thermal"
+    medium_armor_hardener_explosive = "medium_armor_hardener_explosive"
+    large_armor_hardener_kinetic = "large_armor_hardener_kinetic"
+    large_armor_hardener_thermal = "large_armor_hardener_thermal"
+    large_armor_hardener_explosive = "large_armor_hardener_explosive"
+    small_armor_repairer = "small_armor_repairer"
+    medium_armor_repairer = "medium_armor_repairer"
+    large_armor_repairer = "large_armor_repairer"
 
 
 class OrderType(str, Enum):
@@ -66,6 +121,7 @@ class CelestialType(str, Enum):
     planet = "planet"
     station = "station"
     waypoint = "waypoint"
+    wreck = "wreck"
 
 
 class EventType(str, Enum):
@@ -81,6 +137,17 @@ class EventType(str, Enum):
     dock_complete = "dock_complete"
     cap_depleted = "cap_depleted"
     transfer_complete = "transfer_complete"
+    # --- Phase 4: Combat events ---
+    target_locked = "target_locked"
+    target_lost = "target_lost"
+    incoming_lock = "incoming_lock"
+    weapon_hit = "weapon_hit"
+    weapon_miss = "weapon_miss"
+    incoming_damage = "incoming_damage"
+    shield_depleted = "shield_depleted"
+    armor_critical = "armor_critical"
+    ship_destroyed = "ship_destroyed"
+    you_destroyed = "you_destroyed"
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +163,10 @@ SHIP_CLASSES: Dict[str, dict] = {
         "base_cap": 50,
         "base_speed": 400,
         "accel_time": 8,
+        "base_shield": 50,
+        "base_armor": 100,
+        "scan_resolution": 500,
+        "base_lock_time": 3,
     },
     "corvette": {
         "volume": 2_000,
@@ -103,6 +174,10 @@ SHIP_CLASSES: Dict[str, dict] = {
         "base_cap": 200,
         "base_speed": 250,
         "accel_time": 12,
+        "base_shield": 300,
+        "base_armor": 600,
+        "scan_resolution": 400,
+        "base_lock_time": 5,
     },
     "frigate": {
         "volume": 20_000,
@@ -110,6 +185,10 @@ SHIP_CLASSES: Dict[str, dict] = {
         "base_cap": 1_000,
         "base_speed": 150,
         "accel_time": 20,
+        "base_shield": 2_000,
+        "base_armor": 4_000,
+        "scan_resolution": 300,
+        "base_lock_time": 8,
     },
     "destroyer": {
         "volume": 80_000,
@@ -117,6 +196,10 @@ SHIP_CLASSES: Dict[str, dict] = {
         "base_cap": 3_000,
         "base_speed": 100,
         "accel_time": 30,
+        "base_shield": 8_000,
+        "base_armor": 16_000,
+        "scan_resolution": 250,
+        "base_lock_time": 12,
     },
     "cruiser": {
         "volume": 250_000,
@@ -124,6 +207,10 @@ SHIP_CLASSES: Dict[str, dict] = {
         "base_cap": 8_000,
         "base_speed": 60,
         "accel_time": 45,
+        "base_shield": 30_000,
+        "base_armor": 60_000,
+        "scan_resolution": 200,
+        "base_lock_time": 18,
     },
     "mothership": {
         "volume": 2_000_000,
@@ -131,7 +218,35 @@ SHIP_CLASSES: Dict[str, dict] = {
         "base_cap": 25_000,
         "base_speed": 30,
         "accel_time": 60,
+        "base_shield": 100_000,
+        "base_armor": 200_000,
+        "scan_resolution": 150,
+        "base_lock_time": 30,
     },
+}
+
+# Shield base resistance profiles (fraction, 0.0 to 1.0)
+SHIELD_BASE_RESISTS: Dict[str, float] = {
+    "kinetic": 0.20,
+    "thermal": 0.10,
+    "explosive": 0.30,
+}
+
+# Armor base resistance profiles
+ARMOR_BASE_RESISTS: Dict[str, float] = {
+    "kinetic": 0.30,
+    "thermal": 0.20,
+    "explosive": 0.10,
+}
+
+# Max target locks per ship class (2 + class_index)
+MAX_LOCKS: Dict[str, int] = {
+    "strike_craft": 2,
+    "corvette": 3,
+    "frigate": 4,
+    "destroyer": 5,
+    "cruiser": 6,
+    "mothership": 7,
 }
 
 # Minimum factory volume required to build each ship class (from SPEC.md)
@@ -202,6 +317,224 @@ DETECTION_REFERENCE_SIGNATURE: float = 300.0  # frigate's sig radius
 
 
 # ---------------------------------------------------------------------------
+# Phase 4: Combat module constants
+# ---------------------------------------------------------------------------
+
+# Turret parameters keyed by module_type value
+TURRET_PARAMS: Dict[str, dict] = {
+    "small_turret_kinetic": {
+        "volume": 50, "damage": 15, "damage_type": "kinetic",
+        "cycle_time": 5, "cap_per_cycle": 10,
+        "optimal_range": 5_000, "falloff": 3_000,
+        "tracking_speed": 0.08, "sig_resolution": 40,
+    },
+    "small_turret_thermal": {
+        "volume": 50, "damage": 15, "damage_type": "thermal",
+        "cycle_time": 5, "cap_per_cycle": 10,
+        "optimal_range": 5_000, "falloff": 3_000,
+        "tracking_speed": 0.08, "sig_resolution": 40,
+    },
+    "medium_turret_kinetic": {
+        "volume": 300, "damage": 80, "damage_type": "kinetic",
+        "cycle_time": 8, "cap_per_cycle": 40,
+        "optimal_range": 15_000, "falloff": 8_000,
+        "tracking_speed": 0.03, "sig_resolution": 200,
+    },
+    "medium_turret_thermal": {
+        "volume": 300, "damage": 80, "damage_type": "thermal",
+        "cycle_time": 8, "cap_per_cycle": 40,
+        "optimal_range": 15_000, "falloff": 8_000,
+        "tracking_speed": 0.03, "sig_resolution": 200,
+    },
+    "large_turret_kinetic": {
+        "volume": 2_000, "damage": 400, "damage_type": "kinetic",
+        "cycle_time": 12, "cap_per_cycle": 150,
+        "optimal_range": 40_000, "falloff": 20_000,
+        "tracking_speed": 0.008, "sig_resolution": 800,
+    },
+    "large_turret_thermal": {
+        "volume": 2_000, "damage": 400, "damage_type": "thermal",
+        "cycle_time": 12, "cap_per_cycle": 150,
+        "optimal_range": 40_000, "falloff": 20_000,
+        "tracking_speed": 0.008, "sig_resolution": 800,
+    },
+}
+
+# Missile launcher parameters keyed by module_type value
+MISSILE_PARAMS: Dict[str, dict] = {
+    "light_missile_launcher": {
+        "volume": 100, "damage": 25, "damage_type": "explosive",
+        "cycle_time": 10, "cap_per_cycle": 15,
+        "range": 20_000, "missile_speed": 500, "max_flight_time": 40,
+        "explosion_radius": 50, "explosion_velocity": 200,
+    },
+    "heavy_missile_launcher": {
+        "volume": 500, "damage": 120, "damage_type": "explosive",
+        "cycle_time": 15, "cap_per_cycle": 50,
+        "range": 35_000, "missile_speed": 300, "max_flight_time": 117,
+        "explosion_radius": 200, "explosion_velocity": 100,
+    },
+    "torpedo_launcher": {
+        "volume": 3_000, "damage": 600, "damage_type": "explosive",
+        "cycle_time": 20, "cap_per_cycle": 200,
+        "range": 50_000, "missile_speed": 150, "max_flight_time": 333,
+        "explosion_radius": 800, "explosion_velocity": 50,
+    },
+}
+
+# Defensive module parameters keyed by module_type value
+DEFENSIVE_MODULE_PARAMS: Dict[str, dict] = {
+    # Shield extenders (passive — increase max shield HP and sig radius)
+    "small_shield_extender": {
+        "volume": 50, "shield_bonus": 30, "sig_radius_bonus": 5,
+    },
+    "medium_shield_extender": {
+        "volume": 300, "shield_bonus": 200, "sig_radius_bonus": 30,
+    },
+    "large_shield_extender": {
+        "volume": 2_000, "shield_bonus": 1_500, "sig_radius_bonus": 100,
+    },
+    # Shield hardeners (active — increase resistance to specific damage type)
+    "small_shield_hardener_kinetic": {
+        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "kinetic",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 5,
+    },
+    "small_shield_hardener_thermal": {
+        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "thermal",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 5,
+    },
+    "small_shield_hardener_explosive": {
+        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "explosive",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 5,
+    },
+    "medium_shield_hardener_kinetic": {
+        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "kinetic",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 20,
+    },
+    "medium_shield_hardener_thermal": {
+        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "thermal",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 20,
+    },
+    "medium_shield_hardener_explosive": {
+        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "explosive",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 20,
+    },
+    "large_shield_hardener_kinetic": {
+        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "kinetic",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 60,
+    },
+    "large_shield_hardener_thermal": {
+        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "thermal",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 60,
+    },
+    "large_shield_hardener_explosive": {
+        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "explosive",
+        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 60,
+    },
+    # Shield boosters (active — repair shield HP)
+    "small_shield_booster": {
+        "volume": 50, "shield_repair": 20,
+        "cycle_time": 8, "cap_per_cycle": 20,
+    },
+    "medium_shield_booster": {
+        "volume": 300, "shield_repair": 100,
+        "cycle_time": 8, "cap_per_cycle": 80,
+    },
+    "large_shield_booster": {
+        "volume": 2_000, "shield_repair": 500,
+        "cycle_time": 8, "cap_per_cycle": 300,
+    },
+    # Armor plates (passive — increase max armor HP, reduce speed)
+    "small_armor_plate": {
+        "volume": 50, "armor_bonus": 50, "speed_penalty": 0.05,
+    },
+    "medium_armor_plate": {
+        "volume": 300, "armor_bonus": 400, "speed_penalty": 0.10,
+    },
+    "large_armor_plate": {
+        "volume": 2_000, "armor_bonus": 3_000, "speed_penalty": 0.15,
+    },
+    # Armor hardeners (active)
+    "small_armor_hardener_kinetic": {
+        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "kinetic",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 5,
+    },
+    "small_armor_hardener_thermal": {
+        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "thermal",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 5,
+    },
+    "small_armor_hardener_explosive": {
+        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "explosive",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 5,
+    },
+    "medium_armor_hardener_kinetic": {
+        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "kinetic",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 20,
+    },
+    "medium_armor_hardener_thermal": {
+        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "thermal",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 20,
+    },
+    "medium_armor_hardener_explosive": {
+        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "explosive",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 20,
+    },
+    "large_armor_hardener_kinetic": {
+        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "kinetic",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 60,
+    },
+    "large_armor_hardener_thermal": {
+        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "thermal",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 60,
+    },
+    "large_armor_hardener_explosive": {
+        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "explosive",
+        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 60,
+    },
+    # Armor repairers (active — repair armor HP)
+    "small_armor_repairer": {
+        "volume": 80, "armor_repair": 15,
+        "cycle_time": 10, "cap_per_cycle": 25,
+    },
+    "medium_armor_repairer": {
+        "volume": 500, "armor_repair": 80,
+        "cycle_time": 10, "cap_per_cycle": 100,
+    },
+    "large_armor_repairer": {
+        "volume": 3_000, "armor_repair": 400,
+        "cycle_time": 10, "cap_per_cycle": 400,
+    },
+}
+
+# Helper sets for module type classification
+TURRET_TYPES: set[str] = set(TURRET_PARAMS.keys())
+MISSILE_TYPES: set[str] = set(MISSILE_PARAMS.keys())
+WEAPON_TYPES: set[str] = TURRET_TYPES | MISSILE_TYPES
+SHIELD_EXTENDER_TYPES: set[str] = {
+    "small_shield_extender", "medium_shield_extender", "large_shield_extender",
+}
+SHIELD_HARDENER_TYPES: set[str] = {
+    k for k in DEFENSIVE_MODULE_PARAMS
+    if "shield_hardener" in k
+}
+SHIELD_BOOSTER_TYPES: set[str] = {
+    "small_shield_booster", "medium_shield_booster", "large_shield_booster",
+}
+ARMOR_PLATE_TYPES: set[str] = {
+    "small_armor_plate", "medium_armor_plate", "large_armor_plate",
+}
+ARMOR_HARDENER_TYPES: set[str] = {
+    k for k in DEFENSIVE_MODULE_PARAMS
+    if "armor_hardener" in k
+}
+ARMOR_REPAIRER_TYPES: set[str] = {
+    "small_armor_repairer", "medium_armor_repairer", "large_armor_repairer",
+}
+HARDENER_TYPES: set[str] = SHIELD_HARDENER_TYPES | ARMOR_HARDENER_TYPES
+DEFENSIVE_TYPES: set[str] = set(DEFENSIVE_MODULE_PARAMS.keys())
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
@@ -253,6 +586,14 @@ class Spaceship(SQLModel, table=True):
     capacitor: float = Field(default=0.0)
     max_capacitor: float = Field(default=0.0)
 
+    # Combat HP (Phase 4)
+    shield_hp: float = Field(default=0.0)
+    max_shield_hp: float = Field(default=0.0)
+    armor_hp: float = Field(default=0.0)
+    max_armor_hp: float = Field(default=0.0)
+    is_destroyed: bool = Field(default=False)
+    scan_resolution: float = Field(default=0.0)
+
     # Hull properties (denormalised from SHIP_CLASSES for query convenience)
     total_volume: int = Field(default=0)
     signature_radius: float = Field(default=0.0)
@@ -269,6 +610,10 @@ class Spaceship(SQLModel, table=True):
     )
     build_orders: List["BuildOrder"] = Relationship(back_populates="ship")
     events: List["Event"] = Relationship(back_populates="ship")
+    target_locks: List["TargetLock"] = Relationship(
+        back_populates="ship",
+        sa_relationship_kwargs={"foreign_keys": "TargetLock.ship_id"},
+    )
 
     # ------------------------------------------------------------------
     # Derived helpers (pure Python, no DB access needed)
@@ -320,6 +665,65 @@ class Spaceship(SQLModel, table=True):
     def speed(self) -> float:
         return math.sqrt(self.vel_x**2 + self.vel_y**2 + self.vel_z**2)
 
+    def armor_plate_speed_penalty(self) -> float:
+        """Sum of speed penalties from all armor plate modules."""
+        total = 0.0
+        for m in self.modules:
+            if m.module_type.value in ARMOR_PLATE_TYPES:
+                params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {})
+                total += params.get("speed_penalty", 0.0)
+        return min(total, 0.75)  # cap at 75% penalty (25% min speed)
+
+    def effective_max_speed(self) -> float:
+        """Max speed accounting for armor plate penalties."""
+        return self.max_speed() * (1.0 - self.armor_plate_speed_penalty())
+
+    def effective_acceleration(self) -> float:
+        """Acceleration based on effective max speed."""
+        consts = self.class_constants()
+        return self.effective_max_speed() / consts["accel_time"]
+
+    def effective_signature_radius(self) -> float:
+        """Signature radius including shield extender bonuses."""
+        extra = 0.0
+        for m in self.modules:
+            if m.module_type.value in SHIELD_EXTENDER_TYPES:
+                params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {})
+                extra += params.get("sig_radius_bonus", 0.0)
+        return self.signature_radius + extra
+
+    def compute_resistances(self, layer: str) -> Dict[str, float]:
+        """
+        Compute effective resistances for shield or armor layer,
+        including active hardeners with stacking penalties.
+        Returns {damage_type: resistance_fraction}.
+        """
+        base = dict(SHIELD_BASE_RESISTS if layer == "shield" else ARMOR_BASE_RESISTS)
+        # Collect active hardener bonuses per damage type
+        bonuses: Dict[str, list[float]] = {"kinetic": [], "thermal": [], "explosive": []}
+        for m in self.modules:
+            if not m.active:
+                continue
+            params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value)
+            if params is None:
+                continue
+            if params.get("layer") != layer:
+                continue
+            if "resistance_bonus" not in params:
+                continue
+            dmg_type = params["resistance_type"]
+            bonuses[dmg_type].append(params["resistance_bonus"])
+
+        # Apply stacking penalties: effective_bonus_n = base_bonus * 0.87^(n-1)
+        for dmg_type, bonus_list in bonuses.items():
+            bonus_list.sort(reverse=True)  # largest first
+            total_bonus = 0.0
+            for i, b in enumerate(bonus_list):
+                total_bonus += b * (0.87 ** i)
+            base[dmg_type] = min(0.95, base[dmg_type] + total_bonus)  # cap at 95%
+
+        return base
+
 
 class ShipModule(SQLModel, table=True):
     """An installed module on a ship."""
@@ -362,6 +766,25 @@ class ShipModule(SQLModel, table=True):
 
     # Factory
     factory_max_class: Optional[str] = Field(default=None)  # max buildable class
+
+    # --- Phase 4: Weapon fields ---
+    damage_per_cycle: float = Field(default=0.0)
+    damage_type: Optional[str] = Field(default=None)  # kinetic, thermal, explosive
+    optimal_range: float = Field(default=0.0)
+    falloff_range: float = Field(default=0.0)
+    tracking_speed: float = Field(default=0.0)  # rad/s for turrets
+    sig_resolution: float = Field(default=0.0)  # turret sig resolution
+    # Missile-specific
+    missile_speed: float = Field(default=0.0)
+    missile_flight_time: int = Field(default=0)
+    explosion_radius: float = Field(default=0.0)
+    explosion_velocity: float = Field(default=0.0)
+
+    # --- Phase 4: Defensive fields ---
+    shield_hp_bonus: float = Field(default=0.0)
+    armor_hp_bonus: float = Field(default=0.0)
+    shield_repair_per_cycle: float = Field(default=0.0)
+    armor_repair_per_cycle: float = Field(default=0.0)
 
     # Relationship
     ship: Optional[Spaceship] = Relationship(back_populates="modules")
@@ -483,6 +906,47 @@ class Event(SQLModel, table=True):
     ship: Optional[Spaceship] = Relationship(back_populates="events")
 
 
+class TargetLock(SQLModel, table=True):
+    """An active or pending target lock between two ships."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ship_id: int = Field(foreign_key="spaceship.id", index=True)
+    target_ship_id: int = Field(foreign_key="spaceship.id", index=True)
+    status: LockStatus = Field(default=LockStatus.locking)
+    ticks_remaining: int = Field(default=0)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    ship: Optional[Spaceship] = Relationship(
+        back_populates="target_locks",
+        sa_relationship_kwargs={"foreign_keys": "[TargetLock.ship_id]"},
+    )
+
+
+class WeaponAssignment(SQLModel, table=True):
+    """Maps a weapon module to a locked target."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    module_id: int = Field(foreign_key="shipmodule.id", index=True)
+    ship_id: int = Field(foreign_key="spaceship.id", index=True)
+    target_ship_id: int = Field(foreign_key="spaceship.id", index=True)
+
+
+class PendingMissile(SQLModel, table=True):
+    """A missile in flight (delayed damage)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    source_ship_id: int = Field(foreign_key="spaceship.id", index=True)
+    target_ship_id: int = Field(foreign_key="spaceship.id", index=True)
+    damage: float = Field(default=0.0)
+    damage_type: str = Field(default="explosive")
+    explosion_radius: float = Field(default=0.0)
+    explosion_velocity: float = Field(default=0.0)
+    ticks_remaining: int = Field(default=0)
+    source_user_id: int = Field(default=0)
+
+
 # ---------------------------------------------------------------------------
 # Factory helpers
 # ---------------------------------------------------------------------------
@@ -519,6 +983,11 @@ def create_default_ship(
         signature_radius=float(consts["signature"]),
         max_capacitor=float(consts["base_cap"]),
         capacitor=float(consts["base_cap"]),
+        shield_hp=float(consts["base_shield"]),
+        max_shield_hp=float(consts["base_shield"]),
+        armor_hp=float(consts["base_armor"]),
+        max_armor_hp=float(consts["base_armor"]),
+        scan_resolution=float(consts["scan_resolution"]),
         ore=0.0,
         user_id=user_id,
     )
@@ -539,17 +1008,95 @@ def recalculate_max_capacitor(ship: Spaceship) -> None:
     ship.max_capacitor = consts["base_cap"] + reactor_bonus
 
 
+def recalculate_max_shield(ship: Spaceship) -> None:
+    """Recompute ship.max_shield_hp from base hull value + shield extenders."""
+    consts = SHIP_CLASSES[ship.ship_class.value]
+    extender_bonus = sum(
+        DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {}).get("shield_bonus", 0.0)
+        for m in ship.modules
+        if m.module_type.value in SHIELD_EXTENDER_TYPES
+    )
+    ship.max_shield_hp = consts["base_shield"] + extender_bonus
+
+
+def recalculate_max_armor(ship: Spaceship) -> None:
+    """Recompute ship.max_armor_hp from base hull value + armor plates."""
+    consts = SHIP_CLASSES[ship.ship_class.value]
+    plate_bonus = sum(
+        DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {}).get("armor_bonus", 0.0)
+        for m in ship.modules
+        if m.module_type.value in ARMOR_PLATE_TYPES
+    )
+    ship.max_armor_hp = consts["base_armor"] + plate_bonus
+
+
 def make_module(module_type: ModuleType, volume: int) -> ShipModule:
     """
     Create a ShipModule with the correct cycle parameters filled in.
     For fixed-size modules the ``volume`` parameter is ignored and the
     spec value is used instead.
     """
-    fixed = MODULE_FIXED_VOLUMES.get(module_type.value)
+    mt_val = module_type.value
+
+    # --- Turrets ---
+    if mt_val in TURRET_PARAMS:
+        p = TURRET_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type,
+            volume=p["volume"],
+            active=False,
+            cycle_time=p["cycle_time"],
+            ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+            damage_per_cycle=float(p["damage"]),
+            damage_type=p["damage_type"],
+            optimal_range=float(p["optimal_range"]),
+            falloff_range=float(p["falloff"]),
+            tracking_speed=p["tracking_speed"],
+            sig_resolution=float(p["sig_resolution"]),
+        )
+
+    # --- Missile launchers ---
+    if mt_val in MISSILE_PARAMS:
+        p = MISSILE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type,
+            volume=p["volume"],
+            active=False,
+            cycle_time=p["cycle_time"],
+            ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+            damage_per_cycle=float(p["damage"]),
+            damage_type=p["damage_type"],
+            missile_speed=float(p["missile_speed"]),
+            missile_flight_time=p["max_flight_time"],
+            explosion_radius=float(p["explosion_radius"]),
+            explosion_velocity=float(p["explosion_velocity"]),
+            optimal_range=float(p["range"]),
+        )
+
+    # --- Defensive modules ---
+    if mt_val in DEFENSIVE_MODULE_PARAMS:
+        p = DEFENSIVE_MODULE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type,
+            volume=p["volume"],
+            active=False,
+            cycle_time=p.get("cycle_time", 0),
+            ticks_until_cycle=p.get("cycle_time", 0),
+            capacitor_per_cycle=p.get("cap_per_cycle", 0.0),
+            shield_hp_bonus=float(p.get("shield_bonus", 0)),
+            armor_hp_bonus=float(p.get("armor_bonus", 0)),
+            shield_repair_per_cycle=float(p.get("shield_repair", 0)),
+            armor_repair_per_cycle=float(p.get("armor_repair", 0)),
+        )
+
+    # --- Original module types ---
+    fixed = MODULE_FIXED_VOLUMES.get(mt_val)
     if fixed is not None:
         volume = fixed
 
-    params = MODULE_PARAMS.get(module_type.value, {})
+    params = MODULE_PARAMS.get(mt_val, {})
     module = ShipModule(
         module_type=module_type,
         volume=volume,
@@ -612,6 +1159,11 @@ def spawn_new_ship(
         signature_radius=float(consts["signature"]),
         max_capacitor=float(consts["base_cap"]),
         capacitor=float(consts["base_cap"]),
+        shield_hp=float(consts["base_shield"]),
+        max_shield_hp=float(consts["base_shield"]),
+        armor_hp=float(consts["base_armor"]),
+        max_armor_hp=float(consts["base_armor"]),
+        scan_resolution=float(consts["scan_resolution"]),
         ore=0.0,
         user_id=builder.user_id,
     )

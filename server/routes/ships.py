@@ -23,7 +23,15 @@ from sqlalchemy.orm import selectinload
 from server.auth import get_current_user
 from server.database import get_session
 from server.models import (
+    ARMOR_PLATE_TYPES,
+    ARMOR_REPAIRER_TYPES,
+    DEFENSIVE_TYPES,
+    MISSILE_TYPES,
     REFERENCE_ENGINE_FRACTION,
+    SHIELD_BOOSTER_TYPES,
+    SHIELD_EXTENDER_TYPES,
+    TURRET_TYPES,
+    WEAPON_TYPES,
     ModuleType,
     ShipClass,
     ShipModule,
@@ -32,6 +40,8 @@ from server.models import (
     create_default_ship,
     make_module,
     recalculate_max_capacitor,
+    recalculate_max_shield,
+    recalculate_max_armor,
 )
 from server.routes.common import get_owned_ship as _get_owned_ship_common
 
@@ -57,6 +67,22 @@ class ModuleOut(BaseModel):
     scan_range: Optional[float] = None
     detection_range: Optional[float] = None
     factory_max_class: Optional[str] = None
+    # Weapon fields
+    damage_per_cycle: Optional[float] = None
+    damage_type: Optional[str] = None
+    optimal_range: Optional[float] = None
+    falloff_range: Optional[float] = None
+    tracking_speed: Optional[float] = None
+    sig_resolution: Optional[float] = None
+    missile_speed: Optional[float] = None
+    missile_flight_time: Optional[int] = None
+    explosion_radius: Optional[float] = None
+    explosion_velocity: Optional[float] = None
+    # Defensive fields
+    shield_hp_bonus: Optional[float] = None
+    armor_hp_bonus: Optional[float] = None
+    shield_repair_per_cycle: Optional[float] = None
+    armor_repair_per_cycle: Optional[float] = None
 
 
 class OrderOut(BaseModel):
@@ -92,6 +118,14 @@ class ShipOut(BaseModel):
     cargo_capacity: float
     max_speed: float
     acceleration: float
+    # Combat stats
+    shield_hp: float
+    max_shield_hp: float
+    armor_hp: float
+    max_armor_hp: float
+    is_destroyed: bool
+    scan_resolution: float
+    effective_signature_radius: float
 
 
 class ShipDetailOut(ShipOut):
@@ -131,6 +165,7 @@ def _module_to_out(m: ShipModule) -> ModuleOut:
         capacitor_per_cycle=m.capacitor_per_cycle,
     )
     mt = m.module_type
+    mt_val = mt.value
     if mt == ModuleType.mining_laser:
         base.mining_yield = m.mining_yield
         base.mining_range = m.mining_range
@@ -140,7 +175,30 @@ def _module_to_out(m: ShipModule) -> ModuleOut:
         base.detection_range = m.detection_range
     elif mt == ModuleType.factory:
         base.factory_max_class = m.factory_max_class
-    # engine, reactor, cargo_bay, docking_bay, dropoff have no extra fields
+    elif mt_val in TURRET_TYPES:
+        base.damage_per_cycle = m.damage_per_cycle
+        base.damage_type = m.damage_type
+        base.optimal_range = m.optimal_range
+        base.falloff_range = m.falloff_range
+        base.tracking_speed = m.tracking_speed
+        base.sig_resolution = m.sig_resolution
+    elif mt_val in MISSILE_TYPES:
+        base.damage_per_cycle = m.damage_per_cycle
+        base.damage_type = m.damage_type
+        base.optimal_range = m.optimal_range
+        base.missile_speed = m.missile_speed
+        base.missile_flight_time = m.missile_flight_time
+        base.explosion_radius = m.explosion_radius
+        base.explosion_velocity = m.explosion_velocity
+    elif mt_val in SHIELD_EXTENDER_TYPES:
+        base.shield_hp_bonus = m.shield_hp_bonus
+    elif mt_val in SHIELD_BOOSTER_TYPES:
+        base.shield_repair_per_cycle = m.shield_repair_per_cycle
+    elif mt_val in ARMOR_PLATE_TYPES:
+        base.armor_hp_bonus = m.armor_hp_bonus
+    elif mt_val in ARMOR_REPAIRER_TYPES:
+        base.armor_repair_per_cycle = m.armor_repair_per_cycle
+    # hardener types have no extra fields beyond cycle/cap (already in base)
     return base
 
 
@@ -166,6 +224,13 @@ def _ship_to_out(ship: Spaceship) -> ShipOut:
         cargo_capacity=ship.cargo_capacity(),
         max_speed=ship.max_speed(),
         acceleration=ship.acceleration(),
+        shield_hp=ship.shield_hp,
+        max_shield_hp=ship.max_shield_hp,
+        armor_hp=ship.armor_hp,
+        max_armor_hp=ship.max_armor_hp,
+        is_destroyed=ship.is_destroyed,
+        scan_resolution=ship.scan_resolution,
+        effective_signature_radius=ship.effective_signature_radius(),
     )
 
 
@@ -366,10 +431,17 @@ async def install_module(
     session.add(module)
     await session.flush()  # gives module an id and registers it with the session
 
-    # Update max capacitor if a reactor was installed
+    ship.modules.append(module)
+
+    # Recalculate derived stats for relevant module types
     if body.module_type == ModuleType.reactor:
-        ship.modules.append(module)
         recalculate_max_capacitor(ship)
+    if body.module_type.value in SHIELD_EXTENDER_TYPES:
+        recalculate_max_shield(ship)
+        ship.shield_hp = ship.max_shield_hp  # start full
+    if body.module_type.value in ARMOR_PLATE_TYPES:
+        recalculate_max_armor(ship)
+        ship.armor_hp = ship.max_armor_hp  # start full
 
     await session.commit()
     await session.refresh(module)
@@ -401,10 +473,16 @@ async def uninstall_module(
     ship.modules.remove(module)
     await session.delete(module)
 
-    # Recalculate capacitor if a reactor was removed
+    # Recalculate derived stats
     if module.module_type == ModuleType.reactor:
         recalculate_max_capacitor(ship)
         ship.capacitor = min(ship.capacitor, ship.max_capacitor)
+    if module.module_type.value in SHIELD_EXTENDER_TYPES:
+        recalculate_max_shield(ship)
+        ship.shield_hp = min(ship.shield_hp, ship.max_shield_hp)
+    if module.module_type.value in ARMOR_PLATE_TYPES:
+        recalculate_max_armor(ship)
+        ship.armor_hp = min(ship.armor_hp, ship.max_armor_hp)
 
     await session.commit()
 
