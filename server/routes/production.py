@@ -20,11 +20,13 @@ from server.models import (
     BuildOrder,
     BuildStatus,
     ModuleType,
+    ResearchProgress,
     ShipClass,
     Spaceship,
     User,
 )
 from server.production import start_build
+from server.research import get_completed_tech_ids, get_tech_name, is_ship_unlocked
 from server.routes.common import get_owned_ship as _get_owned_ship_common
 
 router = APIRouter(prefix="/api/ships", tags=["production"])
@@ -111,6 +113,19 @@ async def queue_build(
     - Only one build order can be active per factory module at a time.
     """
     ship = await _get_owned_ship(ship_id, current_user, session)
+
+    # Research gating: check if this ship class is unlocked
+    research_result = await session.exec(
+        select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
+    )
+    completed_techs = get_completed_tech_ids(research_result.all())
+    if not is_ship_unlocked(body.blueprint.value, completed_techs):
+        from server.models import SHIP_REQUIRED_TECH
+        tech_id = SHIP_REQUIRED_TECH.get(body.blueprint.value, "?")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Research required: {get_tech_name(tech_id)} ({tech_id})",
+        )
 
     # Find the factory module
     factory_modules = [m for m in ship.modules if m.module_type == ModuleType.factory]

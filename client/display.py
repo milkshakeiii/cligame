@@ -611,6 +611,10 @@ EVENT_COLORS: dict[str, str] = {
     "dock_complete": "cyan",
     "cap_depleted": "bold red",
     "transfer_complete": "green",
+    # Research events
+    "research_started": "cyan",
+    "research_complete": "bold green",
+    "research_paused": "yellow",
     # Combat events
     "target_locked": "bold yellow",
     "target_lost": "yellow",
@@ -653,6 +657,107 @@ def format_event_line(event: dict, json_mode: bool) -> str:
 
 def _print_event_line(event: dict) -> None:
     console.print(format_event_line(event, json_mode=False))
+
+
+# ---------------------------------------------------------------------------
+# Research
+# ---------------------------------------------------------------------------
+
+
+def display_research_progress(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    pct = data.get("progress_pct", 0.0)
+    console.print(
+        Panel(
+            f"Tech       : [bold]{data.get('tech_name', data.get('tech_id'))}[/bold]\n"
+            f"Status     : [cyan]{data.get('status')}[/cyan]\n"
+            f"Progress   : {pct}%  ({data.get('ticks_remaining', 0)} ticks remaining)\n"
+            f"Ship       : #{data.get('ship_id')}  Module: #{data.get('module_id')}",
+            title=f"Research #{data.get('id', '?')}",
+            border_style="cyan",
+        )
+    )
+
+
+def display_research_list(items: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(items)
+        return
+
+    if not items:
+        console.print("[dim]No research in progress on this ship.[/dim]")
+        return
+
+    t = Table(box=box.SIMPLE, title="Research Progress", show_lines=False)
+    t.add_column("ID", style="dim", justify="right")
+    t.add_column("Tech", style="bold")
+    t.add_column("Status")
+    t.add_column("Progress")
+    t.add_column("Ticks Left", justify="right")
+
+    for r in items:
+        status = r.get("status", "?")
+        color = {"researching": "cyan", "paused": "yellow", "complete": "green"}.get(status, "white")
+        pct = r.get("progress_pct", 0.0)
+        t.add_row(
+            str(r.get("id", "?")),
+            r.get("tech_name", r.get("tech_id", "?")),
+            f"[{color}]{status}[/{color}]",
+            f"{pct:.0f}%",
+            str(r.get("ticks_remaining", 0)),
+        )
+
+    console.print(t)
+
+
+def display_tech_tree(nodes: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(nodes)
+        return
+
+    if not nodes:
+        console.print("[dim]No tech tree data.[/dim]")
+        return
+
+    t = Table(box=box.SIMPLE_HEAVY, title="Tech Tree", show_lines=True)
+    t.add_column("Tier", justify="center")
+    t.add_column("Tech ID", style="dim")
+    t.add_column("Name", style="bold")
+    t.add_column("Status")
+    t.add_column("Prerequisites")
+    t.add_column("Ore", justify="right")
+    t.add_column("Ticks", justify="right")
+    t.add_column("Unlocks")
+
+    for n in sorted(nodes, key=lambda x: (x.get("tier", 0), x.get("tech_id", ""))):
+        status = n.get("status", "?")
+        color_map = {
+            "complete": "green",
+            "researching": "cyan",
+            "available": "yellow",
+            "locked": "dim",
+        }
+        color = color_map.get(status, "white")
+        prereqs = ", ".join(n.get("prerequisites", [])) or "—"
+        unlocks_parts = n.get("unlocks_modules", []) + n.get("unlocks_ships", [])
+        unlocks = ", ".join(unlocks_parts[:3])
+        if len(unlocks_parts) > 3:
+            unlocks += f" +{len(unlocks_parts) - 3} more"
+
+        t.add_row(
+            str(n.get("tier", "?")),
+            n.get("tech_id", "?"),
+            n.get("name", "?"),
+            f"[{color}]{status}[/{color}]",
+            prereqs,
+            str(n.get("ore_cost", 0)),
+            str(n.get("research_ticks", 0)),
+            unlocks or "—",
+        )
+
+    console.print(t)
 
 
 # ---------------------------------------------------------------------------

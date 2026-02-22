@@ -320,6 +320,45 @@ class SpaceGameClient:
     # Alerts
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Research (Phase 5)
+    # ------------------------------------------------------------------
+
+    def start_research(
+        self,
+        ship_id: int,
+        tech_id: str,
+        module_id: Optional[int] = None,
+    ) -> dict:
+        """POST /api/ships/{ship_id}/research/start"""
+        body: dict = {"tech_id": tech_id}
+        if module_id is not None:
+            body["module_id"] = module_id
+        return self._request("POST", f"/api/ships/{ship_id}/research/start", json_body=body)
+
+    def cancel_research(
+        self,
+        ship_id: int,
+        module_id: Optional[int] = None,
+    ) -> None:
+        """POST /api/ships/{ship_id}/research/cancel"""
+        body: dict = {}
+        if module_id is not None:
+            body["module_id"] = module_id
+        self._request("POST", f"/api/ships/{ship_id}/research/cancel", json_body=body)
+
+    def research_status(self, ship_id: int) -> list:
+        """GET /api/ships/{ship_id}/research/status"""
+        return self._request("GET", f"/api/ships/{ship_id}/research/status")
+
+    def tech_tree(self) -> list:
+        """GET /api/research/tech-tree"""
+        return self._request("GET", "/api/research/tech-tree")
+
+    # ------------------------------------------------------------------
+    # Alerts
+    # ------------------------------------------------------------------
+
     def subscribe_alerts(
         self,
         ship_id: int,

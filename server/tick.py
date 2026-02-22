@@ -91,6 +91,7 @@ from server.combat import (
     compute_missile_damage,
     compute_turret_damage,
 )
+from server.research import tick_research
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,12 @@ async def _run_tick() -> None:
         # Add newly spawned ships to the session
         for new_ship in new_ships:
             session.add(new_ship)
+
+        # ------------------------------------------------------------------
+        # Phase 4b: Research
+        # ------------------------------------------------------------------
+        _ship_map_pre = {s.id: s for s in ships}
+        await tick_research(session, _ship_map_pre, current_tick)
 
         # ------------------------------------------------------------------
         # Phase 5: Physics

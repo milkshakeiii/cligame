@@ -93,6 +93,11 @@ class ModuleType(str, Enum):
     small_armor_repairer = "small_armor_repairer"
     medium_armor_repairer = "medium_armor_repairer"
     large_armor_repairer = "large_armor_repairer"
+    # --- Phase 5: Research & unlocked modules ---
+    research_module = "research_module"
+    strip_miner = "strip_miner"
+    enhanced_docking_bay = "enhanced_docking_bay"
+    fortress = "fortress"
 
 
 class OrderType(str, Enum):
@@ -148,6 +153,10 @@ class EventType(str, Enum):
     armor_critical = "armor_critical"
     ship_destroyed = "ship_destroyed"
     you_destroyed = "you_destroyed"
+    # --- Phase 5: Research events ---
+    research_started = "research_started"
+    research_complete = "research_complete"
+    research_paused = "research_paused"
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +276,144 @@ BUILD_COSTS: Dict[str, dict] = {
     "cruiser": {"ore": 200_000, "ticks": 18_000},
 }
 
+# ---------------------------------------------------------------------------
+# Phase 5: Research / Tech Tree
+# ---------------------------------------------------------------------------
+
+# Research tier costs
+RESEARCH_COSTS: Dict[int, dict] = {
+    1: {"ore": 500, "ticks": 300},
+    2: {"ore": 2_000, "ticks": 900},
+    3: {"ore": 8_000, "ticks": 1_800},
+    4: {"ore": 25_000, "ticks": 3_600},
+}
+
+# Tech tree: each node has an id, tier, prerequisites, and what it unlocks.
+# "unlocks_modules" lists module_type values, "unlocks_ships" lists ship class values.
+TECH_TREE: Dict[str, dict] = {
+    "1a_medium_weapons": {
+        "name": "Medium Weapons",
+        "tier": 1,
+        "prerequisites": [],
+        "unlocks_modules": [
+            "medium_turret_kinetic", "medium_turret_thermal",
+            "heavy_missile_launcher",
+        ],
+        "unlocks_ships": [],
+    },
+    "1b_medium_defenses": {
+        "name": "Medium Defenses",
+        "tier": 1,
+        "prerequisites": [],
+        "unlocks_modules": [
+            "medium_shield_extender",
+            "medium_shield_hardener_kinetic", "medium_shield_hardener_thermal",
+            "medium_shield_hardener_explosive", "medium_shield_booster",
+            "medium_armor_plate",
+            "medium_armor_hardener_kinetic", "medium_armor_hardener_thermal",
+            "medium_armor_hardener_explosive", "medium_armor_repairer",
+        ],
+        "unlocks_ships": [],
+    },
+    "1c_destroyer_hull": {
+        "name": "Destroyer Hull",
+        "tier": 1,
+        "prerequisites": [],
+        "unlocks_modules": [],
+        "unlocks_ships": ["destroyer"],
+    },
+    "2a_large_weapons": {
+        "name": "Large Weapons",
+        "tier": 2,
+        "prerequisites": ["1a_medium_weapons"],
+        "unlocks_modules": [
+            "large_turret_kinetic", "large_turret_thermal",
+            "torpedo_launcher",
+        ],
+        "unlocks_ships": [],
+    },
+    "2b_large_defenses": {
+        "name": "Large Defenses",
+        "tier": 2,
+        "prerequisites": ["1b_medium_defenses"],
+        "unlocks_modules": [
+            "large_shield_extender",
+            "large_shield_hardener_kinetic", "large_shield_hardener_thermal",
+            "large_shield_hardener_explosive", "large_shield_booster",
+            "large_armor_plate",
+            "large_armor_hardener_kinetic", "large_armor_hardener_thermal",
+            "large_armor_hardener_explosive", "large_armor_repairer",
+        ],
+        "unlocks_ships": [],
+    },
+    "2c_cruiser_hull": {
+        "name": "Cruiser Hull",
+        "tier": 2,
+        "prerequisites": ["1c_destroyer_hull"],
+        "unlocks_modules": [],
+        "unlocks_ships": ["cruiser"],
+    },
+    "2d_advanced_mining": {
+        "name": "Advanced Mining",
+        "tier": 2,
+        "prerequisites": [],
+        "unlocks_modules": ["strip_miner"],
+        "unlocks_ships": [],
+    },
+    "3a_advanced_weapons": {
+        "name": "Advanced Weapons",
+        "tier": 3,
+        "prerequisites": ["2a_large_weapons"],
+        "unlocks_modules": [],
+        "unlocks_ships": [],
+    },
+    "3b_advanced_defenses": {
+        "name": "Advanced Defenses",
+        "tier": 3,
+        "prerequisites": ["2b_large_defenses"],
+        "unlocks_modules": [],
+        "unlocks_ships": [],
+    },
+    "3c_capital_systems": {
+        "name": "Capital Systems",
+        "tier": 3,
+        "prerequisites": ["2c_cruiser_hull"],
+        "unlocks_modules": ["enhanced_docking_bay"],
+        "unlocks_ships": [],
+    },
+    "4a_superweapons": {
+        "name": "Superweapons",
+        "tier": 4,
+        "prerequisites": ["3a_advanced_weapons"],
+        "unlocks_modules": [],
+        "unlocks_ships": [],
+    },
+    "4b_fortress": {
+        "name": "Fortress",
+        "tier": 4,
+        "prerequisites": ["3b_advanced_defenses", "3c_capital_systems"],
+        "unlocks_modules": ["fortress"],
+        "unlocks_ships": [],
+    },
+}
+
+# Build a set of all modules/ships that require research (not available at start)
+RESEARCH_GATED_MODULES: set[str] = set()
+RESEARCH_GATED_SHIPS: set[str] = set()
+for _node in TECH_TREE.values():
+    RESEARCH_GATED_MODULES.update(_node["unlocks_modules"])
+    RESEARCH_GATED_SHIPS.update(_node["unlocks_ships"])
+
+# Reverse lookup: module_type -> tech_id required
+MODULE_REQUIRED_TECH: Dict[str, str] = {}
+SHIP_REQUIRED_TECH: Dict[str, str] = {}
+for _tech_id, _node in TECH_TREE.items():
+    for _mod in _node["unlocks_modules"]:
+        MODULE_REQUIRED_TECH[_mod] = _tech_id
+    for _ship in _node["unlocks_ships"]:
+        SHIP_REQUIRED_TECH[_ship] = _tech_id
+
+
 # Class ordering used for docking eligibility checks (smaller index = smaller class)
 CLASS_ORDER: list[str] = [
     "strike_craft",
@@ -286,6 +433,9 @@ MODULE_FIXED_VOLUMES: dict[str, int] = {
     "mining_laser": 200,
     "scanner": 500,
     "passive_detector": 100,
+    "research_module": 5_000,
+    "strip_miner": 1_000,
+    "fortress": 50_000,
 }
 
 # Module cycling parameters for non-passive modules
@@ -309,6 +459,20 @@ MODULE_PARAMS: Dict[str, dict] = {
         "cycle_time": 5,
         "cap_per_cycle": 5,
         "base_detection_range": 50_000,  # 50 km in meters
+    },
+    "research_module": {
+        "cycle_time": 1,
+        "cap_per_cycle": 50,
+    },
+    "strip_miner": {
+        "cycle_time": 15,
+        "cap_per_cycle": 150,
+        "mining_yield": 50,
+        "range": 1_000,
+    },
+    "fortress": {
+        "cycle_time": 1,
+        "cap_per_cycle": 500,
     },
 }
 
@@ -945,6 +1109,27 @@ class PendingMissile(SQLModel, table=True):
     explosion_velocity: float = Field(default=0.0)
     ticks_remaining: int = Field(default=0)
     source_user_id: int = Field(default=0)
+
+
+class ResearchProgress(SQLModel, table=True):
+    """
+    Tracks active and completed research per user.
+
+    Each row represents one research effort. Status is 'researching', 'paused',
+    'complete', or 'cancelled'. Since teams aren't implemented yet (Phase 7/8),
+    research is per-user: all ships owned by the same user benefit from
+    completed research.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    tech_id: str = Field(index=True)  # key into TECH_TREE
+    ship_id: int = Field(foreign_key="spaceship.id")  # ship doing the research
+    module_id: int = Field(default=0)  # research module used
+    status: str = Field(default="researching")  # researching, paused, complete, cancelled
+    ticks_remaining: int = Field(default=0)
+    total_ticks: int = Field(default=0)
+    ore_cost: int = Field(default=0)
 
 
 # ---------------------------------------------------------------------------

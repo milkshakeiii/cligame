@@ -35,6 +35,7 @@ mine_app = typer.Typer(help="Mining laser commands.", no_args_is_help=True)
 module_app = typer.Typer(help="Module management commands.", no_args_is_help=True)
 target_app = typer.Typer(help="Target lock commands.", no_args_is_help=True)
 weapon_app = typer.Typer(help="Weapon commands.", no_args_is_help=True)
+research_app = typer.Typer(help="Research / tech tree commands.", no_args_is_help=True)
 
 app.add_typer(ship_app, name="ship")
 app.add_typer(order_app, name="order")
@@ -42,6 +43,7 @@ app.add_typer(mine_app, name="mine")
 app.add_typer(module_app, name="module")
 app.add_typer(target_app, name="target")
 app.add_typer(weapon_app, name="weapon")
+app.add_typer(research_app, name="research")
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +707,65 @@ def weapon_hold(
         print(_json.dumps({"status": "holding_fire"}))
     else:
         display.print_success("All weapons deactivated. Holding fire.")
+
+
+# ---------------------------------------------------------------------------
+# Research commands
+# ---------------------------------------------------------------------------
+
+
+@research_app.command("start")
+def research_start(
+    ship_id: int = typer.Argument(..., help="Ship ID with a research module."),
+    tech_id: str = typer.Argument(..., help="Tech ID to research (e.g. '1a_medium_weapons')."),
+    module_id: Optional[int] = typer.Option(
+        None, "--module", "-m", help="Specific research module ID (optional)."
+    ),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Start researching a technology. Ore is consumed immediately."""
+    client = _client()
+    data = _handle(client.start_research, ship_id, tech_id, module_id)
+    display.display_research_progress(data, json)
+
+
+@research_app.command("cancel")
+def research_cancel(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    module_id: Optional[int] = typer.Option(
+        None, "--module", "-m", help="Cancel only research on this module."
+    ),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Cancel active research on a ship. Ore is not refunded."""
+    client = _client()
+    _handle(client.cancel_research, ship_id, module_id)
+    if json:
+        import json as _json
+        print(_json.dumps({"status": "cancelled"}))
+    else:
+        display.print_success("Research cancelled.")
+
+
+@research_app.command("status")
+def research_status_cmd(
+    ship_id: int = typer.Argument(..., help="Ship ID."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Show research progress on a ship."""
+    client = _client()
+    data = _handle(client.research_status, ship_id)
+    display.display_research_list(data, json)
+
+
+@research_app.command("tree")
+def research_tree(
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Show the full tech tree with research status."""
+    client = _client()
+    data = _handle(client.tech_tree)
+    display.display_tech_tree(data, json)
 
 
 # ---------------------------------------------------------------------------

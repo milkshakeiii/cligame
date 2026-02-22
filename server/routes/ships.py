@@ -37,11 +37,18 @@ from server.models import (
     ShipModule,
     Spaceship,
     User,
+    ResearchProgress,
     create_default_ship,
     make_module,
     recalculate_max_capacitor,
     recalculate_max_shield,
     recalculate_max_armor,
+)
+from server.research import (
+    get_completed_tech_ids,
+    get_tech_name,
+    is_module_unlocked,
+    is_ship_unlocked,
 )
 from server.routes.common import get_owned_ship as _get_owned_ship_common
 
@@ -287,6 +294,19 @@ async def create_ship(
     they have none) with a basic engine module (~30% of total volume) so it has
     a nonzero max_speed.
     """
+    # Research gating: check if this ship class is unlocked
+    research_result = await session.exec(
+        select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
+    )
+    completed_techs = get_completed_tech_ids(research_result.all())
+    if not is_ship_unlocked(body.ship_class.value, completed_techs):
+        from server.models import SHIP_REQUIRED_TECH
+        tech_id = SHIP_REQUIRED_TECH.get(body.ship_class.value, "?")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Research required: {get_tech_name(tech_id)} ({tech_id})",
+        )
+
     # BUG-05: Spawn near the player's first existing ship, not at (0,0,0)
     existing_result = await session.exec(
         select(Spaceship)
@@ -406,11 +426,25 @@ async def install_module(
         ModuleType.cargo_bay,
         ModuleType.docking_bay,
         ModuleType.factory,
+        ModuleType.enhanced_docking_bay,
     }
     if body.module_type in VARIABLE_SIZE_MODULES and body.volume <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"module_type '{body.module_type.value}' requires a positive volume",
+        )
+
+    # Research gating
+    research_result = await session.exec(
+        select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
+    )
+    completed_techs = get_completed_tech_ids(research_result.all())
+    if not is_module_unlocked(body.module_type.value, completed_techs):
+        from server.models import MODULE_REQUIRED_TECH
+        tech_id = MODULE_REQUIRED_TECH.get(body.module_type.value, "?")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Research required: {get_tech_name(tech_id)} ({tech_id})",
         )
 
     # Volume cap check
