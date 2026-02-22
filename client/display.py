@@ -264,11 +264,11 @@ def display_modules(modules: list, json_mode: bool, _title: str = "Modules") -> 
         cap_str = f"{cap:.0f}" if cap else "—"
 
         details_parts: list[str] = []
-        if m.get("mining_yield", 0) > 0:
-            details_parts.append(f"yield={m['mining_yield']:.0f} ore, range={m.get('mining_range', 0):.0f} m")
-        if m.get("scan_range", 0) > 0:
+        if (m.get("mining_yield") or 0) > 0:
+            details_parts.append(f"yield={m['mining_yield']:.0f} ore, range={m.get('mining_range') or 0:.0f} m")
+        if (m.get("scan_range") or 0) > 0:
             details_parts.append(f"scan={_fmt_dist(m['scan_range'])}")
-        if m.get("detection_range", 0) > 0:
+        if (m.get("detection_range") or 0) > 0:
             details_parts.append(f"detect={_fmt_dist(m['detection_range'])}")
         if m.get("factory_max_class"):
             details_parts.append(f"builds≤{m['factory_max_class']}")

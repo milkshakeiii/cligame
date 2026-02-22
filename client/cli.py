@@ -70,14 +70,16 @@ def _handle(fn, *args, **kwargs):
 @app.command()
 def register(
     username: str = typer.Argument(..., help="Username for the new account."),
+    password: Optional[str] = typer.Option(None, "--password", "-p", help="Password (prompted if omitted)."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """
     Register a new account and save the auth token to ~/.spacegame_token.
 
-    You will be prompted for a password.
+    You will be prompted for a password if --password is not provided.
     """
-    password: str = typer.prompt("Password", hide_input=True, confirmation_prompt=True)
+    if password is None:
+        password = typer.prompt("Password", hide_input=True, confirmation_prompt=True)
     client = SpaceGameClient()
     try:
         data = client.register(username, password=password)
@@ -92,14 +94,16 @@ def register(
 @app.command()
 def login(
     username: str = typer.Argument(..., help="Your username."),
+    password: Optional[str] = typer.Option(None, "--password", "-p", help="Password (prompted if omitted)."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """
     Login and save the auth token to ~/.spacegame_token.
 
-    You will be prompted for a password.
+    You will be prompted for a password if --password is not provided.
     """
-    password: str = typer.prompt("Password", hide_input=True)
+    if password is None:
+        password = typer.prompt("Password", hide_input=True)
     client = SpaceGameClient()
     try:
         data = client.login(username, password=password)
