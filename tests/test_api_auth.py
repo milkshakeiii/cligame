@@ -45,10 +45,10 @@ class TestRegister:
         assert resp.status_code == 200
         ships = resp.json()
         assert len(ships) >= 1
-        assert ships[0]["ship_class"] == "frigate"
+        assert ships[0]["ship_class"] == "mothership"
 
     async def test_register_starter_ship_has_correct_capacitor(self, client: AsyncClient):
-        """Starter frigate should have 11,000 max capacitor (base 1000 + 10000 reactor)."""
+        """Starter mothership should have 525,000 max capacitor (base 25,000 + 500,000 reactor)."""
         auth = await register_user(client, "diana")
         token = auth["token"]
         resp = await client.get(
@@ -57,7 +57,7 @@ class TestRegister:
         )
         ships = resp.json()
         starter = ships[0]
-        assert starter["max_capacitor"] == pytest.approx(11_000.0)
+        assert starter["max_capacitor"] == pytest.approx(525_000.0)
 
 
 # ---------------------------------------------------------------------------

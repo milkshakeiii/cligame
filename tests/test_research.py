@@ -219,7 +219,14 @@ class TestResearchAPI:
 
     async def test_start_research_no_research_module(self, client: AsyncClient):
         auth = await register_user(client, "research_user3")
-        ship_id = await _get_ship_id(client, auth["token"])
+        # Create a bare frigate (no research module) to test the error
+        resp = await client.post(
+            "/api/ships",
+            json={"name": "Bare Frigate", "ship_class": "frigate"},
+            headers={"Authorization": f"Bearer {auth['token']}"},
+        )
+        assert resp.status_code == 201
+        ship_id = resp.json()["id"]
 
         resp = await client.post(
             f"/api/ships/{ship_id}/research/start",

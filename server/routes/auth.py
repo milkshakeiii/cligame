@@ -2,7 +2,7 @@
 Auth routes.
 
 POST /api/auth/register — create a new user account and spawn the default
-                          frigate loadout as described in SPEC.md.
+                          mothership loadout.
 POST /api/auth/login    — retrieve token for an existing user.
 """
 
@@ -97,24 +97,37 @@ def _random_spawn_position(radius: float = 10_000.0) -> tuple[float, float, floa
     return x, y, z
 
 
-async def _spawn_starter_frigate(user_id: int, session: AsyncSession) -> Spaceship:
+async def _spawn_starter_mothership(user_id: int, session: AsyncSession) -> Spaceship:
     """
-    Create the default starter frigate per SPEC.md §Default Spawn Configuration:
+    Create the starter mothership — a fully equipped capital ship that lets
+    new players immediately access all game systems (mining, scanning,
+    combat, production, research).
 
-      Engines       6 000 m³
-      Reactors      2 000 m³
-      Cargo Bay     5 000 m³
-      Mining Laser  1 ×  200 m³
-      Passive Det.  1 ×  100 m³
-      Unallocated   6 700 m³  (total 20 000 m³ — frigate)
+      Engines          200 000 m³
+      Reactors         100 000 m³   (cap bonus: 500 000)
+      Cargo Bay        200 000 m³
+      Docking Bay      100 000 m³
+      Factory          300 000 m³   (can build up to cruiser)
+      Mining Lasers    4 ×     200 m³
+      Strip Miner      1 ×   1 000 m³
+      Scanner          1 ×     500 m³
+      Passive Det.     1 ×     100 m³
+      Research Module  1 ×   5 000 m³
+      Small Turrets    4 × (fixed)      (2 kinetic, 2 thermal)
+      Shield Ext.      1 × (fixed)
+      Armor Plate      1 × (fixed)
+      Shield Booster   1 × (fixed)
+      Armor Repairer   1 × (fixed)
+      Dropoff          1 ×     500 m³
 
-    Starting capacitor = 11 000 (base 1 000 + reactor bonus 10 000).
+    Starting capacitor = 525 000 (base 25 000 + reactor bonus 500 000).
+    Fixed-size modules use their spec volumes automatically.
     """
     pos_x, pos_y, pos_z = _random_spawn_position(10_000.0)
 
     ship = create_default_ship(
-        name="Starter Frigate",
-        ship_class=ShipClass.frigate,
+        name="Mothership",
+        ship_class=ShipClass.mothership,
         user_id=user_id,
         pos_x=pos_x,
         pos_y=pos_y,
@@ -123,13 +136,30 @@ async def _spawn_starter_frigate(user_id: int, session: AsyncSession) -> Spacesh
     session.add(ship)
     await session.flush()  # get ship.id
 
-    # Install default modules
+    # Install default modules — well-rounded loadout for all game systems
     modules = [
-        make_module(ModuleType.engine, 6_000),
-        make_module(ModuleType.reactor, 2_000),
-        make_module(ModuleType.cargo_bay, 5_000),
-        make_module(ModuleType.mining_laser, 200),   # fixed size, but explicit
+        make_module(ModuleType.engine, 200_000),
+        make_module(ModuleType.reactor, 100_000),
+        make_module(ModuleType.cargo_bay, 200_000),
+        make_module(ModuleType.docking_bay, 100_000),
+        make_module(ModuleType.factory, 300_000),
+        make_module(ModuleType.mining_laser, 200),
+        make_module(ModuleType.mining_laser, 200),
+        make_module(ModuleType.mining_laser, 200),
+        make_module(ModuleType.mining_laser, 200),
+        make_module(ModuleType.strip_miner, 1_000),
+        make_module(ModuleType.scanner, 500),
         make_module(ModuleType.passive_detector, 100),
+        make_module(ModuleType.research_module, 5_000),
+        make_module(ModuleType.small_turret_kinetic, 200),
+        make_module(ModuleType.small_turret_kinetic, 200),
+        make_module(ModuleType.small_turret_thermal, 200),
+        make_module(ModuleType.small_turret_thermal, 200),
+        make_module(ModuleType.small_shield_extender, 1_000),
+        make_module(ModuleType.small_armor_plate, 1_000),
+        make_module(ModuleType.small_shield_booster, 1_000),
+        make_module(ModuleType.small_armor_repairer, 1_000),
+        make_module(ModuleType.dropoff, 500),
     ]
     for mod in modules:
         mod.ship_id = ship.id
@@ -142,18 +172,19 @@ async def _spawn_starter_frigate(user_id: int, session: AsyncSession) -> Spacesh
     recalculate_max_capacitor(ship)
     ship.capacitor = ship.max_capacitor  # start fully charged
 
-    # Place a cluster of medium asteroids (5-8) within 5 km of spawn
-    num_asteroids = random.randint(5, 8)
+    # Place a rich asteroid field (10-15) within 10 km of spawn
+    num_asteroids = random.randint(10, 15)
     for i in range(num_asteroids):
-        ax, ay, az = _random_spawn_position(5_000.0)
+        ax, ay, az = _random_spawn_position(10_000.0)
+        ore_amount = random.uniform(5_000.0, 20_000.0)
         asteroid = CelestialObject(
             name=f"Asteroid {i + 1}",
             object_type=CelestialType.asteroid,
             pos_x=pos_x + ax,
             pos_y=pos_y + ay,
             pos_z=pos_z + az,
-            ore_remaining=2_000.0,
-            ore_initial=2_000.0,
+            ore_remaining=ore_amount,
+            ore_initial=ore_amount,
         )
         session.add(asteroid)
 
@@ -171,7 +202,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
     Create a new player account.
 
     - Generates a unique bearer token.
-    - Spawns the default starter frigate.
+    - Spawns the default starter mothership.
     - Returns the token the client must include in all future requests.
     """
     # Check username is not taken
@@ -188,7 +219,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
     session.add(user)
     await session.flush()  # get user.id
 
-    await _spawn_starter_frigate(user.id, session)
+    await _spawn_starter_mothership(user.id, session)
 
     await session.commit()
     await session.refresh(user)

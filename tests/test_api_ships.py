@@ -64,7 +64,7 @@ class TestListShips:
         auth = await register_user(client, "list_user1")
         ships = await get_ships(client, auth["token"])
         assert len(ships) == 1
-        assert ships[0]["ship_class"] == "frigate"
+        assert ships[0]["ship_class"] == "mothership"
 
     async def test_ships_belong_to_user(self, client: AsyncClient):
         """Each user only sees their own ships."""
@@ -73,8 +73,8 @@ class TestListShips:
 
         ships_user1 = await get_ships(client, auth1["token"])
         ships_user2 = await get_ships(client, auth2["token"])
-        assert len(ships_user1) == 1  # only the starter frigate
-        assert len(ships_user2) == 1  # only their own starter frigate
+        assert len(ships_user1) == 1  # only the starter mothership
+        assert len(ships_user2) == 1  # only their own starter mothership
 
         # Verify they have different IDs
         assert ships_user1[0]["id"] != ships_user2[0]["id"]
@@ -160,11 +160,9 @@ class TestGetShip:
             headers={"Authorization": f"Bearer {auth['token']}"},
         )
         data = resp.json()
-        assert data["max_capacitor"] == pytest.approx(11_000.0)
-        assert data["ship_class"] == "frigate"
-        assert data["total_volume"] == 20_000
-        # Starter modules: engine(6000) + reactor(2000) + cargo(5000) + mining(200) + detector(100) = 13300
-        assert data["used_volume"] == 13_300
+        assert data["max_capacitor"] == pytest.approx(525_000.0)
+        assert data["ship_class"] == "mothership"
+        assert data["total_volume"] == 2_000_000
 
     async def test_get_nonexistent_ship_404(self, client: AsyncClient):
         auth = await register_user(client, "getship_test2")
@@ -260,12 +258,12 @@ class TestInstallModule:
         assert new_max_cap == pytest.approx(initial_max_cap + 1_000 * 5.0)
 
     async def test_install_fails_when_exceeds_volume(self, client: AsyncClient):
-        """Starter frigate has 6700 m3 free; trying to install 10000 m3 should fail."""
+        """Trying to install a module larger than remaining free volume should fail."""
         auth = await register_user(client, "install_test4")
         ship_id = await get_starter_ship_id(client, auth["token"])
 
         resp = await install_module(
-            client, auth["token"], ship_id, "engine", volume=10_000
+            client, auth["token"], ship_id, "engine", volume=2_000_000
         )
         assert resp.status_code == 422
         assert "volume" in resp.json()["detail"].lower()

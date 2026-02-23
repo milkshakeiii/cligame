@@ -70,44 +70,144 @@ def _handle(fn, *args, **kwargs):
         raise typer.Exit(code=1)
 
 
-def _resolve_ship(client: SpaceGameClient, name_or_id: str) -> int:
-    """
-    Resolve a ship name or ID string to a numeric ship ID.
+def _normalize(s: str) -> str:
+    """Lowercase, strip whitespace, collapse spaces, remove underscores."""
+    import re
+    return re.sub(r"[\s_]+", "", s.strip().lower())
 
-    1. If it parses as an integer, return directly.
-    2. Otherwise, list the user's ships and match by name:
-       - Exact case-insensitive match first.
-       - Then substring match.
-    3. Error on 0 or ambiguous matches.
+
+def _name_match(items: list[dict], query: str, name_key: str = "name") -> list[dict]:
     """
+    Match items by name: exact (case-insensitive, ignoring spaces/underscores),
+    then substring.  Returns list of matches.
+    """
+    nq = _normalize(query)
+
+    # Exact match (normalized)
+    exact = [i for i in items if i.get(name_key) and _normalize(i[name_key]) == nq]
+    if exact:
+        return exact
+
+    # Substring match (normalized)
+    return [i for i in items if i.get(name_key) and nq in _normalize(i[name_key])]
+
+
+def _resolve_ship(client: SpaceGameClient, name: str) -> int:
+    """
+    Resolve a ship name to a numeric ship ID.
+    Matches by name (case-insensitive, spaces/underscores ignored).
+    """
+    ships = _handle(client.list_ships)
+    matches = _name_match(ships, name)
+
+    if len(matches) == 1:
+        return matches[0]["id"]
+    if len(matches) > 1:
+        names = ", ".join(f"{s['name']}" for s in matches)
+        display.print_error(f"Ambiguous ship name '{name}': {names}")
+        raise typer.Exit(code=1)
+
+    display.print_error(f"No ship found matching '{name}'.")
+    raise typer.Exit(code=1)
+
+
+def _resolve_object(client: SpaceGameClient, ship_id: int, name: str) -> int:
+    """
+    Resolve a celestial object name to a numeric object ID.
+    Tries nearby (passive detector) first, then scan (active scanner).
+    Objects are named like 'Asteroid 1' — accepts 'asteroid1', 'Asteroid 1', etc.
+    """
+    objects: list[dict] = []
+
+    # Try nearby first (passive, no scanner needed)
     try:
-        return int(name_or_id)
-    except ValueError:
+        nearby = client.nearby(ship_id)
+        objects.extend(
+            c for c in nearby if c.get("type") == "object"
+        )
+    except SpaceGameError:
         pass
 
-    ships = _handle(client.list_ships)
-    query = name_or_id.lower()
+    # Also try scan (active scanner, longer range)
+    if not objects:
+        try:
+            scan_data = client.scan(ship_id)
+            objects.extend(
+                c for c in scan_data.get("contacts", []) if c.get("type") == "object"
+            )
+        except SpaceGameError:
+            pass
 
-    # Exact match (case-insensitive)
-    exact = [s for s in ships if s["name"].lower() == query]
-    if len(exact) == 1:
-        return exact[0]["id"]
-    if len(exact) > 1:
-        names = ", ".join(f"#{s['id']} ({s['name']})" for s in exact)
-        display.print_error(f"Ambiguous ship name '{name_or_id}': {names}")
+    if not objects:
+        display.print_error(
+            f"No objects detected. Activate scanner or passive detector first."
+        )
         raise typer.Exit(code=1)
 
-    # Substring match
-    partial = [s for s in ships if query in s["name"].lower()]
-    if len(partial) == 1:
-        return partial[0]["id"]
-    if len(partial) > 1:
-        names = ", ".join(f"#{s['id']} ({s['name']})" for s in partial)
-        display.print_error(f"Ambiguous ship name '{name_or_id}': {names}")
+    # Build display names from object_type + id (e.g. "Asteroid 1")
+    for obj in objects:
+        if not obj.get("name"):
+            obj["name"] = f"{(obj.get('object_type') or 'Object').title()} {obj['id']}"
+
+    matches = _name_match(objects, name)
+
+    if len(matches) == 1:
+        return matches[0]["id"]
+    if len(matches) > 1:
+        names = ", ".join(f"{o['name']}" for o in matches)
+        display.print_error(f"Ambiguous object name '{name}': {names}")
         raise typer.Exit(code=1)
 
-    display.print_error(f"No ship found matching '{name_or_id}'.")
+    display.print_error(f"No object found matching '{name}'. Run 'scan' to see nearby objects.")
     raise typer.Exit(code=1)
+
+
+def _resolve_module(client: SpaceGameClient, ship_id: int, name: str) -> int:
+    """
+    Resolve a module type name to a numeric module ID.
+
+    Accepts:
+      - Type name: 'scanner', 'mining_laser', 'factory'
+      - Indexed type: 'mining_laser2' → second mining laser
+      - Type with spaces: 'mining laser' → same as 'mining_laser'
+
+    When multiple modules of the same type exist and no index is given,
+    uses the first one.
+    """
+    import re
+
+    modules = _handle(client.list_modules, ship_id)
+
+    # Parse optional trailing index: "mining_laser2" → ("mining_laser", 2)
+    m = re.match(r"^(.+?)(\d+)$", _normalize(name))
+    if m:
+        type_query = m.group(1)
+        index = int(m.group(2))
+    else:
+        type_query = _normalize(name)
+        index = 1  # default to first
+
+    # Match by module_type (normalized)
+    typed = [mod for mod in modules if _normalize(mod["module_type"]) == type_query]
+
+    if not typed:
+        # Try substring match on module_type
+        typed = [mod for mod in modules if type_query in _normalize(mod["module_type"])]
+
+    if not typed:
+        available = sorted(set(mod["module_type"] for mod in modules))
+        display.print_error(
+            f"No module matching '{name}'. Available types: {', '.join(available)}"
+        )
+        raise typer.Exit(code=1)
+
+    if index < 1 or index > len(typed):
+        display.print_error(
+            f"Module index {index} out of range. Ship has {len(typed)} '{typed[0]['module_type']}' module(s)."
+        )
+        raise typer.Exit(code=1)
+
+    return typed[index - 1]["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -285,9 +385,9 @@ def order_approach(
         None, "--target", "-t",
         help="Target ship ID or name. Mutually exclusive with --object and --point.",
     ),
-    obj: Optional[int] = typer.Option(
+    obj: Optional[str] = typer.Option(
         None, "--object", "-o",
-        help="Target celestial object ID, e.g. asteroid or station (sets target_object_id). Mutually exclusive with --target and --point.",
+        help="Target object name, e.g. 'asteroid1'. Mutually exclusive with --target and --point.",
     ),
     point: Optional[str] = typer.Option(
         None, "--point", "-p",
@@ -300,9 +400,9 @@ def order_approach(
 
     Exactly one targeting option must be supplied:
 
-      --target <ship_id>     Approach a ship by its ID or name.
-      --object <object_id>   Approach a celestial object (asteroid, station, …) by ID.
-      --point 'X Y Z'        Approach a fixed coordinate in space.
+      --target <name>     Approach a ship by name.
+      --object <name>     Approach a celestial object (e.g. 'asteroid1').
+      --point 'X Y Z'    Approach a fixed coordinate in space.
     """
     client = _client()
     resolved = _resolve_ship(client, ship_id)
@@ -311,14 +411,14 @@ def order_approach(
     provided = sum(v is not None for v in (target, obj, point))
     if provided != 1:
         display.print_error(
-            "Provide exactly one of --target <ship_id>, --object <object_id>, or --point 'X Y Z'."
+            "Provide exactly one of --target <name>, --object <name>, or --point 'X Y Z'."
         )
         raise typer.Exit(code=1)
 
     if target is not None:
         payload["target_ship_id"] = _resolve_ship(client, target)
     elif obj is not None:
-        payload["target_object_id"] = obj
+        payload["target_object_id"] = _resolve_object(client, resolved, obj)
     else:
         # point
         try:
@@ -343,9 +443,9 @@ def order_orbit(
         None, "--target", "-t",
         help="Target ship ID or name. Mutually exclusive with --object.",
     ),
-    obj: Optional[int] = typer.Option(
+    obj: Optional[str] = typer.Option(
         None, "--object", "-o",
-        help="Target celestial object ID, e.g. asteroid or station (sets target_object_id). Mutually exclusive with --target.",
+        help="Target object name, e.g. 'asteroid1'. Mutually exclusive with --target.",
     ),
     radius: float = typer.Option(..., "--radius", "-r", help="Orbit radius in metres."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
@@ -355,8 +455,8 @@ def order_orbit(
 
     Exactly one targeting option must be supplied:
 
-      --target <ship_id>     Orbit a ship by its ID or name.
-      --object <object_id>   Orbit a celestial object (asteroid, station, …) by ID.
+      --target <name>     Orbit a ship by name.
+      --object <name>     Orbit a celestial object (e.g. 'asteroid1').
     """
     client = _client()
     resolved = _resolve_ship(client, ship_id)
@@ -364,7 +464,7 @@ def order_orbit(
     provided = sum(v is not None for v in (target, obj))
     if provided != 1:
         display.print_error(
-            "Provide exactly one of --target <ship_id> or --object <object_id>."
+            "Provide exactly one of --target <name> or --object <name>."
         )
         raise typer.Exit(code=1)
 
@@ -372,7 +472,7 @@ def order_orbit(
     if target is not None:
         payload["target_ship_id"] = _resolve_ship(client, target)
     else:
-        payload["target_object_id"] = obj
+        payload["target_object_id"] = _resolve_object(client, resolved, obj)
 
     data = _handle(client.create_order, resolved, payload)
     display.display_order(data, json)
@@ -385,9 +485,9 @@ def order_keep_distance(
         None, "--target", "-t",
         help="Target ship ID or name. Mutually exclusive with --object.",
     ),
-    obj: Optional[int] = typer.Option(
+    obj: Optional[str] = typer.Option(
         None, "--object", "-o",
-        help="Target celestial object ID, e.g. asteroid or station (sets target_object_id). Mutually exclusive with --target.",
+        help="Target object name, e.g. 'asteroid1'. Mutually exclusive with --target.",
     ),
     distance: float = typer.Option(..., "--distance", "-d", help="Distance to maintain in metres."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
@@ -397,8 +497,8 @@ def order_keep_distance(
 
     Exactly one targeting option must be supplied:
 
-      --target <ship_id>     Keep distance from a ship by its ID or name.
-      --object <object_id>   Keep distance from a celestial object (asteroid, station, …) by ID.
+      --target <name>     Keep distance from a ship by name.
+      --object <name>     Keep distance from a celestial object (e.g. 'asteroid1').
     """
     client = _client()
     resolved = _resolve_ship(client, ship_id)
@@ -406,7 +506,7 @@ def order_keep_distance(
     provided = sum(v is not None for v in (target, obj))
     if provided != 1:
         display.print_error(
-            "Provide exactly one of --target <ship_id> or --object <object_id>."
+            "Provide exactly one of --target <name> or --object <name>."
         )
         raise typer.Exit(code=1)
 
@@ -414,7 +514,7 @@ def order_keep_distance(
     if target is not None:
         payload["target_ship_id"] = _resolve_ship(client, target)
     else:
-        payload["target_object_id"] = obj
+        payload["target_object_id"] = _resolve_object(client, resolved, obj)
 
     data = _handle(client.create_order, resolved, payload)
     display.display_order(data, json)
@@ -560,8 +660,8 @@ def build_cmd(
         None, "--blueprint", "-b",
         help="Ship class to build: strike_craft, corvette, frigate, destroyer, cruiser.",
     ),
-    factory_module_id: Optional[int] = typer.Option(
-        None, "--factory", "-f", help="Specific factory module ID (optional)."
+    factory_module: Optional[str] = typer.Option(
+        None, "--factory", "-f", help="Factory module name (e.g. 'factory', 'factory2'). Optional."
     ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
@@ -595,6 +695,7 @@ def build_cmd(
         data = _handle(client.get_build_queue, resolved)
         display.display_build_queue(data, json)
     else:
+        factory_module_id = _resolve_module(client, resolved, factory_module) if factory_module else None
         data = _handle(client.queue_build, resolved, blueprint, factory_module_id)
         display.display_build_order(data, json)
 
@@ -658,39 +759,42 @@ def module_install(
 
 @module_app.command("uninstall")
 def module_uninstall(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    module_id: int = typer.Argument(..., help="Module ID to remove."),
+    ship_id: str = typer.Argument(..., help="Ship name."),
+    module: str = typer.Argument(..., help="Module type name (e.g. 'scanner', 'mining_laser2')."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Uninstall (remove) a module from a ship."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
+    module_id = _resolve_module(client, resolved, module)
     _handle(client.uninstall_module, resolved, module_id)
     display.display_module_uninstall(json)
 
 
 @module_app.command("activate")
 def module_activate(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    module_id: int = typer.Argument(..., help="Module ID to activate."),
+    ship_id: str = typer.Argument(..., help="Ship name."),
+    module: str = typer.Argument(..., help="Module type name (e.g. 'scanner', 'mining_laser2')."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Activate a module (e.g. scanner, mining laser, passive detector)."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
+    module_id = _resolve_module(client, resolved, module)
     data = _handle(client.activate_module, resolved, module_id)
     display.display_module(data, json, action="Module activated")
 
 
 @module_app.command("deactivate")
 def module_deactivate(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    module_id: int = typer.Argument(..., help="Module ID to deactivate."),
+    ship_id: str = typer.Argument(..., help="Ship name."),
+    module: str = typer.Argument(..., help="Module type name (e.g. 'scanner', 'mining_laser2')."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Deactivate an active module."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
+    module_id = _resolve_module(client, resolved, module)
     data = _handle(client.deactivate_module, resolved, module_id)
     display.display_module(data, json, action="Module deactivated")
 
@@ -751,14 +855,15 @@ def target_list(
 
 @weapon_app.command("assign")
 def weapon_assign(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    module_id: int = typer.Argument(..., help="Weapon module ID to assign."),
-    target: str = typer.Option(..., "--target", "-t", help="Target ship ID or name (must be locked)."),
+    ship_id: str = typer.Argument(..., help="Ship name."),
+    module: str = typer.Argument(..., help="Weapon module name (e.g. 'small_turret_kinetic1')."),
+    target: str = typer.Option(..., "--target", "-t", help="Target ship name (must be locked)."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Assign a weapon module to a locked target and activate it."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
+    module_id = _resolve_module(client, resolved, module)
     resolved_target = _resolve_ship(client, target)
     data = _handle(client.assign_weapon, resolved, module_id, resolved_target)
     display.display_weapon_assign(data, json)
@@ -801,24 +906,25 @@ def weapon_hold(
 
 @research_app.command("start")
 def research_start(
-    ship_id: str = typer.Argument(..., help="Ship ID or name with a research module."),
+    ship_id: str = typer.Argument(..., help="Ship name with a research module."),
     tech_id: str = typer.Argument(..., help="Tech ID to research (e.g. '1a_medium_weapons')."),
-    module_id: Optional[int] = typer.Option(
-        None, "--module", "-m", help="Specific research module ID (optional)."
+    module: Optional[str] = typer.Option(
+        None, "--module", "-m", help="Research module name (e.g. 'research_module'). Optional."
     ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Start researching a technology. Ore is consumed immediately."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
+    module_id = _resolve_module(client, resolved, module) if module else None
     data = _handle(client.start_research, resolved, tech_id, module_id)
     display.display_research_progress(data, json)
 
 
 @research_app.command("cancel")
 def research_cancel(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    module_id: Optional[int] = typer.Option(
+    ship_id: str = typer.Argument(..., help="Ship name."),
+    module: Optional[str] = typer.Option(
         None, "--module", "-m", help="Cancel only research on this module."
     ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
@@ -826,6 +932,7 @@ def research_cancel(
     """Cancel active research on a ship. Ore is not refunded."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
+    module_id = _resolve_module(client, resolved, module) if module else None
     _handle(client.cancel_research, resolved, module_id)
     if json:
         import json as _json

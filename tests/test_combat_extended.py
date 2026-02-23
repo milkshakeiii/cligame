@@ -636,12 +636,12 @@ class TestCombatAPIEdgeCases:
         )
         assert resp.status_code == 404
 
-    async def test_max_locks_frigate_is_4(self, client: AsyncClient):
-        """Frigate max locks = 4. On the 5th attempt we should get 422."""
+    async def test_max_locks_mothership_is_7(self, client: AsyncClient):
+        """Mothership max locks = 7. On the 8th attempt we should get 422."""
         auth = await register_user(client, "max_locks_user")
-        # Register 5 more users whose ships we'll lock
+        # Register 8 more users whose ships we'll lock
         other_ship_ids = []
-        for i in range(5):
+        for i in range(8):
             oa = await register_user(client, f"max_locks_target_{i}")
             r = await client.get(
                 "/api/ships", headers={"Authorization": f"Bearer {oa['token']}"}
@@ -653,15 +653,8 @@ class TestCombatAPIEdgeCases:
         )
         my_ship = r.json()[0]["id"]
 
-        # Install scanner so we can lock at 200km range
-        await client.post(
-            f"/api/ships/{my_ship}/modules",
-            json={"module_type": "scanner", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-
-        # Lock first 4 targets
-        for target_id in other_ship_ids[:4]:
+        # Lock first 7 targets (mothership limit)
+        for target_id in other_ship_ids[:7]:
             resp = await client.post(
                 f"/api/ships/{my_ship}/lock",
                 json={"target_ship_id": target_id},
@@ -669,10 +662,10 @@ class TestCombatAPIEdgeCases:
             )
             assert resp.status_code == 201
 
-        # 5th lock should fail
+        # 8th lock should fail
         resp = await client.post(
             f"/api/ships/{my_ship}/lock",
-            json={"target_ship_id": other_ship_ids[4]},
+            json={"target_ship_id": other_ship_ids[7]},
             headers={"Authorization": f"Bearer {auth['token']}"},
         )
         assert resp.status_code == 422

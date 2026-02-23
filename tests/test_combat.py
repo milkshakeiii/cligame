@@ -684,15 +684,15 @@ class TestCombatFieldsInAPI:
         assert "scan_resolution" in ship
         assert "effective_signature_radius" in ship
 
-    async def test_frigate_shield_matches_spec(self, client: AsyncClient):
+    async def test_starter_ship_shield_matches_spec(self, client: AsyncClient):
         auth = await register_user(client, "spec_user")
         ships = await client.get(
             "/api/ships",
             headers={"Authorization": f"Bearer {auth['token']}"},
         )
         ship = ships.json()[0]
-        assert ship["max_shield_hp"] == SHIP_CLASSES["frigate"]["base_shield"]
-        assert ship["max_armor_hp"] == SHIP_CLASSES["frigate"]["base_armor"]
+        assert ship["max_shield_hp"] == SHIP_CLASSES["mothership"]["base_shield"]
+        assert ship["max_armor_hp"] == SHIP_CLASSES["mothership"]["base_armor"]
 
     async def test_weapon_module_has_combat_fields(self, client: AsyncClient):
         auth = await register_user(client, "weapon_fields_user")
