@@ -121,6 +121,21 @@ class BuildStatus(str, Enum):
     completed = "completed"
 
 
+class AutopilotMode(str, Enum):
+    off = "off"
+    active = "active"
+    standby = "standby"
+
+
+class AutopilotProfile(str, Enum):
+    mining = "mining"
+    scout = "scout"
+    combat_aggressive = "combat_aggressive"
+    combat_defensive = "combat_defensive"
+    escort = "escort"
+    patrol = "patrol"
+
+
 class CelestialType(str, Enum):
     asteroid = "asteroid"
     planet = "planet"
@@ -426,6 +441,16 @@ CLASS_ORDER: list[str] = [
 
 # Reference engine fraction for max-speed calculations
 REFERENCE_ENGINE_FRACTION: float = 0.30
+
+# Default autopilot profile by ship class (used by both production and routes)
+DEFAULT_AUTOPILOT_PROFILES: Dict[str, str] = {
+    "strike_craft": "combat_aggressive",
+    "corvette": "combat_aggressive",
+    "frigate": "mining",
+    "destroyer": "combat_defensive",
+    "cruiser": "combat_defensive",
+    "mothership": "combat_defensive",
+}
 
 # Fixed module volumes (m^3) for modules with a fixed size
 MODULE_FIXED_VOLUMES: dict[str, int] = {
@@ -762,6 +787,11 @@ class Spaceship(SQLModel, table=True):
     total_volume: int = Field(default=0)
     signature_radius: float = Field(default=0.0)
 
+    # Autopilot (Phase 6)
+    autopilot_mode: str = Field(default="off")  # off, active, standby
+    autopilot_profile: Optional[str] = Field(default=None)  # mining, scout, combat_aggressive, etc.
+    autopilot_priority_target_id: Optional[int] = Field(default=None)
+
     # Ownership
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
@@ -1052,6 +1082,9 @@ class CelestialObject(SQLModel, table=True):
     ore_remaining: float = Field(default=0.0)
     ore_initial: float = Field(default=0.0)
 
+    # Wreck-specific: tick when the object was created (for expiration)
+    created_tick: Optional[int] = Field(default=None)
+
 
 class Event(SQLModel, table=True):
     """Persistent event log entry for a player."""
@@ -1313,6 +1346,7 @@ def spawn_new_ship(
     blueprint: ShipClass,
     builder: Spaceship,
     current_tick: int,
+    name: Optional[str] = None,
 ) -> Spaceship:
     """
     Spawn a newly built ship adjacent to the builder.
@@ -1332,7 +1366,7 @@ def spawn_new_ship(
 
     consts = SHIP_CLASSES[blueprint.value]
     ship = Spaceship(
-        name=f"New {blueprint.value.replace('_', ' ').title()}",
+        name=name or f"New {blueprint.value.replace('_', ' ').title()}",
         ship_class=blueprint,
         pos_x=builder.pos_x + dx * offset,
         pos_y=builder.pos_y + dy * offset,

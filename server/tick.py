@@ -96,6 +96,9 @@ from server.research import tick_research
 
 logger = logging.getLogger(__name__)
 
+# Wrecks despawn after this many ticks
+WRECK_LIFETIME_TICKS = 300
+
 # ---------------------------------------------------------------------------
 # In-memory state for detection deduplication (BUG-04)
 # ---------------------------------------------------------------------------
@@ -347,6 +350,11 @@ async def _run_tick() -> None:
         # Phase 6.9: Destruction
         # ------------------------------------------------------------------
         _process_destruction(ships, _ship_map, current_tick, emit, session)
+
+        # ------------------------------------------------------------------
+        # Phase 6.9b: Wreck cleanup (expired wrecks despawn)
+        # ------------------------------------------------------------------
+        _cleanup_expired_wrecks(celestial_objects, current_tick, session)
 
         # ------------------------------------------------------------------
         # Phase 7: Detection
@@ -927,12 +935,17 @@ def _process_target_locks(
                 )
             continue
 
-        # Check range: lock breaks at 250km (1.25x scanner range of 200km)
+        # Check range: lock breaks at 1.25x the lock acquisition range
+        # Scanner → 200km acquire / 250km break; no scanner → 1km / 1.25km
+        has_scanner = any(
+            m.module_type == ModuleType.scanner for m in ship.modules
+        )
+        lock_break_range = 250_000.0 if has_scanner else 1_250.0
         dx = target.pos_x - ship.pos_x
         dy = target.pos_y - ship.pos_y
         dz = target.pos_z - ship.pos_z
         dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-        if dist > 250_000:
+        if dist > lock_break_range:
             lock.status = LockStatus.broken
             if ship.user_id is not None:
                 emit(
@@ -1288,8 +1301,24 @@ def _process_destruction(
             pos_z=ship.pos_z,
             ore_remaining=ship.ore * 0.25,
             ore_initial=ship.ore * 0.25,
+            created_tick=current_tick,
         )
         session.add(wreck)
 
         # Clean up weapon assignments targeting this ship
         # (they'll be cleaned up naturally when the ship is filtered out next tick)
+
+
+def _cleanup_expired_wrecks(
+    celestial_objects: list[CelestialObject],
+    current_tick: int,
+    session,
+) -> None:
+    """Remove wrecks that have exceeded WRECK_LIFETIME_TICKS."""
+    for obj in celestial_objects:
+        if obj.object_type != CelestialType.wreck:
+            continue
+        if obj.created_tick is None:
+            continue
+        if current_tick - obj.created_tick >= WRECK_LIFETIME_TICKS:
+            session.delete(obj)

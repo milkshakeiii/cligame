@@ -1830,6 +1830,10 @@ Recommended implementation sequence within each phase:
 5. Write autopilot behavioral profile documentation (system prompts)
 6. Build an example autopilot agent (LLM integration)
 
+**Additional Phase 6 notes:**
+- Any player on a team can assume command of any autopiloted ship on their team (not just the original builder/owner)
+- Autopilot / sub-agent control for non-player-controlled ships: ships that aren't controlled by a player will need an automated control system so they don't just sit idle after being built
+
 ### Phase 7 (Factions)
 1. Add faction field to Spaceship, Team models
 2. Implement faction-specific ship stat modifiers

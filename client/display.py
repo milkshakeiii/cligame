@@ -148,9 +148,9 @@ def display_status(status_data: dict, ships: list, json_mode: bool) -> None:
     t.add_column("Status")
 
     for s in ships:
-        pos = f"({s['pos_x']:.0f}, {s['pos_y']:.0f}, {s['pos_z']:.0f})"
+        pos = f"({s['pos_x']:.0f}, {s['pos_y']:.0f}, {s['pos_z']:.0f}) m"
         speed = _speed_vec(s["vel_x"], s["vel_y"], s["vel_z"])
-        ore = f"{s['ore']:.0f}/{s['cargo_capacity']:.0f}"
+        ore = f"{s['ore']:.0f}/{s['cargo_capacity']:.0f} ore"
         cap = _cap_bar(s["capacitor"], s["max_capacitor"])
         docked = s.get("docked_in_id")
         ship_status = f"[dim]Docked in #{docked}[/dim]" if docked else "[green]Active[/green]"
@@ -193,9 +193,9 @@ def display_ship_list(ships: list, json_mode: bool) -> None:
     t.add_column("Vol Used")
 
     for s in ships:
-        pos = f"({s['pos_x']:.0f}, {s['pos_y']:.0f}, {s['pos_z']:.0f})"
+        pos = f"({s['pos_x']:.0f}, {s['pos_y']:.0f}, {s['pos_z']:.0f}) m"
         speed = _speed_vec(s["vel_x"], s["vel_y"], s["vel_z"])
-        ore = f"{s['ore']:.0f}/{s['cargo_capacity']:.0f}"
+        ore = f"{s['ore']:.0f}/{s['cargo_capacity']:.0f} ore"
         pct = (s["capacitor"] / s["max_capacitor"] * 100) if s["max_capacitor"] else 0
         cap_str = f"{pct:.0f}%"
         vol = f"{s['used_volume']}/{s['total_volume']}"
@@ -244,15 +244,24 @@ def display_ship_info(data: dict, json_mode: bool) -> None:
         f"Acceleration: {data['acceleration']:.2f} m/s²\n"
         f"  Ore        : {data['ore']:.0f} / {data['cargo_capacity']:.0f} m³\n"
         f"  Capacitor  : {_cap_bar(data['capacitor'], data['max_capacitor'])}  "
-        f"({data['capacitor']:.0f}/{data['max_capacitor']:.0f})\n"
+        f"({data['capacitor']:.0f}/{data['max_capacitor']:.0f} GJ)\n"
         f"  Shield     : {_hp_bar(shield_hp, max_shield, 'blue')}  "
-        f"({shield_hp:.0f}/{max_shield:.0f})\n"
+        f"({shield_hp:.0f}/{max_shield:.0f} HP)\n"
         f"  Armor      : {_hp_bar(armor_hp, max_armor, 'yellow')}  "
-        f"({armor_hp:.0f}/{max_armor:.0f})\n"
+        f"({armor_hp:.0f}/{max_armor:.0f} HP)\n"
         f"  Volume     : {data['used_volume']} / {data['total_volume']} m³   "
         f"Sig. Radius: {eff_sig:.0f} m   "
-        f"Scan Res: {scan_res:.0f}"
+        f"Scan Res: {scan_res:.0f} mm"
     )
+    # Autopilot status
+    autopilot_mode = data.get("autopilot_mode", "off")
+    autopilot_profile = data.get("autopilot_profile")
+    if autopilot_mode and autopilot_mode != "off":
+        header += (
+            f"\n  Autopilot  : [bold magenta]{autopilot_mode}[/bold magenta]"
+            f"  Profile: [cyan]{autopilot_profile or 'none'}[/cyan]"
+        )
+
     console.print(Panel(header, title=f"Ship #{data['id']} Detail", border_style="cyan"))
 
     # Modules
@@ -289,7 +298,7 @@ def display_modules(modules: list, json_mode: bool, _title: str = "Modules") -> 
         cap = m.get("capacitor_per_cycle", 0)
         cycle = m.get("cycle_time", 0)
         cycle_str = f"{cycle}t" if cycle else "passive"
-        cap_str = f"{cap:.0f}" if cap else "—"
+        cap_str = f"{cap:.0f} GJ" if cap else "—"
 
         details_parts: list[str] = []
         if (m.get("mining_yield") or 0) > 0:
@@ -310,15 +319,15 @@ def display_modules(modules: list, json_mode: bool, _title: str = "Modules") -> 
         if (m.get("falloff_range") or 0) > 0:
             details_parts.append(f"fall={_fmt_dist(m['falloff_range'])}")
         if (m.get("tracking_speed") or 0) > 0:
-            details_parts.append(f"track={m['tracking_speed']:.4f}")
+            details_parts.append(f"track={m['tracking_speed']:.4f} rad/s")
         if (m.get("shield_hp_bonus") or 0) > 0:
-            details_parts.append(f"+shield={m['shield_hp_bonus']:.0f}")
+            details_parts.append(f"+shield={m['shield_hp_bonus']:.0f} HP")
         if (m.get("armor_hp_bonus") or 0) > 0:
-            details_parts.append(f"+armor={m['armor_hp_bonus']:.0f}")
+            details_parts.append(f"+armor={m['armor_hp_bonus']:.0f} HP")
         if (m.get("shield_repair_per_cycle") or 0) > 0:
-            details_parts.append(f"shield rep={m['shield_repair_per_cycle']:.0f}/cycle")
+            details_parts.append(f"shield rep={m['shield_repair_per_cycle']:.0f} HP/cycle")
         if (m.get("armor_repair_per_cycle") or 0) > 0:
-            details_parts.append(f"armor rep={m['armor_repair_per_cycle']:.0f}/cycle")
+            details_parts.append(f"armor rep={m['armor_repair_per_cycle']:.0f} HP/cycle")
 
         t.add_row(
             str(m["id"]),
@@ -758,6 +767,80 @@ def display_tech_tree(nodes: list, json_mode: bool) -> None:
         )
 
     console.print(t)
+
+
+# ---------------------------------------------------------------------------
+# Autopilot
+# ---------------------------------------------------------------------------
+
+
+def display_autopilot_tick(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+
+    ship = data.get("ship", {})
+    ship_name = ship.get("name", f"#{ship.get('id', '?')}")
+    mode = data.get("ship", {}).get("autopilot_mode", "off")
+    profile = data.get("profile") or "none"
+
+    mode_color = "green" if mode == "active" else "yellow" if mode != "off" else "dim"
+    header = (
+        f"Ship       : [bold]{ship_name}[/bold]\n"
+        f"Mode       : [{mode_color}]{mode}[/{mode_color}]\n"
+        f"Profile    : [cyan]{profile}[/cyan]"
+    )
+
+    # Show position/velocity if available
+    if "pos_x" in ship:
+        header += (
+            f"\nPosition   : ({ship['pos_x']:.1f}, {ship['pos_y']:.1f}, {ship['pos_z']:.1f}) m"
+        )
+    if "vel_x" in ship:
+        header += f"\nSpeed      : {_speed_vec(ship['vel_x'], ship['vel_y'], ship['vel_z'])}"
+    if "capacitor" in ship and "max_capacitor" in ship:
+        header += (
+            f"\nCapacitor  : {_cap_bar(ship['capacitor'], ship['max_capacitor'])}  "
+            f"({ship['capacitor']:.0f}/{ship['max_capacitor']:.0f} GJ)"
+        )
+    if "ore" in ship and "cargo_capacity" in ship:
+        header += f"\nOre        : {ship['ore']:.0f} / {ship['cargo_capacity']:.0f} m\u00b3"
+
+    # Shield/armor
+    if "shield_hp" in ship and "max_shield_hp" in ship:
+        header += (
+            f"\nShield     : {_hp_bar(ship['shield_hp'], ship['max_shield_hp'], 'blue')}  "
+            f"({ship['shield_hp']:.0f}/{ship['max_shield_hp']:.0f} HP)"
+        )
+    if "armor_hp" in ship and "max_armor_hp" in ship:
+        header += (
+            f"\nArmor      : {_hp_bar(ship['armor_hp'], ship['max_armor_hp'], 'yellow')}  "
+            f"({ship['armor_hp']:.0f}/{ship['max_armor_hp']:.0f} HP)"
+        )
+
+    console.print(Panel(header, title="Autopilot State", border_style="magenta"))
+
+    # Nearby contacts
+    contacts = data.get("nearby", [])
+    if contacts:
+        _display_contacts_table(contacts)
+
+    # Active orders
+    orders = data.get("active_orders", [])
+    if orders:
+        _display_orders(orders)
+
+    # Target locks
+    locks = data.get("locks", [])
+    if locks:
+        display_locks(locks, json_mode=False)
+
+    # Recent events
+    events = data.get("events_since_last_tick", [])
+    if events:
+        console.print(f"\n[bold]Recent Events ({len(events)}):[/bold]")
+        for e in events:
+            _print_event_line(e)
 
 
 # ---------------------------------------------------------------------------

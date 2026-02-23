@@ -132,6 +132,19 @@ class TestTickMiningLaser:
         assert result["ore_lost"] == pytest.approx(5.0)
         assert ship.ore == pytest.approx(10.0)
 
+    def test_partial_cargo_does_not_waste_asteroid_ore(self):
+        """M-1: Only the ore actually added to cargo should be subtracted from asteroid."""
+        ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
+        laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
+        add_module_to_ship(ship, ModuleType.cargo_bay, 10)  # 10 total capacity
+        ship.ore = 5.0  # 5 units free, yield=10 → only 5 mined
+        asteroid = make_asteroid(ore=500.0, pos_x=100.0)
+
+        tick_mining_laser(ship, laser, asteroid)
+
+        # Asteroid should lose only the 5 ore that was actually added to cargo
+        assert asteroid.ore_remaining == pytest.approx(495.0)
+
     def test_wrong_module_type_returns_empty(self):
         """If not a mining_laser, return empty result."""
         ship = make_test_ship(ShipClass.frigate)

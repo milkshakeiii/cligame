@@ -178,10 +178,17 @@ class SpaceGameClient:
         """GET /api/ships"""
         return self._request("GET", "/api/ships")
 
-    def create_ship(self, name: str, ship_class: str) -> dict:
+    def create_ship(self, name: Optional[str], ship_class: str) -> dict:
         """POST /api/ships"""
+        body: dict = {"ship_class": ship_class}
+        if name is not None:
+            body["name"] = name
+        return self._request("POST", "/api/ships", json_body=body)
+
+    def rename_ship(self, ship_id: int, new_name: str) -> dict:
+        """POST /api/ships/{ship_id}/rename"""
         return self._request(
-            "POST", "/api/ships", json_body={"name": name, "ship_class": ship_class}
+            "POST", f"/api/ships/{ship_id}/rename", json_body={"name": new_name}
         )
 
     def get_ship(self, ship_id: int) -> dict:
@@ -317,10 +324,6 @@ class SpaceGameClient:
         self._request("POST", f"/api/ships/{ship_id}/weapons/hold")
 
     # ------------------------------------------------------------------
-    # Alerts
-    # ------------------------------------------------------------------
-
-    # ------------------------------------------------------------------
     # Research (Phase 5)
     # ------------------------------------------------------------------
 
@@ -354,6 +357,29 @@ class SpaceGameClient:
     def tech_tree(self) -> list:
         """GET /api/research/tech-tree"""
         return self._request("GET", "/api/research/tech-tree")
+
+    # ------------------------------------------------------------------
+    # Autopilot (Phase 6)
+    # ------------------------------------------------------------------
+
+    def assume_command(self, ship_id: int) -> dict:
+        """POST /api/ships/{ship_id}/command/assume"""
+        return self._request("POST", f"/api/ships/{ship_id}/command/assume")
+
+    def release_command(self, ship_id: int, profile: Optional[str] = None) -> dict:
+        """POST /api/ships/{ship_id}/command/release"""
+        body: dict = {}
+        if profile is not None:
+            body["profile"] = profile
+        return self._request("POST", f"/api/ships/{ship_id}/command/release", json_body=body)
+
+    def set_autopilot_profile(self, ship_id: int, profile: str) -> dict:
+        """PUT /api/ships/{ship_id}/autopilot/profile"""
+        return self._request("PUT", f"/api/ships/{ship_id}/autopilot/profile", json_body={"profile": profile})
+
+    def autopilot_tick(self, ship_id: int) -> dict:
+        """GET /api/ships/{ship_id}/autopilot/tick"""
+        return self._request("GET", f"/api/ships/{ship_id}/autopilot/tick")
 
     # ------------------------------------------------------------------
     # Alerts

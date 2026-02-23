@@ -36,6 +36,7 @@ module_app = typer.Typer(help="Module management commands.", no_args_is_help=Tru
 target_app = typer.Typer(help="Target lock commands.", no_args_is_help=True)
 weapon_app = typer.Typer(help="Weapon commands.", no_args_is_help=True)
 research_app = typer.Typer(help="Research / tech tree commands.", no_args_is_help=True)
+command_app = typer.Typer(help="Autopilot / command authority commands.", no_args_is_help=True)
 
 app.add_typer(ship_app, name="ship")
 app.add_typer(order_app, name="order")
@@ -44,6 +45,7 @@ app.add_typer(module_app, name="module")
 app.add_typer(target_app, name="target")
 app.add_typer(weapon_app, name="weapon")
 app.add_typer(research_app, name="research")
+app.add_typer(command_app, name="command")
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +68,46 @@ def _handle(fn, *args, **kwargs):
     except SpaceGameError as exc:
         display.print_error(str(exc))
         raise typer.Exit(code=1)
+
+
+def _resolve_ship(client: SpaceGameClient, name_or_id: str) -> int:
+    """
+    Resolve a ship name or ID string to a numeric ship ID.
+
+    1. If it parses as an integer, return directly.
+    2. Otherwise, list the user's ships and match by name:
+       - Exact case-insensitive match first.
+       - Then substring match.
+    3. Error on 0 or ambiguous matches.
+    """
+    try:
+        return int(name_or_id)
+    except ValueError:
+        pass
+
+    ships = _handle(client.list_ships)
+    query = name_or_id.lower()
+
+    # Exact match (case-insensitive)
+    exact = [s for s in ships if s["name"].lower() == query]
+    if len(exact) == 1:
+        return exact[0]["id"]
+    if len(exact) > 1:
+        names = ", ".join(f"#{s['id']} ({s['name']})" for s in exact)
+        display.print_error(f"Ambiguous ship name '{name_or_id}': {names}")
+        raise typer.Exit(code=1)
+
+    # Substring match
+    partial = [s for s in ships if query in s["name"].lower()]
+    if len(partial) == 1:
+        return partial[0]["id"]
+    if len(partial) > 1:
+        names = ", ".join(f"#{s['id']} ({s['name']})" for s in partial)
+        display.print_error(f"Ambiguous ship name '{name_or_id}': {names}")
+        raise typer.Exit(code=1)
+
+    display.print_error(f"No ship found matching '{name_or_id}'.")
+    raise typer.Exit(code=1)
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +211,7 @@ def ship_list(
 
 @ship_app.command("create")
 def ship_create(
-    name: str = typer.Argument(..., help="Name for the new ship."),
+    name: Optional[str] = typer.Argument(None, help="Name for the new ship (auto-generated if omitted)."),
     ship_class: str = typer.Option(
         "frigate",
         "--class",
@@ -178,7 +220,7 @@ def ship_create(
     ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
-    """Create (spawn) a new ship with no modules installed."""
+    """Create (spawn) a new ship. Name is auto-generated if omitted."""
     client = _client()
     data = _handle(client.create_ship, name, ship_class)
     if json:
@@ -190,25 +232,44 @@ def ship_create(
         )
 
 
+@ship_app.command("rename")
+def ship_rename(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    new_name: str = typer.Argument(..., help="New name for the ship."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Rename a ship."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.rename_ship, resolved, new_name)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.print_success(f"Ship #{data['id']} renamed to '{data['name']}'.")
+
+
 @ship_app.command("info")
 def ship_info(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Show full ship details, modules, and active orders."""
     client = _client()
-    data = _handle(client.get_ship, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.get_ship, resolved)
     display.display_ship_info(data, json)
 
 
 @ship_app.command("modules")
 def ship_modules(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """List installed modules on a ship."""
     client = _client()
-    modules = _handle(client.list_modules, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    modules = _handle(client.list_modules, resolved)
     display.display_modules(modules, json)
 
 
@@ -219,10 +280,10 @@ def ship_modules(
 
 @order_app.command("approach")
 def order_approach(
-    ship_id: int = typer.Argument(..., help="Ship ID to issue the order to."),
-    target: Optional[int] = typer.Option(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    target: Optional[str] = typer.Option(
         None, "--target", "-t",
-        help="Target ship ID (sets target_ship_id). Mutually exclusive with --object and --point.",
+        help="Target ship ID or name. Mutually exclusive with --object and --point.",
     ),
     obj: Optional[int] = typer.Option(
         None, "--object", "-o",
@@ -239,10 +300,12 @@ def order_approach(
 
     Exactly one targeting option must be supplied:
 
-      --target <ship_id>     Approach a ship by its ID.
+      --target <ship_id>     Approach a ship by its ID or name.
       --object <object_id>   Approach a celestial object (asteroid, station, …) by ID.
       --point 'X Y Z'        Approach a fixed coordinate in space.
     """
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
     payload: dict = {"order_type": "approach"}
 
     provided = sum(v is not None for v in (target, obj, point))
@@ -253,7 +316,7 @@ def order_approach(
         raise typer.Exit(code=1)
 
     if target is not None:
-        payload["target_ship_id"] = target
+        payload["target_ship_id"] = _resolve_ship(client, target)
     elif obj is not None:
         payload["target_object_id"] = obj
     else:
@@ -269,17 +332,16 @@ def order_approach(
             display.print_error("--point must be three numbers: --point '100 200 0'")
             raise typer.Exit(code=1)
 
-    client = _client()
-    data = _handle(client.create_order, ship_id, payload)
+    data = _handle(client.create_order, resolved, payload)
     display.display_order(data, json)
 
 
 @order_app.command("orbit")
 def order_orbit(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
-    target: Optional[int] = typer.Option(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    target: Optional[str] = typer.Option(
         None, "--target", "-t",
-        help="Target ship ID (sets target_ship_id). Mutually exclusive with --object.",
+        help="Target ship ID or name. Mutually exclusive with --object.",
     ),
     obj: Optional[int] = typer.Option(
         None, "--object", "-o",
@@ -293,9 +355,12 @@ def order_orbit(
 
     Exactly one targeting option must be supplied:
 
-      --target <ship_id>     Orbit a ship by its ID.
+      --target <ship_id>     Orbit a ship by its ID or name.
       --object <object_id>   Orbit a celestial object (asteroid, station, …) by ID.
     """
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+
     provided = sum(v is not None for v in (target, obj))
     if provided != 1:
         display.print_error(
@@ -305,21 +370,20 @@ def order_orbit(
 
     payload: dict = {"order_type": "orbit", "orbit_radius": radius}
     if target is not None:
-        payload["target_ship_id"] = target
+        payload["target_ship_id"] = _resolve_ship(client, target)
     else:
         payload["target_object_id"] = obj
 
-    client = _client()
-    data = _handle(client.create_order, ship_id, payload)
+    data = _handle(client.create_order, resolved, payload)
     display.display_order(data, json)
 
 
 @order_app.command("keep-distance")
 def order_keep_distance(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
-    target: Optional[int] = typer.Option(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    target: Optional[str] = typer.Option(
         None, "--target", "-t",
-        help="Target ship ID (sets target_ship_id). Mutually exclusive with --object.",
+        help="Target ship ID or name. Mutually exclusive with --object.",
     ),
     obj: Optional[int] = typer.Option(
         None, "--object", "-o",
@@ -333,9 +397,12 @@ def order_keep_distance(
 
     Exactly one targeting option must be supplied:
 
-      --target <ship_id>     Keep distance from a ship by its ID.
+      --target <ship_id>     Keep distance from a ship by its ID or name.
       --object <object_id>   Keep distance from a celestial object (asteroid, station, …) by ID.
     """
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+
     provided = sum(v is not None for v in (target, obj))
     if provided != 1:
         display.print_error(
@@ -345,48 +412,51 @@ def order_keep_distance(
 
     payload: dict = {"order_type": "keep_distance", "desired_distance": distance}
     if target is not None:
-        payload["target_ship_id"] = target
+        payload["target_ship_id"] = _resolve_ship(client, target)
     else:
         payload["target_object_id"] = obj
 
-    client = _client()
-    data = _handle(client.create_order, ship_id, payload)
+    data = _handle(client.create_order, resolved, payload)
     display.display_order(data, json)
 
 
 @order_app.command("dock")
 def order_dock(
-    ship_id: int = typer.Argument(..., help="Ship ID to dock."),
-    target: int = typer.Option(..., "--target", "-t", help="Target ship ID to dock into."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name to dock."),
+    target: str = typer.Option(..., "--target", "-t", help="Target ship ID or name to dock into."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Order a ship to dock with another ship that has a docking bay."""
     client = _client()
-    data = _handle(client.dock_ship, ship_id, target)
+    resolved = _resolve_ship(client, ship_id)
+    resolved_target = _resolve_ship(client, target)
+    data = _handle(client.dock_ship, resolved, resolved_target)
     display.display_order(data, json)
 
 
 @order_app.command("stop")
 def order_stop(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Order a ship to decelerate to a full stop."""
-    payload = {"order_type": "stop"}
     client = _client()
-    data = _handle(client.create_order, ship_id, payload)
+    resolved = _resolve_ship(client, ship_id)
+    payload = {"order_type": "stop"}
+    data = _handle(client.create_order, resolved, payload)
     display.display_order(data, json)
 
 
 @order_app.command("cancel")
 def order_cancel(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     order_id: int = typer.Argument(..., help="Order ID to cancel."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Cancel a specific movement order."""
     client = _client()
-    data = _handle(client.cancel_order, ship_id, order_id)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.cancel_order, resolved, order_id)
     display.display_order_cancel(data, json)
 
 
@@ -397,12 +467,13 @@ def order_cancel(
 
 @mine_app.command("start")
 def mine_start(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Activate all mining lasers on a ship."""
     client = _client()
-    modules = _handle(client.list_modules, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    modules = _handle(client.list_modules, resolved)
     lasers = [m for m in modules if m["module_type"] == "mining_laser"]
     if not lasers:
         display.print_error("Ship has no mining laser modules installed.")
@@ -410,7 +481,7 @@ def mine_start(
 
     results = []
     for laser in lasers:
-        result = _handle(client.activate_module, ship_id, laser["id"])
+        result = _handle(client.activate_module, resolved, laser["id"])
         if result:
             results.append(result)
 
@@ -420,12 +491,13 @@ def mine_start(
 
 @mine_app.command("stop")
 def mine_stop(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Deactivate all mining lasers on a ship."""
     client = _client()
-    modules = _handle(client.list_modules, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    modules = _handle(client.list_modules, resolved)
     lasers = [m for m in modules if m["module_type"] == "mining_laser"]
     if not lasers:
         display.print_error("Ship has no mining laser modules installed.")
@@ -433,7 +505,7 @@ def mine_stop(
 
     results = []
     for laser in lasers:
-        result = _handle(client.deactivate_module, ship_id, laser["id"])
+        result = _handle(client.deactivate_module, resolved, laser["id"])
         if result:
             results.append(result)
 
@@ -448,13 +520,15 @@ def mine_stop(
 
 @app.command()
 def transfer(
-    ship_id: int = typer.Argument(..., help="Source ship ID."),
-    target: int = typer.Option(..., "--target", "-t", help="Target ship ID to transfer ore to."),
+    ship_id: str = typer.Argument(..., help="Source ship ID or name."),
+    target: str = typer.Option(..., "--target", "-t", help="Target ship ID or name to transfer ore to."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Transfer ore from a ship to another ship (target must have a drop-off module)."""
     client = _client()
-    data = _handle(client.transfer_ore, ship_id, target)
+    resolved = _resolve_ship(client, ship_id)
+    resolved_target = _resolve_ship(client, target)
+    data = _handle(client.transfer_ore, resolved, resolved_target)
     display.display_transfer(data, json)
 
 
@@ -474,13 +548,13 @@ def build_cmd(
     ship_id_or_status: str = typer.Argument(
         ...,
         help=(
-            "Ship ID to build on, OR the word 'status' followed by a ship ID "
+            "Ship ID/name to build on, OR the word 'status' followed by a ship ID "
             "to view the build queue."
         ),
     ),
-    ship_id_for_status: Optional[int] = typer.Argument(
+    ship_id_for_status: Optional[str] = typer.Argument(
         None,
-        help="Ship ID when using 'build status <ship_id>'.",
+        help="Ship ID or name when using 'build status <ship>'.",
     ),
     blueprint: Optional[str] = typer.Option(
         None, "--blueprint", "-b",
@@ -508,25 +582,20 @@ def build_cmd(
         if ship_id_for_status is None:
             display.print_error("Usage: spacegame build status <ship_id>")
             raise typer.Exit(code=1)
-        data = _handle(client.get_build_queue, ship_id_for_status)
+        resolved = _resolve_ship(client, ship_id_for_status)
+        data = _handle(client.get_build_queue, resolved)
         display.display_build_queue(data, json)
         return
 
     # Normal: first arg is the ship_id
-    try:
-        ship_id = int(ship_id_or_status)
-    except ValueError:
-        display.print_error(
-            f"Expected a ship ID or 'status', got: {ship_id_or_status!r}"
-        )
-        raise typer.Exit(code=1)
+    resolved = _resolve_ship(client, ship_id_or_status)
 
     if blueprint is None:
         # No blueprint — show status
-        data = _handle(client.get_build_queue, ship_id)
+        data = _handle(client.get_build_queue, resolved)
         display.display_build_queue(data, json)
     else:
-        data = _handle(client.queue_build, ship_id, blueprint, factory_module_id)
+        data = _handle(client.queue_build, resolved, blueprint, factory_module_id)
         display.display_build_order(data, json)
 
 
@@ -537,23 +606,25 @@ def build_cmd(
 
 @app.command()
 def scan(
-    ship_id: int = typer.Argument(..., help="Ship ID with an active scanner module."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name with an active scanner module."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Trigger an active scan cycle (requires active scanner module)."""
     client = _client()
-    data = _handle(client.scan, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.scan, resolved)
     display.display_scan_results(data, json)
 
 
 @app.command()
 def nearby(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Show nearby objects using default visibility (no scanner required)."""
     client = _client()
-    contacts = _handle(client.nearby, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    contacts = _handle(client.nearby, resolved)
     display.display_nearby(contacts, json)
 
 
@@ -564,7 +635,7 @@ def nearby(
 
 @module_app.command("install")
 def module_install(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     module_type: str = typer.Argument(
         ...,
         help=(
@@ -580,43 +651,47 @@ def module_install(
 ):
     """Install a module on a ship."""
     client = _client()
-    data = _handle(client.install_module, ship_id, module_type, volume)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.install_module, resolved, module_type, volume)
     display.display_module(data, json, action="Module installed")
 
 
 @module_app.command("uninstall")
 def module_uninstall(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     module_id: int = typer.Argument(..., help="Module ID to remove."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Uninstall (remove) a module from a ship."""
     client = _client()
-    _handle(client.uninstall_module, ship_id, module_id)
+    resolved = _resolve_ship(client, ship_id)
+    _handle(client.uninstall_module, resolved, module_id)
     display.display_module_uninstall(json)
 
 
 @module_app.command("activate")
 def module_activate(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     module_id: int = typer.Argument(..., help="Module ID to activate."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Activate a module (e.g. scanner, mining laser, passive detector)."""
     client = _client()
-    data = _handle(client.activate_module, ship_id, module_id)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.activate_module, resolved, module_id)
     display.display_module(data, json, action="Module activated")
 
 
 @module_app.command("deactivate")
 def module_deactivate(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     module_id: int = typer.Argument(..., help="Module ID to deactivate."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Deactivate an active module."""
     client = _client()
-    data = _handle(client.deactivate_module, ship_id, module_id)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.deactivate_module, resolved, module_id)
     display.display_module(data, json, action="Module deactivated")
 
 
@@ -627,40 +702,45 @@ def module_deactivate(
 
 @target_app.command("lock")
 def target_lock(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
-    target: int = typer.Option(..., "--target", "-t", help="Target ship ID to lock."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    target: str = typer.Option(..., "--target", "-t", help="Target ship ID or name to lock."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Begin locking a target ship. Lock time depends on scan resolution and target signature."""
     client = _client()
-    data = _handle(client.lock_target, ship_id, target)
+    resolved = _resolve_ship(client, ship_id)
+    resolved_target = _resolve_ship(client, target)
+    data = _handle(client.lock_target, resolved, resolved_target)
     display.display_lock(data, json)
 
 
 @target_app.command("unlock")
 def target_unlock(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
-    target: int = typer.Option(..., "--target", "-t", help="Target ship ID to unlock."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    target: str = typer.Option(..., "--target", "-t", help="Target ship ID or name to unlock."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Release a target lock and remove associated weapon assignments."""
     client = _client()
-    _handle(client.unlock_target, ship_id, target)
+    resolved = _resolve_ship(client, ship_id)
+    resolved_target = _resolve_ship(client, target)
+    _handle(client.unlock_target, resolved, resolved_target)
     if json:
         import json as _json
-        print(_json.dumps({"status": "unlocked", "target_ship_id": target}))
+        print(_json.dumps({"status": "unlocked", "target_ship_id": resolved_target}))
     else:
-        display.print_success(f"Lock on Ship #{target} released.")
+        display.print_success(f"Lock on Ship #{resolved_target} released.")
 
 
 @target_app.command("list")
 def target_list(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """List all active target locks on a ship."""
     client = _client()
-    locks = _handle(client.list_locks, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    locks = _handle(client.list_locks, resolved)
     display.display_locks(locks, json)
 
 
@@ -671,37 +751,42 @@ def target_list(
 
 @weapon_app.command("assign")
 def weapon_assign(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     module_id: int = typer.Argument(..., help="Weapon module ID to assign."),
-    target: int = typer.Option(..., "--target", "-t", help="Target ship ID (must be locked)."),
+    target: str = typer.Option(..., "--target", "-t", help="Target ship ID or name (must be locked)."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Assign a weapon module to a locked target and activate it."""
     client = _client()
-    data = _handle(client.assign_weapon, ship_id, module_id, target)
+    resolved = _resolve_ship(client, ship_id)
+    resolved_target = _resolve_ship(client, target)
+    data = _handle(client.assign_weapon, resolved, module_id, resolved_target)
     display.display_weapon_assign(data, json)
 
 
 @weapon_app.command("fire-all")
 def weapon_fire_all(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
-    target: int = typer.Option(..., "--target", "-t", help="Target ship ID (must be locked)."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    target: str = typer.Option(..., "--target", "-t", help="Target ship ID or name (must be locked)."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Assign all weapon modules to a locked target and activate them."""
     client = _client()
-    data = _handle(client.fire_all_weapons, ship_id, target)
+    resolved = _resolve_ship(client, ship_id)
+    resolved_target = _resolve_ship(client, target)
+    data = _handle(client.fire_all_weapons, resolved, resolved_target)
     display.display_weapon_assignments(data, json)
 
 
 @weapon_app.command("hold")
 def weapon_hold(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Deactivate all weapons and clear weapon assignments (cease fire)."""
     client = _client()
-    _handle(client.hold_fire, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    _handle(client.hold_fire, resolved)
     if json:
         import json as _json
         print(_json.dumps({"status": "holding_fire"}))
@@ -716,7 +801,7 @@ def weapon_hold(
 
 @research_app.command("start")
 def research_start(
-    ship_id: int = typer.Argument(..., help="Ship ID with a research module."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name with a research module."),
     tech_id: str = typer.Argument(..., help="Tech ID to research (e.g. '1a_medium_weapons')."),
     module_id: Optional[int] = typer.Option(
         None, "--module", "-m", help="Specific research module ID (optional)."
@@ -725,13 +810,14 @@ def research_start(
 ):
     """Start researching a technology. Ore is consumed immediately."""
     client = _client()
-    data = _handle(client.start_research, ship_id, tech_id, module_id)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.start_research, resolved, tech_id, module_id)
     display.display_research_progress(data, json)
 
 
 @research_app.command("cancel")
 def research_cancel(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     module_id: Optional[int] = typer.Option(
         None, "--module", "-m", help="Cancel only research on this module."
     ),
@@ -739,7 +825,8 @@ def research_cancel(
 ):
     """Cancel active research on a ship. Ore is not refunded."""
     client = _client()
-    _handle(client.cancel_research, ship_id, module_id)
+    resolved = _resolve_ship(client, ship_id)
+    _handle(client.cancel_research, resolved, module_id)
     if json:
         import json as _json
         print(_json.dumps({"status": "cancelled"}))
@@ -749,12 +836,13 @@ def research_cancel(
 
 @research_app.command("status")
 def research_status_cmd(
-    ship_id: int = typer.Argument(..., help="Ship ID."),
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
     """Show research progress on a ship."""
     client = _client()
-    data = _handle(client.research_status, ship_id)
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.research_status, resolved)
     display.display_research_list(data, json)
 
 
@@ -766,6 +854,87 @@ def research_tree(
     client = _client()
     data = _handle(client.tech_tree)
     display.display_tech_tree(data, json)
+
+
+# ---------------------------------------------------------------------------
+# Autopilot / command authority commands
+# ---------------------------------------------------------------------------
+
+
+@command_app.command("assume")
+def command_assume(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Take manual control of an autopiloted ship."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.assume_command, resolved)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.print_success(
+            f"Command assumed for Ship #{resolved}. Autopilot disengaged."
+        )
+
+
+@command_app.command("release")
+def command_release(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    profile: Optional[str] = typer.Option(
+        None, "--profile", "-p",
+        help="Autopilot profile: mining, scout, combat_aggressive, combat_defensive, escort, patrol.",
+    ),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Release a ship to autopilot control."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.release_command, resolved, profile)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        ap_profile = data.get("autopilot_profile", profile or "default")
+        display.print_success(
+            f"Ship #{resolved} released to autopilot (profile: {ap_profile})."
+        )
+
+
+@command_app.command("profile")
+def command_profile(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    profile: str = typer.Argument(
+        ...,
+        help="Autopilot profile: mining, scout, combat_aggressive, combat_defensive, escort, patrol.",
+    ),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Change the autopilot profile for a ship."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.set_autopilot_profile, resolved, profile)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        new_profile = data.get("profile", profile)
+        display.print_success(
+            f"Ship #{resolved} autopilot profile set to '{new_profile}'."
+        )
+
+
+@command_app.command("tick")
+def command_tick(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Show aggregated autopilot state for a ship."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.autopilot_tick, resolved)
+    display.display_autopilot_tick(data, json)
 
 
 # ---------------------------------------------------------------------------

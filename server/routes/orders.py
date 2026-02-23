@@ -159,6 +159,12 @@ async def create_order(
     """
     ship = await _get_owned_ship(ship_id, current_user, session)
 
+    if ship.autopilot_mode == "active":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot issue manual orders to an autopiloted ship. Use 'command assume' first.",
+        )
+
     # BUG-03: Reject self-targeting for approach/orbit/keep_distance orders
     if (
         body.order_type in (OrderType.approach, OrderType.orbit, OrderType.keep_distance)

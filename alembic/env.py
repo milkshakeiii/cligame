@@ -4,6 +4,8 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from sqlmodel import SQLModel
 
+import server.models  # noqa: F401 — ensure all models are registered
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

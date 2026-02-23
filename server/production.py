@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from server.models import (
     BUILD_COSTS,
+    DEFAULT_AUTOPILOT_PROFILES,
     FACTORY_REQUIREMENTS,
     CLASS_ORDER,
     BuildStatus,
@@ -178,6 +179,11 @@ def tick_build_order(
             builder=ship,
             current_tick=0,  # tick is injected by the tick loop when creating Event
         )
+
+        # Default newly built ships to autopilot mode
+        new_ship = result["new_ship"]
+        new_ship.autopilot_mode = "active"
+        new_ship.autopilot_profile = DEFAULT_AUTOPILOT_PROFILES.get(order.blueprint.value)
 
     return result
 

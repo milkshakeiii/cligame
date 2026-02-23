@@ -702,3 +702,166 @@ class TestCombatAPIEdgeCases:
         )
         # No locked target → 422
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Wreck expiration tests (M-2)
+# ---------------------------------------------------------------------------
+
+
+class TestWreckExpiration:
+    def test_wreck_not_expired_before_lifetime(self):
+        """Wrecks younger than WRECK_LIFETIME_TICKS are not cleaned up."""
+        from server.models import CelestialObject, CelestialType
+        from server.tick import _cleanup_expired_wrecks, WRECK_LIFETIME_TICKS
+
+        wreck = CelestialObject(
+            id=1, name="Wreck", object_type=CelestialType.wreck,
+            pos_x=0, pos_y=0, pos_z=0,
+            ore_remaining=50, ore_initial=50,
+            created_tick=100,
+        )
+
+        class FakeSession:
+            def __init__(self):
+                self.deleted = []
+            def delete(self, obj):
+                self.deleted.append(obj)
+
+        session = FakeSession()
+        # 299 ticks later — should NOT be deleted
+        _cleanup_expired_wrecks([wreck], 100 + WRECK_LIFETIME_TICKS - 1, session)
+        assert len(session.deleted) == 0
+
+    def test_wreck_expired_at_lifetime(self):
+        """Wrecks at exactly WRECK_LIFETIME_TICKS age are cleaned up."""
+        from server.models import CelestialObject, CelestialType
+        from server.tick import _cleanup_expired_wrecks, WRECK_LIFETIME_TICKS
+
+        wreck = CelestialObject(
+            id=1, name="Wreck", object_type=CelestialType.wreck,
+            pos_x=0, pos_y=0, pos_z=0,
+            ore_remaining=50, ore_initial=50,
+            created_tick=100,
+        )
+
+        class FakeSession:
+            def __init__(self):
+                self.deleted = []
+            def delete(self, obj):
+                self.deleted.append(obj)
+
+        session = FakeSession()
+        _cleanup_expired_wrecks([wreck], 100 + WRECK_LIFETIME_TICKS, session)
+        assert len(session.deleted) == 1
+        assert session.deleted[0] is wreck
+
+    def test_non_wreck_objects_not_deleted(self):
+        """Asteroids and other objects are never cleaned up."""
+        from server.models import CelestialObject, CelestialType
+        from server.tick import _cleanup_expired_wrecks, WRECK_LIFETIME_TICKS
+
+        asteroid = CelestialObject(
+            id=2, name="Asteroid", object_type=CelestialType.asteroid,
+            pos_x=0, pos_y=0, pos_z=0,
+            ore_remaining=500, ore_initial=500,
+            created_tick=0,
+        )
+
+        class FakeSession:
+            def __init__(self):
+                self.deleted = []
+            def delete(self, obj):
+                self.deleted.append(obj)
+
+        session = FakeSession()
+        _cleanup_expired_wrecks([asteroid], WRECK_LIFETIME_TICKS + 1, session)
+        assert len(session.deleted) == 0
+
+
+# ---------------------------------------------------------------------------
+# Lock break range tests (M-3)
+# ---------------------------------------------------------------------------
+
+
+class TestLockBreakRange:
+    def _make_ships_with_lock(self, distance: float, add_scanner: bool = False):
+        """Create attacker + target at given distance, with a locked TargetLock."""
+        from server.models import TargetLock, LockStatus
+
+        attacker = make_test_ship(ShipClass.frigate, pos_x=0.0)
+        attacker.id = 1
+        attacker.target_locks = []
+        if add_scanner:
+            add_module_to_ship(attacker, ModuleType.scanner, 500)
+
+        target = make_test_ship(ShipClass.frigate, pos_x=distance)
+        target.id = 2
+        target.is_destroyed = False
+        target.target_locks = []
+
+        lock = TargetLock(
+            id=1, ship_id=1, target_ship_id=2,
+            status=LockStatus.locked, ticks_remaining=0,
+        )
+        attacker.target_locks.append(lock)
+
+        return attacker, target, lock
+
+    def test_scanner_lock_holds_at_250km(self):
+        """With scanner, lock should hold at exactly 250km."""
+        from server.tick import _process_target_locks
+
+        attacker, target, lock = self._make_ships_with_lock(250_000.0, add_scanner=True)
+        ship_map = {1: attacker, 2: target}
+        events = []
+
+        def emit(event_type, message, user_id, ship_id=None):
+            events.append({"type": event_type, "message": message})
+
+        _process_target_locks(attacker, ship_map, 1, emit)
+        assert lock.status.value == "locked"
+
+    def test_scanner_lock_breaks_beyond_250km(self):
+        """With scanner, lock should break beyond 250km."""
+        from server.tick import _process_target_locks
+        from server.models import LockStatus
+
+        attacker, target, lock = self._make_ships_with_lock(250_001.0, add_scanner=True)
+        ship_map = {1: attacker, 2: target}
+        events = []
+
+        def emit(event_type, message, user_id, ship_id=None):
+            events.append({"type": event_type, "message": message})
+
+        _process_target_locks(attacker, ship_map, 1, emit)
+        assert lock.status == LockStatus.broken
+
+    def test_no_scanner_lock_holds_at_1250m(self):
+        """Without scanner, lock should hold at 1250m."""
+        from server.tick import _process_target_locks
+
+        attacker, target, lock = self._make_ships_with_lock(1_250.0, add_scanner=False)
+        ship_map = {1: attacker, 2: target}
+        events = []
+
+        def emit(event_type, message, user_id, ship_id=None):
+            events.append({"type": event_type, "message": message})
+
+        _process_target_locks(attacker, ship_map, 1, emit)
+        assert lock.status.value == "locked"
+
+    def test_no_scanner_lock_breaks_beyond_1250m(self):
+        """Without scanner, lock should break beyond 1250m."""
+        from server.tick import _process_target_locks
+        from server.models import LockStatus
+
+        attacker, target, lock = self._make_ships_with_lock(1_251.0, add_scanner=False)
+        ship_map = {1: attacker, 2: target}
+        events = []
+
+        def emit(event_type, message, user_id, ship_id=None):
+            events.append({"type": event_type, "message": message})
+
+        _process_target_locks(attacker, ship_map, 1, emit)
+        assert lock.status == LockStatus.broken

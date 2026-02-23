@@ -135,6 +135,8 @@ class ShipOut(BaseModel):
     is_destroyed: bool
     scan_resolution: float
     effective_signature_radius: float
+    autopilot_mode: str = "off"
+    autopilot_profile: Optional[str] = None
 
 
 class ShipDetailOut(ShipOut):
@@ -143,8 +145,12 @@ class ShipDetailOut(ShipOut):
 
 
 class CreateShipRequest(BaseModel):
-    name: str
+    name: Optional[str] = None
     ship_class: ShipClass
+
+
+class RenameShipRequest(BaseModel):
+    name: str
 
 
 class InstallModuleRequest(BaseModel):
@@ -240,6 +246,8 @@ def _ship_to_out(ship: Spaceship) -> ShipOut:
         is_destroyed=ship.is_destroyed,
         scan_resolution=ship.scan_resolution,
         effective_signature_radius=ship.effective_signature_radius(),
+        autopilot_mode=ship.autopilot_mode,
+        autopilot_profile=ship.autopilot_profile,
     )
 
 
@@ -330,8 +338,17 @@ async def create_ship(
         pos_y = ref.pos_y + dy * 100.0
         pos_z = ref.pos_z + dz * 100.0
 
+    # Auto-generate name if not provided: "{Class}-{N+1}"
+    ship_name = body.name
+    if not ship_name:
+        class_label = body.ship_class.value.replace("_", " ").title()
+        same_class_count = sum(
+            1 for s in existing_ships if s.ship_class == body.ship_class
+        )
+        ship_name = f"{class_label}-{same_class_count + 1}"
+
     ship = create_default_ship(
-        name=body.name,
+        name=ship_name,
         ship_class=body.ship_class,
         user_id=current_user.id,
         pos_x=pos_x,
@@ -556,6 +573,27 @@ async def uninstall_module(
         ship.armor_hp = min(ship.armor_hp, ship.max_armor_hp)
 
     await session.commit()
+
+
+@router.post("/{ship_id}/rename", response_model=ShipOut)
+async def rename_ship(
+    ship_id: int,
+    body: RenameShipRequest,
+    current_user: User = Depends(get_current_user),
+    session=Depends(get_session),
+):
+    """Rename a ship."""
+    ship = await _get_owned_ship(ship_id, current_user, session, load_relations=True)
+    ship.name = body.name
+    await session.commit()
+    # Re-query with modules loaded
+    result = await session.exec(
+        select(Spaceship)
+        .where(Spaceship.id == ship.id)
+        .options(selectinload(Spaceship.modules))
+    )
+    ship = result.one()
+    return _ship_to_out(ship)
 
 
 @router.post("/{ship_id}/undock", response_model=ShipOut)

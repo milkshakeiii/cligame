@@ -100,7 +100,7 @@ def tick_mining_laser(
         ore_lost = yield_amount - ore_added
 
         ship.ore += ore_added
-        asteroid.ore_remaining -= yield_amount
+        asteroid.ore_remaining -= ore_added
         asteroid.ore_remaining = max(0.0, asteroid.ore_remaining)
 
         result["ore_mined"] = ore_added
