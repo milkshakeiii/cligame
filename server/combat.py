@@ -278,8 +278,8 @@ def apply_shield_regen(ship: Spaceship) -> None:
     """
     Apply shield regeneration using the same curve as capacitor regen,
     but with different constants:
-      peak_regen = max_shield / 5000
-    Peaks at ~25% shield.  Full recharge takes ~5000 ticks (~83 min) at optimal HP.
+      peak_regen = max_shield / 50
+    Peaks at ~25% shield.
     """
     if ship.is_destroyed:
         return
@@ -289,7 +289,7 @@ def apply_shield_regen(ship: Spaceship) -> None:
         return
 
     ratio = ship.shield_hp / ship.max_shield_hp
-    peak_regen = ship.max_shield_hp / 5000.0
+    peak_regen = ship.max_shield_hp / 50.0
     regen = peak_regen * math.sqrt(max(0.0, ratio)) * (1.0 - ratio)
     ship.shield_hp = min(ship.max_shield_hp, ship.shield_hp + regen)
 
