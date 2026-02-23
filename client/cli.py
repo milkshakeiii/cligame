@@ -114,40 +114,42 @@ def _resolve_ship(client: SpaceGameClient, name: str) -> int:
 def _resolve_object(client: SpaceGameClient, ship_id: int, name: str) -> int:
     """
     Resolve a celestial object name to a numeric object ID.
-    Tries nearby (passive detector) first, then scan (active scanner).
-    Objects are named like 'Asteroid 1' — accepts 'asteroid1', 'Asteroid 1', etc.
+    Tries nearby (passive detector) and scan (active scanner).
+    Canonical name is always '{Type} {id}' — e.g. 'Asteroid 29'.
+    Accepts 'asteroid29', 'Asteroid 29', 'asteroid 29', etc.
     """
+    seen_ids: set[int] = set()
     objects: list[dict] = []
 
     # Try nearby first (passive, no scanner needed)
     try:
         nearby = client.nearby(ship_id)
-        objects.extend(
-            c for c in nearby if c.get("type") == "object"
-        )
+        for c in nearby:
+            if c.get("type") == "object" and c["id"] not in seen_ids:
+                objects.append(c)
+                seen_ids.add(c["id"])
     except SpaceGameError:
         pass
 
-    # Also try scan (active scanner, longer range)
-    if not objects:
-        try:
-            scan_data = client.scan(ship_id)
-            objects.extend(
-                c for c in scan_data.get("contacts", []) if c.get("type") == "object"
-            )
-        except SpaceGameError:
-            pass
+    # Also try scan (active scanner, longer range) — even if nearby found some
+    try:
+        scan_data = client.scan(ship_id)
+        for c in scan_data.get("contacts", []):
+            if c.get("type") == "object" and c["id"] not in seen_ids:
+                objects.append(c)
+                seen_ids.add(c["id"])
+    except SpaceGameError:
+        pass
 
     if not objects:
         display.print_error(
-            f"No objects detected. Activate scanner or passive detector first."
+            "No objects detected. Activate scanner or passive detector first."
         )
         raise typer.Exit(code=1)
 
-    # Build display names from object_type + id (e.g. "Asteroid 1")
+    # Canonical name is always '{Type} {id}' (e.g. 'Asteroid 29')
     for obj in objects:
-        if not obj.get("name"):
-            obj["name"] = f"{(obj.get('object_type') or 'Object').title()} {obj['id']}"
+        obj["name"] = f"{(obj.get('object_type') or 'Object').title()} {obj['id']}"
 
     matches = _name_match(objects, name)
 

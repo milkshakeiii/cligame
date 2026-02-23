@@ -187,7 +187,12 @@ def behavior_approach(
         return BehaviorResult(completed=True)
 
     current_speed = vec_magnitude(velocity)
-    bd = braking_distance(current_speed, acceleration_mag)
+    # Use potential speed (after one tick of acceleration) to compute braking
+    # distance.  This prevents discrete-time overshoot where the ship decides
+    # to accelerate on one tick, but the resulting speed increase pushes the
+    # braking distance beyond the remaining distance.
+    potential_speed = min(current_speed + acceleration_mag * DT, max_speed)
+    bd = braking_distance(potential_speed, acceleration_mag)
 
     if distance > bd:
         # Accelerate toward target
@@ -234,9 +239,15 @@ def behavior_orbit(
     else:
         radial_dir = vec_normalize(radial_vec)
 
-    # ---- Radial correction (proportional) ----
+    # ---- Radial correction (proportional + derivative) ----
     radial_error = orbit_radius - distance  # positive = too close, need to move out
-    radial_correction = vec_scale(radial_dir, -radial_error * ORBIT_RADIAL_GAIN)
+    # Compute radial velocity (positive = moving outward from target)
+    rel_vel_full = vec_sub(velocity, target_vel)
+    radial_speed = vec_dot(rel_vel_full, radial_dir)
+    # PD controller: proportional for position + derivative for velocity damping
+    # Damping term prevents overshoot by braking when approaching the orbit radius
+    radial_force = -radial_error * ORBIT_RADIAL_GAIN - radial_speed * ORBIT_RADIAL_GAIN
+    radial_correction = vec_scale(radial_dir, radial_force)
 
     # ---- Tangential thrust ----
     # Pick a tangential direction perpendicular to radial_dir.
