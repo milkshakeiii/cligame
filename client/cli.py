@@ -37,6 +37,7 @@ target_app = typer.Typer(help="Target lock commands.", no_args_is_help=True)
 weapon_app = typer.Typer(help="Weapon commands.", no_args_is_help=True)
 research_app = typer.Typer(help="Research / tech tree commands.", no_args_is_help=True)
 command_app = typer.Typer(help="Autopilot / command authority commands.", no_args_is_help=True)
+team_app = typer.Typer(help="Team management commands.", no_args_is_help=True)
 
 app.add_typer(ship_app, name="ship")
 app.add_typer(order_app, name="order")
@@ -46,6 +47,7 @@ app.add_typer(target_app, name="target")
 app.add_typer(weapon_app, name="weapon")
 app.add_typer(research_app, name="research")
 app.add_typer(command_app, name="command")
+app.add_typer(team_app, name="team")
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +375,22 @@ def ship_modules(
     resolved = _resolve_ship(client, ship_id)
     modules = _handle(client.list_modules, resolved)
     display.display_modules(modules, json)
+
+
+@ship_app.command("leeches")
+def ship_leeches(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Show active leech debuffs on a ship."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.get_ship_leeches, resolved)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.display_leeches(data, json)
 
 
 # ---------------------------------------------------------------------------
@@ -1044,6 +1062,86 @@ def command_tick(
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.autopilot_tick, resolved)
     display.display_autopilot_tick(data, json)
+
+
+# ---------------------------------------------------------------------------
+# Team commands
+# ---------------------------------------------------------------------------
+
+
+@team_app.command("create")
+def team_create(
+    name: str = typer.Argument(..., help="Team name."),
+    faction: str = typer.Option(..., "--faction", "-f", help="Faction: solarion or voidborn."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Create a new team."""
+    client = _client()
+    data = _handle(client.create_team, name, faction)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.print_success(f"Team '{data['name']}' created (faction: {data['faction']}, ID #{data['id']})")
+
+
+@team_app.command("join")
+def team_join(
+    team_id: int = typer.Argument(..., help="Team ID to join."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Join an existing team."""
+    client = _client()
+    data = _handle(client.join_team, team_id)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.print_success(f"Joined team #{team_id}")
+
+
+@team_app.command("list")
+def team_list(
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """List all teams."""
+    client = _client()
+    data = _handle(client.list_teams)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.display_teams(data, json)
+
+
+@team_app.command("info")
+def team_info(
+    team_id: int = typer.Argument(..., help="Team ID."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Show team details."""
+    client = _client()
+    data = _handle(client.get_team, team_id)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.display_team_info(data, json)
+
+
+@team_app.command("research")
+def team_research(
+    team_id: int = typer.Argument(..., help="Team ID."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Show team research status."""
+    client = _client()
+    data = _handle(client.get_team_research, team_id)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.display_team_research(data, json)
 
 
 # ---------------------------------------------------------------------------

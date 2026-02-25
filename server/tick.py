@@ -5,17 +5,22 @@ Runs as an asyncio background task started by FastAPI's lifespan context.
 Each tick (default 1 real second) executes the following phases in order:
 
   1. Increment GameState.current_tick
-  2. Energy phase     — capacitor regen for all ships
-  3. Module phase     — advance cycle timers, fire cycles, drain cap
-  4. Mining phase     — ore extraction for ships with active mining lasers
-  5. Production phase — advance build orders, spawn completed ships
-  6. Physics phase    — apply movement behaviors, integrate positions
-  6.5 Target lock phase — advance lock timers, complete/break locks
-  6.6 Weapon fire phase — turret tracking, hit/miss, damage application
+  2. Energy phase      — capacitor regen for all ships
+  3. Module phase      — advance cycle timers, fire cycles, drain cap
+  4. Mining phase      — ore extraction for ships with active mining lasers
+  5. Production phase  — advance build orders, spawn completed ships
+  6. Physics phase     — apply movement behaviors, integrate positions
+  6.5 Target lock phase  — advance lock timers, complete/break locks
+  6.55 Solar Lance phase — charge / fire / cooldown the Solarion superweapon
+  6.6 Weapon fire phase  — turret tracking, hit/miss, damage application
+  6.65 Leech phase       — tick leech debuffs (damage + cap drain)
   6.7 Shield regen phase — passive shield regeneration
-  6.8 Missile phase    — resolve in-flight missiles (delayed damage)
-  6.9 Destruction phase — destroy ships at 0 armor, create wrecks
-  7. Detection phase  — passive detectors + scan-reveal alerts
+  6.7b Repair modules    — shield boosters + armor repairers
+  6.72 Voidborn armor regen — passive armor regen for Voidborn ships
+  6.73 Bio-Repair Swarm  — AoE armor repair for friendly ships
+  6.8 Missile phase      — resolve in-flight missiles (delayed damage)
+  6.9 Destruction phase  — destroy ships at 0 armor, create wrecks
+  7. Detection phase     — passive detectors + scan-reveal alerts
   8. Generate Event records for noteworthy occurrences
   9. Commit once
 
@@ -44,6 +49,7 @@ from server.models import (
     Event,
     EventType,
     GameState,
+    LeechDebuff,
     LockStatus,
     MAX_LOCKS,
     ModuleType,
@@ -61,6 +67,14 @@ from server.models import (
     WEAPON_TYPES,
     SHIELD_BOOSTER_TYPES,
     ARMOR_REPAIRER_TYPES,
+    LEECH_PROJECTOR_TYPES,
+    STEALTH_FIELD_TYPES,
+    VOIDBORN_MODULE_PARAMS,
+    SOLARION_MODULE_PARAMS,
+    SHARED_MODULE_PARAMS,
+    VOIDBORN_SHIELD_BOOSTER_TYPES,
+    SOLARION_ARMOR_REPAIRER_TYPES,
+    SOLARION_BEAM_TURRET_TYPES,
     WeaponAssignment,
 )
 from server.energy import apply_regen, check_depletion, drain_module
@@ -85,11 +99,14 @@ from server.scanning import (
     DETAIL_CLASSIFICATION,
 )
 from server.combat import (
+    apply_armor_regen,
     apply_damage,
     apply_shield_regen,
+    compute_angular_velocity,
     compute_final_hit_chance,
     compute_lock_time,
     compute_missile_damage,
+    compute_transversal_velocity,
     compute_turret_damage,
 )
 from server.research import tick_research
@@ -211,6 +228,10 @@ async def _run_tick() -> None:
         pm_result = await session.exec(select(PendingMissile))
         pending_missiles: list[PendingMissile] = list(pm_result.all())
 
+        # Load active leech debuffs for faction mechanics
+        leech_result = await session.exec(select(LeechDebuff))
+        active_leeches: list[LeechDebuff] = list(leech_result.all())
+
         # Collect events to bulk-insert at the end
         pending_events: list[Event] = []
 
@@ -291,6 +312,14 @@ async def _run_tick() -> None:
                 continue
             _process_physics(ship, _ship_map, _asteroid_map, current_tick, emit, session)
 
+        # Clean up leeches on ships that are now docked (dock may have occurred in physics)
+        for ship in ships:
+            if ship.is_docked():
+                leeches_on_docked = [lch for lch in active_leeches if lch.target_ship_id == ship.id]
+                for lch in leeches_on_docked:
+                    session.delete(lch)
+                    active_leeches.remove(lch)
+
         # ------------------------------------------------------------------
         # Phase 6.5: Target Lock Processing
         # ------------------------------------------------------------------
@@ -298,6 +327,14 @@ async def _run_tick() -> None:
             if ship.is_docked() or ship.is_destroyed:
                 continue
             _process_target_locks(ship, _ship_map, current_tick, emit)
+
+        # ------------------------------------------------------------------
+        # Phase 6.55: Solar Lance Processing
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked() or ship.is_destroyed:
+                continue
+            _process_solar_lance(ship, _ship_map, current_tick, emit)
 
         # ------------------------------------------------------------------
         # Phase 6.6: Weapon Fire
@@ -319,7 +356,13 @@ async def _run_tick() -> None:
                 ship, _ship_map, _wa_by_module,
                 fired_modules_by_ship.get(ship.id, set()),
                 current_tick, emit, session, pending_missiles,
+                active_leeches,
             )
+
+        # ------------------------------------------------------------------
+        # Phase 6.65: Leech Processing
+        # ------------------------------------------------------------------
+        _process_leeches(active_leeches, _ship_map, current_tick, session, emit)
 
         # ------------------------------------------------------------------
         # Phase 6.7: Shield Regen
@@ -330,13 +373,37 @@ async def _run_tick() -> None:
             apply_shield_regen(ship)
 
         # ------------------------------------------------------------------
-        # Phase 6.7b: Shield Boosters + Armor Repairers
+        # Phase 6.7b: Shield Boosters + Armor Repairers + Shield Purge
         # ------------------------------------------------------------------
         for ship in ships:
             if ship.is_docked() or ship.is_destroyed:
                 continue
             _process_repair_modules(
                 ship, fired_modules_by_ship.get(ship.id, set()),
+            )
+            _process_shield_purge(
+                ship, fired_modules_by_ship.get(ship.id, set()),
+                active_leeches, emit, session,
+            )
+
+        # ------------------------------------------------------------------
+        # Phase 6.72: Voidborn Passive Armor Regen
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked() or ship.is_destroyed:
+                continue
+            if ship.faction == "voidborn":
+                apply_armor_regen(ship)
+
+        # ------------------------------------------------------------------
+        # Phase 6.73: Bio-Repair Swarm Processing
+        # ------------------------------------------------------------------
+        for ship in ships:
+            if ship.is_docked() or ship.is_destroyed:
+                continue
+            _process_bio_repair_swarm(
+                ship, ships, fired_modules_by_ship.get(ship.id, set()),
+                current_tick, emit,
             )
 
         # ------------------------------------------------------------------
@@ -349,7 +416,7 @@ async def _run_tick() -> None:
         # ------------------------------------------------------------------
         # Phase 6.9: Destruction
         # ------------------------------------------------------------------
-        _process_destruction(ships, _ship_map, current_tick, emit, session)
+        _process_destruction(ships, _ship_map, current_tick, emit, session, active_leeches)
 
         # ------------------------------------------------------------------
         # Phase 6.9b: Wreck cleanup (expired wrecks despawn)
@@ -399,6 +466,10 @@ def _process_modules(
     fired_module_ids: set[int] = set()
 
     for module in ship.modules:
+        # Count down stealth cooldown even if module is inactive
+        if module.module_type.value in STEALTH_FIELD_TYPES and module.stealth_cooldown_remaining > 0:
+            module.stealth_cooldown_remaining -= 1
+
         if not module.active:
             continue
         if module.is_passive:
@@ -988,6 +1059,7 @@ def _process_weapon_fire(
     emit,
     session,
     pending_missiles_list: list[PendingMissile],
+    active_leeches: list[LeechDebuff],
 ) -> None:
     """
     Fire weapons that cycled this tick.
@@ -998,6 +1070,43 @@ def _process_weapon_fire(
     for lock in ship.target_locks:
         if lock.status == LockStatus.locked:
             locked_targets.add(lock.target_ship_id)
+
+    # Check if this ship has any weapon that will fire this tick
+    will_fire_weapon = False
+    for module in ship.modules:
+        mt = module.module_type.value
+        if mt not in WEAPON_TYPES:
+            continue
+        if not module.active:
+            continue
+        if module.id not in fired_module_ids:
+            continue
+        wa = wa_by_module.get(module.id)
+        if wa is None:
+            continue
+        if wa.target_ship_id not in locked_targets:
+            continue
+        target = ship_map.get(wa.target_ship_id)
+        if target is None or target.is_destroyed:
+            continue
+        will_fire_weapon = True
+        break
+
+    # Stealth deactivation: if the ship will fire a weapon, deactivate stealth
+    if will_fire_weapon:
+        for m in ship.modules:
+            if m.module_type.value in STEALTH_FIELD_TYPES and m.active:
+                m.active = False
+                m.stealth_cooldown_remaining = VOIDBORN_MODULE_PARAMS.get(
+                    m.module_type.value, {}
+                ).get("decloak_cooldown", 10)
+                if ship.user_id is not None:
+                    emit(
+                        EventType.stealth_deactivated,
+                        "Stealth field deactivated: weapon fire",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
 
     for module in ship.modules:
         mt = module.module_type.value
@@ -1024,7 +1133,7 @@ def _process_weapon_fire(
         target_pos = (target.pos_x, target.pos_y, target.pos_z)
         target_vel = (target.vel_x, target.vel_y, target.vel_z)
 
-        # --- TURRETS ---
+        # --- TURRETS (including Solarion beam turrets) ---
         if mt in TURRET_TYPES:
             hit_chance = compute_final_hit_chance(
                 attacker_pos, attacker_vel,
@@ -1069,6 +1178,68 @@ def _process_weapon_fire(
                 )
 
             _emit_damage_events(target, dmg_result, ship.id, emit)
+
+        # --- LEECH PROJECTORS ---
+        elif mt in LEECH_PROJECTOR_TYPES:
+            params = VOIDBORN_MODULE_PARAMS.get(mt, {})
+            leech_range = params.get("range", 8_000)
+            dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(attacker_pos, target_pos)))
+
+            if dist > leech_range:
+                if ship.user_id is not None:
+                    emit(
+                        EventType.weapon_miss,
+                        f"{mt.replace('_', ' ').title()}: target out of range "
+                        f"({dist/1000:.1f} km)",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+                continue
+
+            # Check stacking limit: max 2 same-type leeches from same source on same target
+            max_stacks = params.get("max_stacks_per_source", 2)
+            same_type_leeches = [
+                lch for lch in active_leeches
+                if lch.source_ship_id == ship.id
+                and lch.target_ship_id == target.id
+                and lch.leech_type == mt
+            ]
+
+            if len(same_type_leeches) >= max_stacks:
+                # Refresh the oldest one's duration
+                oldest = min(same_type_leeches, key=lambda lch: lch.created_at_tick)
+                oldest.ticks_remaining = params.get("duration_ticks", 30)
+                oldest.created_at_tick = current_tick
+            else:
+                # Create new leech debuff
+                new_leech = LeechDebuff(
+                    source_ship_id=ship.id,
+                    target_ship_id=target.id,
+                    leech_type=mt,
+                    damage_per_tick=params.get("damage_per_tick", 3),
+                    damage_type=params.get("damage_type", "thermal"),
+                    cap_drain_per_tick=params.get("cap_drain_per_tick", 5),
+                    ticks_remaining=params.get("duration_ticks", 30),
+                    created_at_tick=current_tick,
+                )
+                session.add(new_leech)
+                active_leeches.append(new_leech)
+
+            # Emit events
+            if ship.user_id is not None:
+                emit(
+                    EventType.leech_applied,
+                    f"{mt.replace('_', ' ').title()} applied to Ship #{target.id}",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+            if target.user_id is not None:
+                emit(
+                    EventType.leech_incoming,
+                    f"Leech debuff applied by Ship #{ship.id}",
+                    user_id=target.user_id,
+                    ship_id=target.id,
+                )
 
         # --- MISSILES ---
         elif mt in MISSILE_TYPES:
@@ -1183,12 +1354,12 @@ def _process_repair_modules(
 
         mt = module.module_type.value
 
-        if mt in SHIELD_BOOSTER_TYPES:
+        if mt in SHIELD_BOOSTER_TYPES or mt in VOIDBORN_SHIELD_BOOSTER_TYPES:
             ship.shield_hp = min(
                 ship.max_shield_hp,
                 ship.shield_hp + module.shield_repair_per_cycle,
             )
-        elif mt in ARMOR_REPAIRER_TYPES:
+        elif mt in ARMOR_REPAIRER_TYPES or mt in SOLARION_ARMOR_REPAIRER_TYPES:
             ship.armor_hp = min(
                 ship.max_armor_hp,
                 ship.armor_hp + module.armor_repair_per_cycle,
@@ -1248,6 +1419,7 @@ def _process_destruction(
     current_tick: int,
     emit,
     session,
+    active_leeches: list[LeechDebuff],
 ) -> None:
     """Handle ships whose armor has reached 0."""
     for ship in ships:
@@ -1305,8 +1477,22 @@ def _process_destruction(
         )
         session.add(wreck)
 
-        # Clean up weapon assignments targeting this ship
-        # (they'll be cleaned up naturally when the ship is filtered out next tick)
+        # Clean up leeches sourced from this destroyed ship
+        leeches_to_remove = [
+            lch for lch in active_leeches
+            if lch.source_ship_id == ship.id
+        ]
+        for lch in leeches_to_remove:
+            target = ship_map.get(lch.target_ship_id)
+            if target and target.user_id is not None:
+                emit(
+                    EventType.leech_cleansed,
+                    f"Leech debuff removed: source Ship #{ship.id} destroyed",
+                    user_id=target.user_id,
+                    ship_id=target.id,
+                )
+            session.delete(lch)
+            active_leeches.remove(lch)
 
 
 def _cleanup_expired_wrecks(
@@ -1322,3 +1508,302 @@ def _cleanup_expired_wrecks(
             continue
         if current_tick - obj.created_tick >= WRECK_LIFETIME_TICKS:
             session.delete(obj)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: Faction mechanic helpers
+# ---------------------------------------------------------------------------
+
+
+def _process_solar_lance(
+    ship: Spaceship,
+    ship_map: dict[int, Spaceship],
+    current_tick: int,
+    emit,
+) -> None:
+    """Process Solar Lance charging, firing, and cooldown for a single ship."""
+    for module in ship.modules:
+        if module.module_type.value != "solar_lance":
+            continue
+        if not module.active:
+            continue
+
+        lance_params = SOLARION_MODULE_PARAMS.get("solar_lance", {})
+
+        if module.lance_state == "charging":
+            module.lance_charge_remaining -= 1
+
+            # Emit progress event every 10 ticks
+            if module.lance_charge_remaining > 0 and module.lance_charge_remaining % 10 == 0:
+                if ship.user_id is not None:
+                    emit(
+                        EventType.solar_lance_charging,
+                        f"Solar Lance charging: {module.lance_charge_remaining} ticks remaining",
+                        user_id=ship.user_id,
+                        ship_id=ship.id,
+                    )
+
+            if module.lance_charge_remaining <= 0:
+                # Charge complete — attempt to fire
+                target = ship_map.get(module.lance_target_ship_id) if module.lance_target_ship_id else None
+                fire_cap_cost = lance_params.get("fire_cap_cost", 10_000)
+                can_fire = True
+                reason = ""
+
+                # Check target exists and is not destroyed
+                if target is None or target.is_destroyed:
+                    can_fire = False
+                    reason = "target lost"
+
+                # Check lock still held
+                if can_fire:
+                    has_lock = any(
+                        lock.target_ship_id == module.lance_target_ship_id
+                        and lock.status == LockStatus.locked
+                        for lock in ship.target_locks
+                    )
+                    if not has_lock:
+                        can_fire = False
+                        reason = "lock lost"
+
+                # Check distance
+                if can_fire and target is not None:
+                    dx = target.pos_x - ship.pos_x
+                    dy = target.pos_y - ship.pos_y
+                    dz = target.pos_z - ship.pos_z
+                    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+                    max_range = lance_params.get("range", 100_000)
+                    if dist > max_range:
+                        can_fire = False
+                        reason = f"out of range ({dist/1000:.1f} km)"
+
+                # Check angular velocity
+                if can_fire and target is not None:
+                    attacker_pos = (ship.pos_x, ship.pos_y, ship.pos_z)
+                    attacker_vel = (ship.vel_x, ship.vel_y, ship.vel_z)
+                    target_pos = (target.pos_x, target.pos_y, target.pos_z)
+                    target_vel = (target.vel_x, target.vel_y, target.vel_z)
+                    transversal = compute_transversal_velocity(
+                        attacker_pos, attacker_vel, target_pos, target_vel
+                    )
+                    distance = math.sqrt(
+                        (target.pos_x - ship.pos_x) ** 2
+                        + (target.pos_y - ship.pos_y) ** 2
+                        + (target.pos_z - ship.pos_z) ** 2
+                    )
+                    angular_vel = compute_angular_velocity(transversal, distance)
+                    max_angular = lance_params.get("max_angular_velocity", 0.001)
+                    if angular_vel > max_angular:
+                        can_fire = False
+                        reason = "target angular velocity too high"
+
+                # Check capacitor
+                if can_fire and ship.capacitor < fire_cap_cost:
+                    can_fire = False
+                    reason = "insufficient capacitor"
+
+                # Fire or fizzle
+                if can_fire and target is not None:
+                    # Consume cap
+                    ship.capacitor = max(0, ship.capacitor - fire_cap_cost)
+                    # Apply massive damage
+                    lance_damage = lance_params.get("damage", 50_000)
+                    lance_dmg_type = lance_params.get("damage_type", "thermal")
+                    apply_damage(target, lance_damage, lance_dmg_type)
+                    if ship.user_id is not None:
+                        emit(
+                            EventType.solar_lance_fired,
+                            f"Solar Lance fired on Ship #{target.id} "
+                            f"for {lance_damage} {lance_dmg_type} damage!",
+                            user_id=ship.user_id,
+                            ship_id=ship.id,
+                        )
+                    if target.user_id is not None:
+                        emit(
+                            EventType.incoming_damage,
+                            f"Solar Lance hit by Ship #{ship.id} "
+                            f"for {lance_damage} {lance_dmg_type} damage!",
+                            user_id=target.user_id,
+                            ship_id=target.id,
+                        )
+                else:
+                    # Fizzle — still consume cap (or whatever's available)
+                    cap_consumed = min(ship.capacitor, fire_cap_cost)
+                    ship.capacitor = max(0, ship.capacitor - cap_consumed)
+                    if ship.user_id is not None:
+                        emit(
+                            EventType.solar_lance_fizzled,
+                            f"Solar Lance fizzled: {reason}",
+                            user_id=ship.user_id,
+                            ship_id=ship.id,
+                        )
+
+                # Enter cooldown
+                cooldown = lance_params.get("cooldown_ticks", 300)
+                module.lance_state = "cooldown"
+                module.lance_cooldown_remaining = cooldown
+                module.lance_target_ship_id = None
+
+        elif module.lance_state == "cooldown":
+            module.lance_cooldown_remaining -= 1
+            if module.lance_cooldown_remaining <= 0:
+                module.lance_state = "idle"
+                module.active = False
+
+
+def _process_leeches(
+    active_leeches: list[LeechDebuff],
+    ship_map: dict[int, Spaceship],
+    current_tick: int,
+    session,
+    emit,
+) -> None:
+    """Tick all active leech debuffs: apply damage, drain cap, expire."""
+    leeches_to_remove: list[LeechDebuff] = []
+
+    for leech in active_leeches:
+        target = ship_map.get(leech.target_ship_id)
+
+        # Skip if target destroyed — mark for deletion
+        if target is None or target.is_destroyed:
+            leeches_to_remove.append(leech)
+            continue
+
+        # Compute stacking diminishment: sort same-type leeches on same target
+        same_type_on_target = sorted(
+            [lch for lch in active_leeches if lch.target_ship_id == leech.target_ship_id and lch.leech_type == leech.leech_type],
+            key=lambda lch: lch.created_at_tick,
+        )
+        rank = next((i for i, lch in enumerate(same_type_on_target) if lch is leech), 0)
+        # First 5 at full power, then diminishing
+        effectiveness = 0.85 ** max(0, rank - 4)
+
+        # Apply effective damage
+        effective_damage = leech.damage_per_tick * effectiveness
+        apply_damage(target, effective_damage, leech.damage_type)
+
+        # Drain cap
+        effective_drain = leech.cap_drain_per_tick * effectiveness
+        target.capacitor = max(0, target.capacitor - effective_drain)
+
+        # Decrement ticks remaining
+        leech.ticks_remaining -= 1
+        if leech.ticks_remaining <= 0:
+            leeches_to_remove.append(leech)
+            if target.user_id is not None:
+                emit(
+                    EventType.leech_expired,
+                    f"Leech debuff ({leech.leech_type.replace('_', ' ')}) expired",
+                    user_id=target.user_id,
+                    ship_id=target.id,
+                )
+
+        # Periodic summary every 10 ticks
+        if current_tick % 10 == 0 and target.user_id is not None and leech.ticks_remaining > 0:
+            emit(
+                EventType.leech_tick,
+                f"Leech debuff active: {effective_damage:.1f} {leech.damage_type} dmg/tick, "
+                f"{effective_drain:.1f} cap drain/tick, {leech.ticks_remaining} ticks left",
+                user_id=target.user_id,
+                ship_id=target.id,
+            )
+
+    # Remove expired/invalid leeches
+    for leech in leeches_to_remove:
+        session.delete(leech)
+        if leech in active_leeches:
+            active_leeches.remove(leech)
+
+
+def _process_shield_purge(
+    ship: Spaceship,
+    fired_module_ids: set[int],
+    active_leeches: list[LeechDebuff],
+    emit,
+    session,
+) -> None:
+    """Process shield purge module: remove all leeches on this ship at a shield HP cost."""
+    for module in ship.modules:
+        if module.module_type.value != "shield_purge":
+            continue
+        if not module.active:
+            continue
+        if module.id not in fired_module_ids:
+            continue
+
+        # Find leeches targeting this ship
+        leeches_on_ship = [lch for lch in active_leeches if lch.target_ship_id == ship.id]
+        if not leeches_on_ship:
+            continue
+
+        # Cost: 10% of current shield HP
+        shield_cost = ship.shield_hp * SHARED_MODULE_PARAMS.get("shield_purge", {}).get("shield_cost_percent", 0.10)
+        ship.shield_hp = max(0, ship.shield_hp - shield_cost)
+
+        # Remove all leeches
+        for lch in leeches_on_ship:
+            session.delete(lch)
+            if lch in active_leeches:
+                active_leeches.remove(lch)
+
+        if ship.user_id is not None:
+            emit(
+                EventType.leech_cleansed,
+                f"Shield Purge activated: {len(leeches_on_ship)} leech debuff(s) removed "
+                f"(cost: {shield_cost:.0f} shield HP)",
+                user_id=ship.user_id,
+                ship_id=ship.id,
+            )
+
+
+def _process_bio_repair_swarm(
+    ship: Spaceship,
+    all_ships: list[Spaceship],
+    fired_module_ids: set[int],
+    current_tick: int,
+    emit,
+) -> None:
+    """Process Bio-Repair Swarm: AoE armor repair for friendly ships in range."""
+    for module in ship.modules:
+        if module.module_type.value != "bio_repair_swarm":
+            continue
+        if not module.active:
+            continue
+        if module.id not in fired_module_ids:
+            continue
+
+        params = VOIDBORN_MODULE_PARAMS.get("bio_repair_swarm", {})
+        repair_range = params.get("repair_range", 30_000)
+        repair_percent = params.get("repair_percent", 0.02)
+        repaired_count = 0
+
+        for other in all_ships:
+            if other.is_destroyed or other.is_docked():
+                continue
+            if other.id == ship.id:
+                continue
+            # Only repair ships on the same team
+            if ship.team_id is None or other.team_id != ship.team_id:
+                continue
+
+            # Check range
+            dx = other.pos_x - ship.pos_x
+            dy = other.pos_y - ship.pos_y
+            dz = other.pos_z - ship.pos_z
+            dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if dist > repair_range:
+                continue
+
+            # Repair 2% of max armor
+            repair_amount = other.max_armor_hp * repair_percent
+            if other.armor_hp < other.max_armor_hp:
+                other.armor_hp = min(other.max_armor_hp, other.armor_hp + repair_amount)
+                repaired_count += 1
+
+        if repaired_count > 0 and ship.user_id is not None:
+            emit(
+                EventType.bio_repair_swarm_active,
+                f"Bio-Repair Swarm repaired {repaired_count} friendly ship(s)",
+                user_id=ship.user_id,
+                ship_id=ship.id,
+            )

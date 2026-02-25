@@ -175,6 +175,7 @@ from server.routes.scanning import router as scanning_router  # noqa: E402
 from server.routes.combat import router as combat_router      # noqa: E402
 from server.routes.research import router as research_router  # noqa: E402
 from server.routes.autopilot import router as autopilot_router  # noqa: E402
+from server.routes.teams import router as teams_router          # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(game_router)
@@ -186,3 +187,4 @@ app.include_router(scanning_router)
 app.include_router(combat_router)
 app.include_router(research_router)
 app.include_router(autopilot_router)
+app.include_router(teams_router)

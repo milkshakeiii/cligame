@@ -382,6 +382,38 @@ class SpaceGameClient:
         return self._request("GET", f"/api/ships/{ship_id}/autopilot/tick")
 
     # ------------------------------------------------------------------
+    # Teams (Phase 7)
+    # ------------------------------------------------------------------
+
+    def create_team(self, name: str, faction: str) -> dict:
+        """POST /api/teams — create a new team."""
+        return self._request("POST", "/api/teams", json_body={"name": name, "faction": faction})
+
+    def join_team(self, team_id: int) -> dict:
+        """POST /api/teams/{team_id}/join — join an existing team."""
+        return self._request("POST", f"/api/teams/{team_id}/join")
+
+    def get_team(self, team_id: int) -> dict:
+        """GET /api/teams/{team_id} — get team info."""
+        return self._request("GET", f"/api/teams/{team_id}")
+
+    def list_teams(self) -> list:
+        """GET /api/teams — list all teams."""
+        return self._request("GET", "/api/teams")
+
+    def get_team_research(self, team_id: int) -> list:
+        """GET /api/teams/{team_id}/research — team research status."""
+        return self._request("GET", f"/api/teams/{team_id}/research")
+
+    # ------------------------------------------------------------------
+    # Leech debuffs (Phase 7)
+    # ------------------------------------------------------------------
+
+    def get_ship_leeches(self, ship_id: int) -> list:
+        """GET /api/ships/{ship_id}/leeches — active leech debuffs on a ship."""
+        return self._request("GET", f"/api/ships/{ship_id}/leeches")
+
+    # ------------------------------------------------------------------
     # Alerts
     # ------------------------------------------------------------------
 

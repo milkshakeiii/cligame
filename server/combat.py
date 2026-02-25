@@ -298,6 +298,20 @@ def apply_shield_regen(ship: Spaceship) -> None:
 # Target lock time
 # ---------------------------------------------------------------------------
 
+def apply_armor_regen(ship: Spaceship) -> None:
+    """Passive armor regen for Voidborn ships. Peak regen = max_armor / 200."""
+    if ship.is_destroyed:
+        return
+    if ship.max_armor_hp <= 0:
+        return
+    if ship.armor_hp >= ship.max_armor_hp:
+        return
+    ratio = ship.armor_hp / ship.max_armor_hp
+    peak_regen = ship.max_armor_hp / 200.0
+    regen = peak_regen * math.sqrt(max(0.0, ratio)) * (1.0 - ratio)
+    ship.armor_hp = min(ship.max_armor_hp, ship.armor_hp + regen)
+
+
 def compute_lock_time(
     attacker_scan_resolution: float,
     target_sig_radius: float,

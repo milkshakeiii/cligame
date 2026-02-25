@@ -182,10 +182,14 @@ def display_ship_list(ships: list, json_mode: bool) -> None:
         console.print("[dim]No ships found.[/dim]")
         return
 
+    has_faction = any(s.get("faction") for s in ships)
+
     t = Table(box=box.SIMPLE_HEAVY, title="Ships", show_lines=False)
     t.add_column("ID", style="dim", justify="right")
     t.add_column("Name", style="bold")
     t.add_column("Class")
+    if has_faction:
+        t.add_column("Faction")
     t.add_column("Position")
     t.add_column("Speed")
     t.add_column("Ore / Cargo")
@@ -199,16 +203,15 @@ def display_ship_list(ships: list, json_mode: bool) -> None:
         pct = (s["capacitor"] / s["max_capacitor"] * 100) if s["max_capacitor"] else 0
         cap_str = f"{pct:.0f}%"
         vol = f"{s['used_volume']}/{s['total_volume']}"
-        t.add_row(
+        row = [
             str(s["id"]),
             s["name"],
             s["ship_class"],
-            pos,
-            speed,
-            ore,
-            cap_str,
-            vol,
-        )
+        ]
+        if has_faction:
+            row.append((s.get("faction") or "none").title())
+        row.extend([pos, speed, ore, cap_str, vol])
+        t.add_row(*row)
 
     console.print(t)
 
@@ -232,9 +235,15 @@ def display_ship_info(data: dict, json_mode: bool) -> None:
 
     destroyed_str = "  [bold red]*** DESTROYED ***[/bold red]\n" if destroyed else ""
 
+    faction_str = data.get("faction") or "none"
+    team_id = data.get("team_id")
+    team_str = f"  Team       : #{team_id}\n" if team_id else ""
+
     header = (
         f"[bold]{data['name']}[/bold]  —  [cyan]{data['ship_class'].upper()}[/cyan]  "
         f"(ID #{data['id']})\n"
+        f"  Faction    : {faction_str.title()}\n"
+        f"{team_str}"
         f"{destroyed_str}"
         f"{docked_str}"
         f"  Position   : ({data['pos_x']:.1f}, {data['pos_y']:.1f}, {data['pos_z']:.1f}) m\n"
@@ -919,6 +928,124 @@ def display_weapon_assignments(assignments: list, json_mode: bool) -> None:
     console.print(f"[bold green]{len(assignments)} weapon(s) assigned and active:[/bold green]")
     for a in assignments:
         console.print(f"  Weapon #{a['module_id']} → Ship #{a['target_ship_id']}")
+
+
+# ---------------------------------------------------------------------------
+# Teams (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def display_teams(data: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    if not data:
+        console.print("[dim]No teams found.[/dim]")
+        return
+    t = Table(box=box.SIMPLE, title="Teams")
+    t.add_column("ID", justify="right")
+    t.add_column("Name")
+    t.add_column("Faction")
+    t.add_column("Members", justify="right")
+    for team in data:
+        t.add_row(
+            str(team["id"]),
+            team["name"],
+            team.get("faction", "?").title(),
+            str(team.get("member_count", "?")),
+        )
+    console.print(t)
+
+
+def display_team_info(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+
+    faction = (data.get("faction") or "?").title()
+    members = data.get("members", [])
+    member_count = data.get("member_count", len(members))
+
+    header = (
+        f"[bold]{data.get('name', '?')}[/bold]  (ID #{data.get('id', '?')})\n"
+        f"  Faction    : [cyan]{faction}[/cyan]\n"
+        f"  Members    : {member_count}"
+    )
+
+    console.print(Panel(header, title=f"Team #{data.get('id', '?')}", border_style="cyan"))
+
+    if members:
+        t = Table(box=box.SIMPLE, title="Team Members", show_lines=False)
+        t.add_column("User ID", justify="right")
+        t.add_column("Username", style="bold")
+        for m in members:
+            t.add_row(
+                str(m.get("id", m.get("user_id", "?"))),
+                m.get("username", "?"),
+            )
+        console.print(t)
+
+
+def display_team_research(data: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+
+    if not data:
+        console.print("[dim]No team research in progress.[/dim]")
+        return
+
+    t = Table(box=box.SIMPLE, title="Team Research Status", show_lines=False)
+    t.add_column("ID", style="dim", justify="right")
+    t.add_column("Tech", style="bold")
+    t.add_column("Status")
+    t.add_column("Progress")
+    t.add_column("Ticks Left", justify="right")
+    t.add_column("Ship", justify="right")
+
+    for r in data:
+        status = r.get("status", "?")
+        color = {"researching": "cyan", "paused": "yellow", "complete": "green"}.get(status, "white")
+        pct = r.get("progress_pct", 0.0)
+        t.add_row(
+            str(r.get("id", "?")),
+            r.get("tech_name", r.get("tech_id", "?")),
+            f"[{color}]{status}[/{color}]",
+            f"{pct:.0f}%",
+            str(r.get("ticks_remaining", 0)),
+            str(r.get("ship_id", "?")),
+        )
+
+    console.print(t)
+
+
+# ---------------------------------------------------------------------------
+# Leech debuffs (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def display_leeches(data: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    if not data:
+        console.print("[dim]No active leech debuffs.[/dim]")
+        return
+    t = Table(box=box.SIMPLE, title="Active Leech Debuffs")
+    t.add_column("Source Ship", justify="right")
+    t.add_column("Type")
+    t.add_column("Damage/tick", justify="right")
+    t.add_column("Cap Drain/tick", justify="right")
+    t.add_column("Ticks Left", justify="right")
+    for l in data:
+        t.add_row(
+            str(l.get("source_ship_id", "?")),
+            l.get("leech_type", "?"),
+            f"{l.get('damage_per_tick', 0):.1f}",
+            f"{l.get('cap_drain_per_tick', 0):.1f}",
+            str(l.get("ticks_remaining", 0)),
+        )
+    console.print(t)
 
 
 # ---------------------------------------------------------------------------

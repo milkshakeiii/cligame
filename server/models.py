@@ -98,6 +98,24 @@ class ModuleType(str, Enum):
     strip_miner = "strip_miner"
     enhanced_docking_bay = "enhanced_docking_bay"
     fortress = "fortress"
+    # --- Phase 7: Solarion modules ---
+    focused_beam_medium = "focused_beam_medium"
+    focused_beam_large = "focused_beam_large"
+    reactive_armor_membrane_medium = "reactive_armor_membrane_medium"
+    reactive_armor_membrane_large = "reactive_armor_membrane_large"
+    armor_repair_nexus_medium = "armor_repair_nexus_medium"
+    armor_repair_nexus_large = "armor_repair_nexus_large"
+    solar_lance = "solar_lance"
+    # --- Phase 7: Voidborn modules ---
+    light_leech_projector = "light_leech_projector"
+    heavy_leech_projector = "heavy_leech_projector"
+    phase_shield_amplifier_medium = "phase_shield_amplifier_medium"
+    phase_shield_amplifier_large = "phase_shield_amplifier_large"
+    small_stealth_field = "small_stealth_field"
+    medium_stealth_field = "medium_stealth_field"
+    bio_repair_swarm = "bio_repair_swarm"
+    # --- Phase 7: Shared ---
+    shield_purge = "shield_purge"
 
 
 class OrderType(str, Enum):
@@ -136,6 +154,11 @@ class AutopilotProfile(str, Enum):
     patrol = "patrol"
 
 
+class Faction(str, Enum):
+    solarion = "solarion"
+    voidborn = "voidborn"
+
+
 class CelestialType(str, Enum):
     asteroid = "asteroid"
     planet = "planet"
@@ -172,6 +195,18 @@ class EventType(str, Enum):
     research_started = "research_started"
     research_complete = "research_complete"
     research_paused = "research_paused"
+    # --- Phase 7: Faction events ---
+    leech_applied = "leech_applied"
+    leech_incoming = "leech_incoming"
+    leech_expired = "leech_expired"
+    leech_cleansed = "leech_cleansed"
+    leech_tick = "leech_tick"
+    solar_lance_charging = "solar_lance_charging"
+    solar_lance_fired = "solar_lance_fired"
+    solar_lance_fizzled = "solar_lance_fizzled"
+    stealth_activated = "stealth_activated"
+    stealth_deactivated = "stealth_deactivated"
+    bio_repair_swarm_active = "bio_repair_swarm_active"
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +284,74 @@ SHIP_CLASSES: Dict[str, dict] = {
     },
 }
 
+# Solarion ship classes (final stats from FACTION_DESIGN.md)
+SOLARION_SHIP_CLASSES: Dict[str, dict] = {
+    "strike_craft": {
+        "volume": 100, "signature": 29, "base_cap": 55, "base_speed": 360,
+        "accel_time": 8, "base_shield": 43, "base_armor": 130,
+        "scan_resolution": 500, "base_lock_time": 3, "faction_name": "Pilgrim",
+    },
+    "corvette": {
+        "volume": 2_000, "signature": 115, "base_cap": 220, "base_speed": 225,
+        "accel_time": 12, "base_shield": 255, "base_armor": 780,
+        "scan_resolution": 400, "base_lock_time": 5, "faction_name": "Herald",
+    },
+    "frigate": {
+        "volume": 20_000, "signature": 345, "base_cap": 1_100, "base_speed": 135,
+        "accel_time": 20, "base_shield": 1_700, "base_armor": 5_200,
+        "scan_resolution": 300, "base_lock_time": 8, "faction_name": "Sentinel",
+    },
+    "destroyer": {
+        "volume": 80_000, "signature": 690, "base_cap": 3_300, "base_speed": 90,
+        "accel_time": 30, "base_shield": 6_800, "base_armor": 20_800,
+        "scan_resolution": 250, "base_lock_time": 12, "faction_name": "Justicar",
+    },
+    "cruiser": {
+        "volume": 250_000, "signature": 1_150, "base_cap": 8_800, "base_speed": 54,
+        "accel_time": 45, "base_shield": 25_500, "base_armor": 78_000,
+        "scan_resolution": 200, "base_lock_time": 18, "faction_name": "Sovereign",
+    },
+    "mothership": {
+        "volume": 2_000_000, "signature": 2_300, "base_cap": 27_500, "base_speed": 27,
+        "accel_time": 60, "base_shield": 85_000, "base_armor": 260_000,
+        "scan_resolution": 150, "base_lock_time": 30, "faction_name": "Exodus",
+    },
+}
+
+# Voidborn ship classes (final stats from FACTION_DESIGN.md)
+VOIDBORN_SHIP_CLASSES: Dict[str, dict] = {
+    "strike_craft": {
+        "volume": 100, "signature": 21, "base_cap": 45, "base_speed": 440,
+        "accel_time": 8, "base_shield": 60, "base_armor": 85,
+        "scan_resolution": 500, "base_lock_time": 3, "faction_name": "Mite",
+    },
+    "corvette": {
+        "volume": 2_000, "signature": 85, "base_cap": 180, "base_speed": 275,
+        "accel_time": 12, "base_shield": 360, "base_armor": 510,
+        "scan_resolution": 400, "base_lock_time": 5, "faction_name": "Mantis",
+    },
+    "frigate": {
+        "volume": 20_000, "signature": 255, "base_cap": 900, "base_speed": 165,
+        "accel_time": 20, "base_shield": 2_400, "base_armor": 3_400,
+        "scan_resolution": 300, "base_lock_time": 8, "faction_name": "Widow",
+    },
+    "destroyer": {
+        "volume": 80_000, "signature": 510, "base_cap": 2_700, "base_speed": 110,
+        "accel_time": 30, "base_shield": 9_600, "base_armor": 13_600,
+        "scan_resolution": 250, "base_lock_time": 12, "faction_name": "Scorpion",
+    },
+    "cruiser": {
+        "volume": 250_000, "signature": 850, "base_cap": 7_200, "base_speed": 66,
+        "accel_time": 45, "base_shield": 36_000, "base_armor": 51_000,
+        "scan_resolution": 200, "base_lock_time": 18, "faction_name": "Kraken",
+    },
+    "mothership": {
+        "volume": 2_000_000, "signature": 1_700, "base_cap": 22_500, "base_speed": 33,
+        "accel_time": 60, "base_shield": 120_000, "base_armor": 170_000,
+        "scan_resolution": 150, "base_lock_time": 30, "faction_name": "Broodmother",
+    },
+}
+
 # Shield base resistance profiles (fraction, 0.0 to 1.0)
 SHIELD_BASE_RESISTS: Dict[str, float] = {
     "kinetic": 0.20,
@@ -263,6 +366,14 @@ ARMOR_BASE_RESISTS: Dict[str, float] = {
     "explosive": 0.10,
 }
 
+# Solarion base resistances
+SOLARION_SHIELD_RESISTS: Dict[str, float] = {"kinetic": 0.15, "thermal": 0.05, "explosive": 0.25}
+SOLARION_ARMOR_RESISTS: Dict[str, float] = {"kinetic": 0.35, "thermal": 0.25, "explosive": 0.15}
+
+# Voidborn base resistances
+VOIDBORN_SHIELD_RESISTS: Dict[str, float] = {"kinetic": 0.25, "thermal": 0.15, "explosive": 0.35}
+VOIDBORN_ARMOR_RESISTS: Dict[str, float] = {"kinetic": 0.25, "thermal": 0.15, "explosive": 0.05}
+
 # Max target locks per ship class (2 + class_index)
 MAX_LOCKS: Dict[str, int] = {
     "strike_craft": 2,
@@ -272,6 +383,86 @@ MAX_LOCKS: Dict[str, int] = {
     "cruiser": 6,
     "mothership": 7,
 }
+
+SOLARION_MAX_LOCKS: Dict[str, int] = {
+    "strike_craft": 3, "corvette": 4, "frigate": 5,
+    "destroyer": 6, "cruiser": 7, "mothership": 8,
+}
+VOIDBORN_MAX_LOCKS: Dict[str, int] = {
+    "strike_craft": 2, "corvette": 3, "frigate": 4,
+    "destroyer": 5, "cruiser": 6, "mothership": 7,
+}
+
+FACTION_TRAITS: Dict[str, dict] = {
+    "solarion": {
+        "armor_repair_hp_mult": 1.25,
+        "armor_repair_cap_mult": 0.85,
+        "turret_range_mult": 1.20,
+        "module_cap_cost_mult": 1.10,  # non-armor-repair active modules
+    },
+    "voidborn": {
+        "shield_booster_hp_mult": 1.25,
+        "shield_booster_cap_mult": 0.85,
+        "module_cap_cost_mult": 0.95,  # non-shield-booster active modules
+        "passive_armor_regen": True,  # peak = max_armor / 200
+    },
+}
+
+FACTION_BUILD_MODIFIERS: Dict[str, dict] = {
+    "solarion": {
+        "strike_craft": {"ore_mult": 1.0, "time_mult": 1.0},
+        "corvette": {"ore_mult": 1.0, "time_mult": 1.0},
+        "frigate": {"ore_mult": 1.0, "time_mult": 1.0},
+        "destroyer": {"ore_mult": 1.15, "time_mult": 1.10},
+        "cruiser": {"ore_mult": 1.15, "time_mult": 1.10},
+    },
+    "voidborn": {
+        "strike_craft": {"ore_mult": 0.80, "time_mult": 0.80},
+        "corvette": {"ore_mult": 0.80, "time_mult": 0.80},
+        "frigate": {"ore_mult": 1.0, "time_mult": 1.0},
+        "destroyer": {"ore_mult": 0.95, "time_mult": 1.0},
+        "cruiser": {"ore_mult": 0.95, "time_mult": 1.0},
+    },
+}
+
+FACTION_SHIP_NAMES: Dict[str, Dict[str, str]] = {
+    "solarion": {
+        "strike_craft": "Pilgrim", "corvette": "Herald", "frigate": "Sentinel",
+        "destroyer": "Justicar", "cruiser": "Sovereign", "mothership": "Exodus",
+    },
+    "voidborn": {
+        "strike_craft": "Mite", "corvette": "Mantis", "frigate": "Widow",
+        "destroyer": "Scorpion", "cruiser": "Kraken", "mothership": "Broodmother",
+    },
+}
+
+
+def get_ship_classes(faction: Optional[str] = None) -> Dict[str, dict]:
+    """Return the ship class stats dict for a faction, or generic if no faction."""
+    if faction == "solarion":
+        return SOLARION_SHIP_CLASSES
+    elif faction == "voidborn":
+        return VOIDBORN_SHIP_CLASSES
+    return SHIP_CLASSES
+
+
+def get_base_resists(faction: Optional[str], layer: str) -> Dict[str, float]:
+    """Return base resistance dict for a faction and layer."""
+    if faction == "solarion":
+        return dict(SOLARION_SHIELD_RESISTS if layer == "shield" else SOLARION_ARMOR_RESISTS)
+    elif faction == "voidborn":
+        return dict(VOIDBORN_SHIELD_RESISTS if layer == "shield" else VOIDBORN_ARMOR_RESISTS)
+    return dict(SHIELD_BASE_RESISTS if layer == "shield" else ARMOR_BASE_RESISTS)
+
+
+def get_max_locks(faction: Optional[str], ship_class: str) -> int:
+    """Return max target locks for a faction and ship class."""
+    if faction == "solarion":
+        return SOLARION_MAX_LOCKS.get(ship_class, MAX_LOCKS.get(ship_class, 2))
+    elif faction == "voidborn":
+        return VOIDBORN_MAX_LOCKS.get(ship_class, MAX_LOCKS.get(ship_class, 2))
+    return MAX_LOCKS.get(ship_class, 2)
+
 
 # Minimum factory volume required to build each ship class (from SPEC.md)
 FACTORY_REQUIREMENTS: dict[str, int] = {
@@ -358,6 +549,7 @@ TECH_TREE: Dict[str, dict] = {
             "large_armor_plate",
             "large_armor_hardener_kinetic", "large_armor_hardener_thermal",
             "large_armor_hardener_explosive", "large_armor_repairer",
+            "shield_purge",
         ],
         "unlocks_ships": [],
     },
@@ -427,6 +619,62 @@ for _tech_id, _node in TECH_TREE.items():
         MODULE_REQUIRED_TECH[_mod] = _tech_id
     for _ship in _node["unlocks_ships"]:
         SHIP_REQUIRED_TECH[_ship] = _tech_id
+
+# Faction-specific tech tree overrides for tier 3+
+SOLARION_TECH_TREE_OVERRIDES: Dict[str, dict] = {
+    "3a_advanced_weapons": {
+        "name": "Solarion Advanced Weapons", "tier": 3,
+        "prerequisites": ["2a_large_weapons"],
+        "unlocks_modules": ["focused_beam_medium", "focused_beam_large"],
+        "unlocks_ships": [],
+    },
+    "3b_advanced_defenses": {
+        "name": "Solarion Advanced Defenses", "tier": 3,
+        "prerequisites": ["2b_large_defenses"],
+        "unlocks_modules": [
+            "reactive_armor_membrane_medium", "reactive_armor_membrane_large",
+            "armor_repair_nexus_medium", "armor_repair_nexus_large",
+        ],
+        "unlocks_ships": [],
+    },
+    "4a_superweapons": {
+        "name": "Solar Lance", "tier": 4,
+        "prerequisites": ["3a_advanced_weapons"],
+        "unlocks_modules": ["solar_lance"],
+        "unlocks_ships": [],
+    },
+}
+
+VOIDBORN_TECH_TREE_OVERRIDES: Dict[str, dict] = {
+    "3a_advanced_weapons": {
+        "name": "Voidborn Advanced Weapons", "tier": 3,
+        "prerequisites": ["2a_large_weapons"],
+        "unlocks_modules": ["light_leech_projector", "heavy_leech_projector"],
+        "unlocks_ships": [],
+    },
+    "3b_advanced_defenses": {
+        "name": "Voidborn Advanced Defenses", "tier": 3,
+        "prerequisites": ["2b_large_defenses"],
+        "unlocks_modules": [
+            "phase_shield_amplifier_medium", "phase_shield_amplifier_large",
+            "small_stealth_field", "medium_stealth_field",
+        ],
+        "unlocks_ships": [],
+    },
+    "4a_superweapons": {
+        "name": "Bio-Repair Swarm", "tier": 4,
+        "prerequisites": ["3a_advanced_weapons"],
+        "unlocks_modules": ["bio_repair_swarm"],
+        "unlocks_ships": [],
+    },
+}
+
+# Also include faction tech tree overrides in gating sets
+for _override_tree in (SOLARION_TECH_TREE_OVERRIDES, VOIDBORN_TECH_TREE_OVERRIDES):
+    for _tech_id, _node in _override_tree.items():
+        RESEARCH_GATED_MODULES.update(_node["unlocks_modules"])
+        for _mod in _node["unlocks_modules"]:
+            MODULE_REQUIRED_TECH[_mod] = _tech_id
 
 
 # Class ordering used for docking eligibility checks (smaller index = smaller class)
@@ -695,10 +943,107 @@ DEFENSIVE_MODULE_PARAMS: Dict[str, dict] = {
     },
 }
 
+# Solarion-exclusive module params
+SOLARION_MODULE_PARAMS: Dict[str, dict] = {
+    "focused_beam_medium": {
+        "volume": 350, "damage": 100, "damage_type": "thermal",
+        "cycle_time": 10, "cap_per_cycle": 55,
+        "optimal_range": 25_000, "falloff": 12_000,
+        "tracking_speed": 0.02, "sig_resolution": 250,
+    },
+    "focused_beam_large": {
+        "volume": 2_500, "damage": 500, "damage_type": "thermal",
+        "cycle_time": 15, "cap_per_cycle": 200,
+        "optimal_range": 60_000, "falloff": 25_000,
+        "tracking_speed": 0.005, "sig_resolution": 1_000,
+    },
+    "reactive_armor_membrane_medium": {
+        "volume": 250, "all_resistance_bonus": 0.12, "speed_penalty": 0.05,
+    },
+    "reactive_armor_membrane_large": {
+        "volume": 1_800, "all_resistance_bonus": 0.20, "speed_penalty": 0.08,
+    },
+    "armor_repair_nexus_medium": {
+        "volume": 450, "armor_repair": 120,
+        "cycle_time": 10, "cap_per_cycle": 80,
+    },
+    "armor_repair_nexus_large": {
+        "volume": 2_800, "armor_repair": 600,
+        "cycle_time": 10, "cap_per_cycle": 320,
+    },
+    "solar_lance": {
+        "volume": 100_000, "damage": 50_000, "damage_type": "thermal",
+        "range": 100_000, "charge_time": 60, "cooldown": 300,
+        "cap_cost": 10_000, "max_angular_velocity": 0.001,
+        "min_ship_class": "mothership",
+    },
+}
+
+# Voidborn-exclusive module params
+VOIDBORN_MODULE_PARAMS: Dict[str, dict] = {
+    "light_leech_projector": {
+        "volume": 80, "cycle_time": 5, "cap_per_cycle": 20,
+        "range": 8_000,
+        "leech_damage_per_tick": 3.0, "leech_damage_type": "kinetic",
+        "leech_cap_drain_per_tick": 5.0, "leech_duration": 60, "leech_type": "light",
+    },
+    "heavy_leech_projector": {
+        "volume": 400, "cycle_time": 8, "cap_per_cycle": 60,
+        "range": 15_000,
+        "leech_damage_per_tick": 8.0, "leech_damage_type": "kinetic",
+        "leech_cap_drain_per_tick": 15.0, "leech_duration": 90, "leech_type": "heavy",
+    },
+    "phase_shield_amplifier_medium": {
+        "volume": 280, "shield_repair": 150,
+        "cycle_time": 8, "cap_per_cycle": 65,
+    },
+    "phase_shield_amplifier_large": {
+        "volume": 1_800, "shield_repair": 750,
+        "cycle_time": 8, "cap_per_cycle": 250,
+    },
+    "small_stealth_field": {
+        "volume": 100, "sig_radius_mult": 0.50,
+        "cycle_time": 3, "cap_per_cycle": 15,
+        "decloak_cooldown": 10,
+    },
+    "medium_stealth_field": {
+        "volume": 600, "sig_radius_mult": 0.50,
+        "cycle_time": 3, "cap_per_cycle": 50,
+        "decloak_cooldown": 10,
+    },
+    "bio_repair_swarm": {
+        "volume": 80_000, "cycle_time": 1, "cap_per_cycle": 400,
+        "repair_percent_per_tick": 0.02, "range": 30_000,
+        "min_ship_class": "mothership",
+    },
+}
+
+# Shared counter-module
+SHARED_MODULE_PARAMS: Dict[str, dict] = {
+    "shield_purge": {
+        "volume": 200, "cycle_time": 30, "cap_per_cycle": 100,
+        "shield_hp_cost_percent": 0.10,
+    },
+}
+
 # Helper sets for module type classification
-TURRET_TYPES: set[str] = set(TURRET_PARAMS.keys())
+# Faction-specific classification sets
+SOLARION_TURRET_TYPES: set[str] = {"focused_beam_medium", "focused_beam_large"}
+SOLARION_BEAM_TURRET_TYPES = SOLARION_TURRET_TYPES  # alias for tick.py
+LEECH_PROJECTOR_TYPES: set[str] = {"light_leech_projector", "heavy_leech_projector"}
+STEALTH_FIELD_TYPES: set[str] = {"small_stealth_field", "medium_stealth_field"}
+REACTIVE_MEMBRANE_TYPES: set[str] = {"reactive_armor_membrane_medium", "reactive_armor_membrane_large"}
+SOLARION_ARMOR_REPAIRER_TYPES: set[str] = {"armor_repair_nexus_medium", "armor_repair_nexus_large"}
+VOIDBORN_SHIELD_BOOSTER_TYPES: set[str] = {"phase_shield_amplifier_medium", "phase_shield_amplifier_large"}
+
+# Solarion-exclusive module types (all modules only installable on Solarion ships)
+SOLARION_EXCLUSIVE_MODULES: set[str] = set(SOLARION_MODULE_PARAMS.keys())
+# Voidborn-exclusive module types
+VOIDBORN_EXCLUSIVE_MODULES: set[str] = set(VOIDBORN_MODULE_PARAMS.keys())
+
+TURRET_TYPES: set[str] = set(TURRET_PARAMS.keys()) | SOLARION_TURRET_TYPES
 MISSILE_TYPES: set[str] = set(MISSILE_PARAMS.keys())
-WEAPON_TYPES: set[str] = TURRET_TYPES | MISSILE_TYPES
+WEAPON_TYPES: set[str] = TURRET_TYPES | MISSILE_TYPES | SOLARION_TURRET_TYPES | LEECH_PROJECTOR_TYPES
 SHIELD_EXTENDER_TYPES: set[str] = {
     "small_shield_extender", "medium_shield_extender", "large_shield_extender",
 }
@@ -708,7 +1053,7 @@ SHIELD_HARDENER_TYPES: set[str] = {
 }
 SHIELD_BOOSTER_TYPES: set[str] = {
     "small_shield_booster", "medium_shield_booster", "large_shield_booster",
-}
+} | VOIDBORN_SHIELD_BOOSTER_TYPES
 ARMOR_PLATE_TYPES: set[str] = {
     "small_armor_plate", "medium_armor_plate", "large_armor_plate",
 }
@@ -718,7 +1063,7 @@ ARMOR_HARDENER_TYPES: set[str] = {
 }
 ARMOR_REPAIRER_TYPES: set[str] = {
     "small_armor_repairer", "medium_armor_repairer", "large_armor_repairer",
-}
+} | SOLARION_ARMOR_REPAIRER_TYPES
 HARDENER_TYPES: set[str] = SHIELD_HARDENER_TYPES | ARMOR_HARDENER_TYPES
 DEFENSIVE_TYPES: set[str] = set(DEFENSIVE_MODULE_PARAMS.keys())
 
@@ -737,6 +1082,17 @@ class GameState(SQLModel, table=True):
     tick_interval: float = Field(default=1.0)
 
 
+class Team(SQLModel, table=True):
+    """A faction team that players join."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    faction: str  # "solarion" or "voidborn"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    users: List["User"] = Relationship(back_populates="team")
+    ships: List["Spaceship"] = Relationship(back_populates="team")
+
+
 class User(SQLModel, table=True):
     """Player account. Auth uses the token field."""
 
@@ -746,8 +1102,12 @@ class User(SQLModel, table=True):
     # password_hash stores a hex-encoded SHA-256(salt:password) string
     password_hash: Optional[str] = Field(default=None)
 
+    # Team membership (Phase 7)
+    team_id: Optional[int] = Field(default=None, foreign_key="team.id")
+
     ships: List["Spaceship"] = Relationship(back_populates="owner")
     events: List["Event"] = Relationship(back_populates="user")
+    team: Optional["Team"] = Relationship(back_populates="users")
 
 
 class Spaceship(SQLModel, table=True):
@@ -795,8 +1155,12 @@ class Spaceship(SQLModel, table=True):
     # Ownership
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
+    # Team membership (Phase 7)
+    team_id: Optional[int] = Field(default=None, foreign_key="team.id")
+
     # Relationships
     owner: Optional[User] = Relationship(back_populates="ships")
+    team: Optional["Team"] = Relationship(back_populates="ships")
     modules: List["ShipModule"] = Relationship(back_populates="ship")
     movement_orders: List["MovementOrder"] = Relationship(
         back_populates="ship",
@@ -813,8 +1177,15 @@ class Spaceship(SQLModel, table=True):
     # Derived helpers (pure Python, no DB access needed)
     # ------------------------------------------------------------------
 
+    @property
+    def faction(self) -> Optional[str]:
+        """Derive faction from team."""
+        if self.team is not None:
+            return self.team.faction
+        return None
+
     def class_constants(self) -> dict:
-        return SHIP_CLASSES[self.ship_class.value]
+        return get_ship_classes(self.faction)[self.ship_class.value]
 
     def engine_volume(self) -> float:
         """Sum of all engine module volumes."""
@@ -860,11 +1231,14 @@ class Spaceship(SQLModel, table=True):
         return math.sqrt(self.vel_x**2 + self.vel_y**2 + self.vel_z**2)
 
     def armor_plate_speed_penalty(self) -> float:
-        """Sum of speed penalties from all armor plate modules."""
+        """Sum of speed penalties from all armor plate and reactive membrane modules."""
         total = 0.0
         for m in self.modules:
             if m.module_type.value in ARMOR_PLATE_TYPES:
                 params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {})
+                total += params.get("speed_penalty", 0.0)
+            elif m.module_type.value in REACTIVE_MEMBRANE_TYPES:
+                params = SOLARION_MODULE_PARAMS.get(m.module_type.value, {})
                 total += params.get("speed_penalty", 0.0)
         return min(total, 0.75)  # cap at 75% penalty (25% min speed)
 
@@ -878,13 +1252,17 @@ class Spaceship(SQLModel, table=True):
         return self.effective_max_speed() / consts["accel_time"]
 
     def effective_signature_radius(self) -> float:
-        """Signature radius including shield extender bonuses."""
+        """Signature radius including shield extender bonuses and stealth field."""
         extra = 0.0
+        stealth_mult = 1.0
         for m in self.modules:
             if m.module_type.value in SHIELD_EXTENDER_TYPES:
                 params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {})
                 extra += params.get("sig_radius_bonus", 0.0)
-        return self.signature_radius + extra
+            if m.module_type.value in STEALTH_FIELD_TYPES and m.active:
+                params = VOIDBORN_MODULE_PARAMS.get(m.module_type.value, {})
+                stealth_mult = min(stealth_mult, params.get("sig_radius_mult", 1.0))
+        return (self.signature_radius + extra) * stealth_mult
 
     def compute_resistances(self, layer: str) -> Dict[str, float]:
         """
@@ -892,7 +1270,17 @@ class Spaceship(SQLModel, table=True):
         including active hardeners with stacking penalties.
         Returns {damage_type: resistance_fraction}.
         """
-        base = dict(SHIELD_BASE_RESISTS if layer == "shield" else ARMOR_BASE_RESISTS)
+        base = get_base_resists(self.faction, layer)
+
+        # Reactive armor membrane bonus (Solarion passive module)
+        if layer == "armor":
+            for m in self.modules:
+                if m.module_type.value in REACTIVE_MEMBRANE_TYPES:
+                    params = SOLARION_MODULE_PARAMS.get(m.module_type.value, {})
+                    bonus = params.get("all_resistance_bonus", 0.0)
+                    for dt in base:
+                        base[dt] += bonus
+
         # Collect active hardener bonuses per damage type
         bonuses: Dict[str, list[float]] = {"kinetic": [], "thermal": [], "explosive": []}
         for m in self.modules:
@@ -979,6 +1367,14 @@ class ShipModule(SQLModel, table=True):
     armor_hp_bonus: float = Field(default=0.0)
     shield_repair_per_cycle: float = Field(default=0.0)
     armor_repair_per_cycle: float = Field(default=0.0)
+
+    # --- Phase 7: Solar Lance state ---
+    lance_state: str = Field(default="idle")  # idle, charging, cooldown
+    lance_charge_remaining: int = Field(default=0)
+    lance_cooldown_remaining: int = Field(default=0)
+    lance_target_ship_id: Optional[int] = Field(default=None)
+    # --- Phase 7: Stealth field ---
+    stealth_cooldown_remaining: int = Field(default=0)
 
     # Relationship
     ship: Optional[Spaceship] = Relationship(back_populates="modules")
@@ -1146,12 +1542,11 @@ class PendingMissile(SQLModel, table=True):
 
 class ResearchProgress(SQLModel, table=True):
     """
-    Tracks active and completed research per user.
+    Tracks active and completed research per user/team.
 
     Each row represents one research effort. Status is 'researching', 'paused',
-    'complete', or 'cancelled'. Since teams aren't implemented yet (Phase 7/8),
-    research is per-user: all ships owned by the same user benefit from
-    completed research.
+    'complete', or 'cancelled'. Research benefits the user's team if they have one,
+    otherwise it is per-user.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -1163,6 +1558,20 @@ class ResearchProgress(SQLModel, table=True):
     ticks_remaining: int = Field(default=0)
     total_ticks: int = Field(default=0)
     ore_cost: int = Field(default=0)
+    team_id: Optional[int] = Field(default=None, foreign_key="team.id", index=True)
+
+
+class LeechDebuff(SQLModel, table=True):
+    """An active leech debuff applied to a ship by a Voidborn leech projector."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    source_ship_id: int = Field(foreign_key="spaceship.id", index=True)
+    target_ship_id: int = Field(foreign_key="spaceship.id", index=True)
+    leech_type: str = Field(default="light")  # "light" or "heavy"
+    damage_per_tick: float = Field(default=0.0)
+    damage_type: str = Field(default="kinetic")
+    cap_drain_per_tick: float = Field(default=0.0)
+    ticks_remaining: int = Field(default=0)
+    created_at_tick: int = Field(default=0)
 
 
 # ---------------------------------------------------------------------------
@@ -1180,14 +1589,16 @@ def create_default_ship(
     vel_x: float = 0.0,
     vel_y: float = 0.0,
     vel_z: float = 0.0,
+    team_id: Optional[int] = None,
+    faction: Optional[str] = None,
 ) -> Spaceship:
     """
-    Instantiate a Spaceship with hull defaults from SHIP_CLASSES.
+    Instantiate a Spaceship with hull defaults from SHIP_CLASSES (or faction variant).
 
     NOTE: Does not populate modules or compute max_capacitor — callers must
     add modules and call ``recalculate_capacitor`` after persisting.
     """
-    consts = SHIP_CLASSES[ship_class.value]
+    consts = get_ship_classes(faction)[ship_class.value]
     ship = Spaceship(
         name=name,
         ship_class=ship_class,
@@ -1208,6 +1619,7 @@ def create_default_ship(
         scan_resolution=float(consts["scan_resolution"]),
         ore=0.0,
         user_id=user_id,
+        team_id=team_id,
     )
     return ship
 
@@ -1217,7 +1629,7 @@ def recalculate_max_capacitor(ship: Spaceship) -> None:
     Recompute ship.max_capacitor from base hull value + reactor modules.
     Mutates the ship object in place.
     """
-    consts = SHIP_CLASSES[ship.ship_class.value]
+    consts = ship.class_constants()
     reactor_bonus = sum(
         m.volume * 5.0
         for m in ship.modules
@@ -1228,7 +1640,7 @@ def recalculate_max_capacitor(ship: Spaceship) -> None:
 
 def recalculate_max_shield(ship: Spaceship) -> None:
     """Recompute ship.max_shield_hp from base hull value + shield extenders."""
-    consts = SHIP_CLASSES[ship.ship_class.value]
+    consts = ship.class_constants()
     extender_bonus = sum(
         DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {}).get("shield_bonus", 0.0)
         for m in ship.modules
@@ -1239,7 +1651,7 @@ def recalculate_max_shield(ship: Spaceship) -> None:
 
 def recalculate_max_armor(ship: Spaceship) -> None:
     """Recompute ship.max_armor_hp from base hull value + armor plates."""
-    consts = SHIP_CLASSES[ship.ship_class.value]
+    consts = ship.class_constants()
     plate_bonus = sum(
         DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {}).get("armor_bonus", 0.0)
         for m in ship.modules
@@ -1255,6 +1667,96 @@ def make_module(module_type: ModuleType, volume: int) -> ShipModule:
     spec value is used instead.
     """
     mt_val = module_type.value
+
+    # --- Solarion turrets (focused beams) ---
+    if mt_val in SOLARION_TURRET_TYPES:
+        p = SOLARION_MODULE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+            damage_per_cycle=float(p["damage"]), damage_type=p["damage_type"],
+            optimal_range=float(p["optimal_range"]), falloff_range=float(p["falloff"]),
+            tracking_speed=p["tracking_speed"], sig_resolution=float(p["sig_resolution"]),
+        )
+
+    # --- Reactive armor membranes (passive) ---
+    if mt_val in REACTIVE_MEMBRANE_TYPES:
+        p = SOLARION_MODULE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=0, ticks_until_cycle=0, capacitor_per_cycle=0.0,
+        )
+
+    # --- Armor repair nexus ---
+    if mt_val in SOLARION_ARMOR_REPAIRER_TYPES:
+        p = SOLARION_MODULE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+            armor_repair_per_cycle=float(p["armor_repair"]),
+        )
+
+    # --- Solar Lance ---
+    if mt_val == "solar_lance":
+        p = SOLARION_MODULE_PARAMS["solar_lance"]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=0, ticks_until_cycle=0,
+            capacitor_per_cycle=0.0,
+            damage_per_cycle=float(p["damage"]), damage_type=p["damage_type"],
+            optimal_range=float(p["range"]),
+            lance_state="idle",
+        )
+
+    # --- Leech projectors ---
+    if mt_val in LEECH_PROJECTOR_TYPES:
+        p = VOIDBORN_MODULE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+            optimal_range=float(p["range"]),
+        )
+
+    # --- Phase shield amplifiers ---
+    if mt_val in VOIDBORN_SHIELD_BOOSTER_TYPES:
+        p = VOIDBORN_MODULE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+            shield_repair_per_cycle=float(p["shield_repair"]),
+        )
+
+    # --- Stealth fields ---
+    if mt_val in STEALTH_FIELD_TYPES:
+        p = VOIDBORN_MODULE_PARAMS[mt_val]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+        )
+
+    # --- Bio-Repair Swarm ---
+    if mt_val == "bio_repair_swarm":
+        p = VOIDBORN_MODULE_PARAMS["bio_repair_swarm"]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+            optimal_range=float(p["range"]),
+        )
+
+    # --- Shield purge ---
+    if mt_val == "shield_purge":
+        p = SHARED_MODULE_PARAMS["shield_purge"]
+        return ShipModule(
+            module_type=module_type, volume=p["volume"], active=False,
+            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
+            capacitor_per_cycle=p["cap_per_cycle"],
+        )
 
     # --- Turrets ---
     if mt_val in TURRET_PARAMS:
@@ -1364,7 +1866,9 @@ def spawn_new_ship(
     dz = math.cos(phi)
     offset = 100.0  # metres
 
-    consts = SHIP_CLASSES[blueprint.value]
+    # Derive faction from builder's team
+    faction = builder.faction
+    consts = get_ship_classes(faction)[blueprint.value]
     ship = Spaceship(
         name=name or f"New {blueprint.value.replace('_', ' ').title()}",
         ship_class=blueprint,
@@ -1385,5 +1889,6 @@ def spawn_new_ship(
         scan_resolution=float(consts["scan_resolution"]),
         ore=0.0,
         user_id=builder.user_id,
+        team_id=builder.team_id,
     )
     return ship

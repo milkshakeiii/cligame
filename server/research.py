@@ -1,10 +1,11 @@
 """
-Research system for Phase 5.
+Research system for Phase 5 + Phase 7 faction extensions.
 
 Provides:
   - start_research(): validate and begin a research effort
   - tick_research(): advance active research (called from tick loop)
-  - get_completed_techs(): return all completed tech IDs for a user
+  - get_completed_techs(): return all completed tech IDs for a user/team
+  - get_effective_tech_tree(): return tech tree with faction overrides
   - is_module_unlocked() / is_ship_unlocked(): gating checks
 """
 
@@ -20,13 +21,30 @@ from server.models import (
     RESEARCH_GATED_MODULES,
     RESEARCH_GATED_SHIPS,
     SHIP_REQUIRED_TECH,
+    SOLARION_TECH_TREE_OVERRIDES,
     TECH_TREE,
+    VOIDBORN_TECH_TREE_OVERRIDES,
     Event,
     EventType,
     ResearchProgress,
     ShipModule,
     Spaceship,
 )
+
+
+# ---------------------------------------------------------------------------
+# Faction-aware tech tree helper
+# ---------------------------------------------------------------------------
+
+
+def get_effective_tech_tree(faction: Optional[str] = None) -> Dict[str, dict]:
+    """Return the tech tree with faction-specific overrides applied."""
+    tree = dict(TECH_TREE)  # shallow copy
+    if faction == "solarion":
+        tree.update(SOLARION_TECH_TREE_OVERRIDES)
+    elif faction == "voidborn":
+        tree.update(VOIDBORN_TECH_TREE_OVERRIDES)
+    return tree
 
 
 # ---------------------------------------------------------------------------
@@ -59,24 +77,34 @@ def is_ship_unlocked(ship_class: str, completed_techs: Set[str]) -> bool:
     return required in completed_techs
 
 
-def check_prerequisites(tech_id: str, completed_techs: Set[str]) -> Optional[str]:
+def check_prerequisites(
+    tech_id: str,
+    completed_techs: Set[str],
+    faction: Optional[str] = None,
+) -> Optional[str]:
     """
     Check if prerequisites for a tech are met.
     Returns None if OK, or a message describing what's missing.
+
+    Uses the faction-effective tech tree when ``faction`` is provided,
+    allowing faction-specific techs to be validated.
     """
-    node = TECH_TREE.get(tech_id)
+    tree = get_effective_tech_tree(faction)
+    node = tree.get(tech_id)
     if node is None:
         return f"Unknown tech: {tech_id}"
     for prereq in node["prerequisites"]:
         if prereq not in completed_techs:
-            prereq_name = TECH_TREE[prereq]["name"]
+            prereq_node = tree.get(prereq)
+            prereq_name = prereq_node["name"] if prereq_node else prereq
             return f"Prerequisite not met: {prereq_name} ({prereq})"
     return None
 
 
-def get_tech_name(tech_id: str) -> str:
+def get_tech_name(tech_id: str, faction: Optional[str] = None) -> str:
     """Return the display name for a tech ID."""
-    node = TECH_TREE.get(tech_id)
+    tree = get_effective_tech_tree(faction)
+    node = tree.get(tech_id)
     return node["name"] if node else tech_id
 
 
@@ -91,21 +119,34 @@ async def start_research(
     module: ShipModule,
     tech_id: str,
     user_id: int,
+    team_id: Optional[int] = None,
+    faction: Optional[str] = None,
 ) -> ResearchProgress:
     """
     Begin researching a tech. Validates prerequisites, deducts ore, creates
     a ResearchProgress row.
 
+    When ``team_id`` is provided, research completion is shared across the
+    team.  ``user_id`` still tracks who initiated the research.  The
+    ``faction`` parameter (derived from the ship's team) determines which
+    faction-specific tech tree overrides are applied.
+
     Raises ValueError on validation failure.
     """
-    node = TECH_TREE.get(tech_id)
+    tree = get_effective_tech_tree(faction)
+    node = tree.get(tech_id)
     if node is None:
         raise ValueError(f"Unknown tech: {tech_id}")
 
-    # Get all research for this user
-    result = await session.exec(
-        select(ResearchProgress).where(ResearchProgress.user_id == user_id)
-    )
+    # Get all research for this user/team
+    if team_id is not None:
+        result = await session.exec(
+            select(ResearchProgress).where(ResearchProgress.team_id == team_id)
+        )
+    else:
+        result = await session.exec(
+            select(ResearchProgress).where(ResearchProgress.user_id == user_id)
+        )
     all_research = result.all()
 
     completed = get_completed_tech_ids(all_research)
@@ -123,7 +164,7 @@ async def start_research(
         raise ValueError(f"Already researching: {node['name']}")
 
     # Check prerequisites
-    prereq_error = check_prerequisites(tech_id, completed)
+    prereq_error = check_prerequisites(tech_id, completed, faction=faction)
     if prereq_error:
         raise ValueError(prereq_error)
 
@@ -158,6 +199,7 @@ async def start_research(
     # Create research progress
     rp = ResearchProgress(
         user_id=user_id,
+        team_id=team_id,
         tech_id=tech_id,
         ship_id=ship.id,
         module_id=module.id,

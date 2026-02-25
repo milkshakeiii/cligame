@@ -146,7 +146,7 @@ def tick_passive_detector(
             detector_ship.pos_x, detector_ship.pos_y, detector_ship.pos_z,
             ship.pos_x, ship.pos_y, ship.pos_z,
         )
-        effective_range = passive_detection_range(base_range, ship.signature_radius)
+        effective_range = passive_detection_range(base_range, ship.effective_signature_radius())
         if distance <= effective_range:
             result.new_contacts.append({
                 "type": "ship",

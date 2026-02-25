@@ -160,7 +160,10 @@ async def research_start(
             )
 
     try:
-        rp = await start_research(session, ship, module, body.tech_id, current_user.id)
+        rp = await start_research(
+            session, ship, module, body.tech_id, current_user.id,
+            team_id=current_user.team_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -229,10 +232,19 @@ async def tech_tree(
     current_user: User = Depends(get_current_user),
     session=Depends(get_session),
 ):
-    """Return the full tech tree with completion/research status for this user."""
-    result = await session.exec(
-        select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
-    )
+    """Return the full tech tree with completion/research status for this user (or team)."""
+    # If user is on a team, include all team research
+    if current_user.team_id is not None:
+        result = await session.exec(
+            select(ResearchProgress).where(
+                (ResearchProgress.user_id == current_user.id)
+                | (ResearchProgress.team_id == current_user.team_id)
+            )
+        )
+    else:
+        result = await session.exec(
+            select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
+        )
     all_research = result.all()
     completed = get_completed_tech_ids(all_research)
     researching = {r.tech_id for r in all_research if r.status == "researching"}

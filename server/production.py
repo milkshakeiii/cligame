@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 from server.models import (
     BUILD_COSTS,
     DEFAULT_AUTOPILOT_PROFILES,
+    FACTION_BUILD_MODIFIERS,
+    FACTION_SHIP_NAMES,
     FACTORY_REQUIREMENTS,
     CLASS_ORDER,
     BuildStatus,
@@ -27,6 +29,35 @@ logger = logging.getLogger(__name__)
 
 # Factory capacitor drain per tick (while building)
 FACTORY_CAP_PER_TICK: float = 100.0
+
+
+# ---------------------------------------------------------------------------
+# Faction-aware cost helpers
+# ---------------------------------------------------------------------------
+
+
+def get_faction_adjusted_cost(
+    blueprint: ShipClass,
+    faction: Optional[str] = None,
+) -> dict:
+    """
+    Return the build cost dict (ore, ticks) for a blueprint, adjusted for
+    faction modifiers.  If faction is None or has no modifiers, the base
+    BUILD_COSTS are returned unchanged.
+    """
+    cost = BUILD_COSTS.get(blueprint.value)
+    if cost is None:
+        return {}
+    ore_cost = cost["ore"]
+    ticks = cost["ticks"]
+
+    if faction and faction in FACTION_BUILD_MODIFIERS:
+        faction_mods = FACTION_BUILD_MODIFIERS[faction]
+        class_mods = faction_mods.get(blueprint.value, {"ore_mult": 1.0, "time_mult": 1.0})
+        ore_cost = int(ore_cost * class_mods["ore_mult"])
+        ticks = int(ticks * class_mods["time_mult"])
+
+    return {"ore": ore_cost, "ticks": ticks}
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +94,13 @@ def can_ship_build(
     ship: "Spaceship",
     blueprint: ShipClass,
     factory_module: "ShipModule",
+    faction: Optional[str] = None,
 ) -> tuple[bool, str]:
     """
     Comprehensive check: does the ship have the ore and a capable factory?
+
+    If ``faction`` is provided, faction-adjusted build costs are used for
+    the ore sufficiency check.
 
     Returns (ok, reason).
     """
@@ -73,8 +108,8 @@ def can_ship_build(
     if not ok:
         return False, reason
 
-    cost = BUILD_COSTS.get(blueprint.value)
-    if cost is None:
+    cost = get_faction_adjusted_cost(blueprint, faction)
+    if not cost:
         return False, f"no build cost defined for {blueprint.value}"
 
     if ship.ore < cost["ore"]:
@@ -95,20 +130,24 @@ def start_build(
     ship: "Spaceship",
     factory_module: "ShipModule",
     blueprint: ShipClass,
+    faction: Optional[str] = None,
 ) -> "BuildOrder":
     """
     Create a BuildOrder and deduct ore immediately.
+
+    If ``faction`` is provided, faction-adjusted build costs are applied
+    (modified ore cost and build time).
 
     Does NOT add the order to the session — caller must do that.
     Raises ValueError if preconditions are not met.
     """
     from server.models import BuildOrder  # local import to avoid circular
 
-    ok, reason = can_ship_build(ship, blueprint, factory_module)
+    ok, reason = can_ship_build(ship, blueprint, factory_module, faction=faction)
     if not ok:
         raise ValueError(reason)
 
-    cost = BUILD_COSTS[blueprint.value]
+    cost = get_faction_adjusted_cost(blueprint, faction)
     ship.ore -= cost["ore"]  # ore consumed immediately
 
     order = BuildOrder(

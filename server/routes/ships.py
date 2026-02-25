@@ -26,11 +26,17 @@ from server.models import (
     ARMOR_PLATE_TYPES,
     ARMOR_REPAIRER_TYPES,
     DEFENSIVE_TYPES,
+    FACTION_SHIP_NAMES,
     MISSILE_TYPES,
     REFERENCE_ENGINE_FRACTION,
     SHIELD_BOOSTER_TYPES,
     SHIELD_EXTENDER_TYPES,
+    SOLARION_EXCLUSIVE_MODULES,
+    SOLARION_MODULE_PARAMS,
+    STEALTH_FIELD_TYPES,
     TURRET_TYPES,
+    VOIDBORN_EXCLUSIVE_MODULES,
+    VOIDBORN_MODULE_PARAMS,
     WEAPON_TYPES,
     LockStatus,
     ModuleType,
@@ -38,6 +44,7 @@ from server.models import (
     ShipModule,
     Spaceship,
     TargetLock,
+    Team,
     User,
     ResearchProgress,
     create_default_ship,
@@ -137,6 +144,9 @@ class ShipOut(BaseModel):
     effective_signature_radius: float
     autopilot_mode: str = "off"
     autopilot_profile: Optional[str] = None
+    # Phase 7: Faction
+    team_id: Optional[int] = None
+    faction: Optional[str] = None
 
 
 class ShipDetailOut(ShipOut):
@@ -219,6 +229,12 @@ def _module_to_out(m: ShipModule) -> ModuleOut:
 
 def _ship_to_out(ship: Spaceship) -> ShipOut:
     used = sum(m.volume for m in ship.modules)
+    # Derive faction safely — requires team relationship to be loaded
+    faction = None
+    try:
+        faction = ship.faction
+    except Exception:
+        pass
     return ShipOut(
         id=ship.id,
         name=ship.name,
@@ -248,6 +264,8 @@ def _ship_to_out(ship: Spaceship) -> ShipOut:
         effective_signature_radius=ship.effective_signature_radius(),
         autopilot_mode=ship.autopilot_mode,
         autopilot_profile=ship.autopilot_profile,
+        team_id=ship.team_id,
+        faction=faction,
     )
 
 
@@ -267,8 +285,12 @@ async def _get_owned_ship(
             selectinload(Spaceship.modules),
             selectinload(Spaceship.movement_orders),
             selectinload(Spaceship.build_orders),
+            selectinload(Spaceship.team),
         )
-    return await _get_owned_ship_common(ship_id, current_user, session)
+    return await _get_owned_ship_common(
+        ship_id, current_user, session,
+        selectinload(Spaceship.team),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +307,10 @@ async def list_ships(
     result = await session.exec(
         select(Spaceship)
         .where(Spaceship.user_id == current_user.id)
-        .options(selectinload(Spaceship.modules))
+        .options(
+            selectinload(Spaceship.modules),
+            selectinload(Spaceship.team),
+        )
     )
     ships = result.all()
     return [_ship_to_out(s) for s in ships]
@@ -304,10 +329,18 @@ async def create_ship(
     they have none) with a basic engine module (~30% of total volume) so it has
     a nonzero max_speed.
     """
-    # Research gating: check if this ship class is unlocked
-    research_result = await session.exec(
-        select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
-    )
+    # Research gating: check if this ship class is unlocked (includes team research)
+    if current_user.team_id is not None:
+        research_result = await session.exec(
+            select(ResearchProgress).where(
+                (ResearchProgress.user_id == current_user.id)
+                | (ResearchProgress.team_id == current_user.team_id)
+            )
+        )
+    else:
+        research_result = await session.exec(
+            select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
+        )
     completed_techs = get_completed_tech_ids(research_result.all())
     if not is_ship_unlocked(body.ship_class.value, completed_techs):
         from server.models import SHIP_REQUIRED_TECH
@@ -338,14 +371,37 @@ async def create_ship(
         pos_y = ref.pos_y + dy * 100.0
         pos_z = ref.pos_z + dz * 100.0
 
-    # Auto-generate name if not provided: "{Class}-{N+1}"
+    # Derive team_id and faction from the user's team
+    user_team_id = current_user.team_id
+    user_faction = None
+    if user_team_id is not None:
+        team_result = await session.exec(
+            select(Team).where(Team.id == user_team_id)
+        )
+        team = team_result.first()
+        if team is not None:
+            user_faction = team.faction
+
+    # Auto-generate name if not provided
     ship_name = body.name
     if not ship_name:
-        class_label = body.ship_class.value.replace("_", " ").title()
+        # Use faction-themed names if available, otherwise default "{Class}-{N+1}"
         same_class_count = sum(
             1 for s in existing_ships if s.ship_class == body.ship_class
         )
-        ship_name = f"{class_label}-{same_class_count + 1}"
+        if user_faction and user_faction in FACTION_SHIP_NAMES:
+            faction_names = FACTION_SHIP_NAMES[user_faction].get(
+                body.ship_class.value, []
+            )
+            if faction_names:
+                name_index = same_class_count % len(faction_names)
+                ship_name = f"{faction_names[name_index]}-{same_class_count + 1}"
+            else:
+                class_label = body.ship_class.value.replace("_", " ").title()
+                ship_name = f"{class_label}-{same_class_count + 1}"
+        else:
+            class_label = body.ship_class.value.replace("_", " ").title()
+            ship_name = f"{class_label}-{same_class_count + 1}"
 
     ship = create_default_ship(
         name=ship_name,
@@ -354,6 +410,7 @@ async def create_ship(
         pos_x=pos_x,
         pos_y=pos_y,
         pos_z=pos_z,
+        team_id=user_team_id,
     )
     session.add(ship)
     await session.flush()  # Get ship.id before creating module
@@ -369,7 +426,10 @@ async def create_ship(
     result = await session.exec(
         select(Spaceship)
         .where(Spaceship.id == ship.id)
-        .options(selectinload(Spaceship.modules))
+        .options(
+            selectinload(Spaceship.modules),
+            selectinload(Spaceship.team),
+        )
     )
     ship = result.one()
     return _ship_to_out(ship)
@@ -468,10 +528,18 @@ async def install_module(
             detail=f"module_type '{body.module_type.value}' requires a positive volume",
         )
 
-    # Research gating
-    research_result = await session.exec(
-        select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
-    )
+    # Research gating (includes team research)
+    if current_user.team_id is not None:
+        research_result = await session.exec(
+            select(ResearchProgress).where(
+                (ResearchProgress.user_id == current_user.id)
+                | (ResearchProgress.team_id == current_user.team_id)
+            )
+        )
+    else:
+        research_result = await session.exec(
+            select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
+        )
     completed_techs = get_completed_tech_ids(research_result.all())
     if not is_module_unlocked(body.module_type.value, completed_techs):
         from server.models import MODULE_REQUIRED_TECH
@@ -480,6 +548,32 @@ async def install_module(
             status_code=422,
             detail=f"Research required: {get_tech_name(tech_id)} ({tech_id})",
         )
+
+    # Faction exclusivity check
+    mt_val = body.module_type.value
+    if mt_val in SOLARION_EXCLUSIVE_MODULES or mt_val in VOIDBORN_EXCLUSIVE_MODULES:
+        # Determine ship faction by loading team
+        ship_faction = None
+        if ship.team_id is not None:
+            team_result = await session.exec(
+                select(Team).where(Team.id == ship.team_id)
+            )
+            team_obj = team_result.first()
+            if team_obj is not None:
+                ship_faction = team_obj.faction
+
+        if mt_val in SOLARION_EXCLUSIVE_MODULES:
+            if ship_faction != "solarion":
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Module '{mt_val}' requires Solarion faction",
+                )
+        if mt_val in VOIDBORN_EXCLUSIVE_MODULES:
+            if ship_faction != "voidborn":
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Module '{mt_val}' requires Voidborn faction",
+                )
 
     # Volume cap check
     used = sum(m.volume for m in ship.modules)
@@ -586,11 +680,14 @@ async def rename_ship(
     ship = await _get_owned_ship(ship_id, current_user, session, load_relations=True)
     ship.name = body.name
     await session.commit()
-    # Re-query with modules loaded
+    # Re-query with modules and team loaded
     result = await session.exec(
         select(Spaceship)
         .where(Spaceship.id == ship.id)
-        .options(selectinload(Spaceship.modules))
+        .options(
+            selectinload(Spaceship.modules),
+            selectinload(Spaceship.team),
+        )
     )
     ship = result.one()
     return _ship_to_out(ship)
@@ -618,11 +715,14 @@ async def undock_ship(
     ship.docked_in_id = None
     await session.commit()
 
-    # Re-query to ensure modules are loaded for _ship_to_out
+    # Re-query to ensure modules and team are loaded for _ship_to_out
     result = await session.exec(
         select(Spaceship)
         .where(Spaceship.id == ship.id)
-        .options(selectinload(Spaceship.modules))
+        .options(
+            selectinload(Spaceship.modules),
+            selectinload(Spaceship.team),
+        )
     )
     ship = result.one()
     return _ship_to_out(ship)

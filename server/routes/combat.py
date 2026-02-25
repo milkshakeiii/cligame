@@ -23,10 +23,13 @@ from server.auth import get_current_user
 from server.combat import compute_lock_time
 from server.database import get_session
 from server.models import (
+    LeechDebuff,
     LockStatus,
     MAX_LOCKS,
     ModuleType,
     SHIP_CLASSES,
+    STEALTH_FIELD_TYPES,
+    VOIDBORN_MODULE_PARAMS,
     Spaceship,
     ShipModule,
     TargetLock,
@@ -61,6 +64,16 @@ class WeaponAssignRequest(BaseModel):
 class WeaponAssignmentOut(BaseModel):
     module_id: int
     target_ship_id: int
+
+
+class LeechOut(BaseModel):
+    id: int
+    source_ship_id: int
+    target_ship_id: int
+    leech_type: str
+    damage_per_tick: float
+    cap_drain_per_tick: float
+    ticks_remaining: int
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +148,14 @@ async def lock_target(
             status_code=422,
             detail=f"Target out of range: {distance/1000:.1f} km (max {lock_range/1000:.0f} km)",
         )
+
+    # Deactivate any active stealth field on the locking ship (decloak on lock)
+    for m in ship.modules:
+        if m.module_type.value in STEALTH_FIELD_TYPES and m.active:
+            m.active = False
+            m.stealth_cooldown_remaining = VOIDBORN_MODULE_PARAMS.get(
+                m.module_type.value, {}
+            ).get("decloak_cooldown", 10)
 
     # Compute lock time
     consts = SHIP_CLASSES[ship.ship_class.value]
@@ -370,3 +391,38 @@ async def hold_fire(
         await session.delete(wa)
 
     await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Leech Status
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{ship_id}/leeches", response_model=list[LeechOut])
+async def list_leeches(
+    ship_id: int,
+    current_user: User = Depends(get_current_user),
+    session=Depends(get_session),
+):
+    """List all active leech debuffs on a ship."""
+    ship = await get_owned_ship(ship_id, current_user, session)
+
+    result = await session.exec(
+        select(LeechDebuff).where(
+            LeechDebuff.target_ship_id == ship.id,
+            LeechDebuff.ticks_remaining > 0,
+        )
+    )
+
+    return [
+        LeechOut(
+            id=ld.id,
+            source_ship_id=ld.source_ship_id,
+            target_ship_id=ld.target_ship_id,
+            leech_type=ld.leech_type,
+            damage_per_tick=ld.damage_per_tick,
+            cap_drain_per_tick=ld.cap_drain_per_tick,
+            ticks_remaining=ld.ticks_remaining,
+        )
+        for ld in result.all()
+    ]

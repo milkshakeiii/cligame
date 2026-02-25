@@ -29,7 +29,12 @@ from server.models import (
     MovementOrder,
     OrderStatus,
     OrderType,
+    SOLARION_MODULE_PARAMS,
+    STEALTH_FIELD_TYPES,
+    VOIDBORN_MODULE_PARAMS,
     Spaceship,
+    TargetLock,
+    LockStatus,
     User,
 )
 from server.routes.common import get_owned_ship as _get_owned_ship_common
@@ -100,6 +105,11 @@ class OrderOut(BaseModel):
     target_z: Optional[float]
     desired_distance: float
     orbit_radius: float
+
+
+class ActivateModuleRequest(BaseModel):
+    """Optional body for module activation. Only needed for modules that require a target (e.g., solar_lance)."""
+    target_ship_id: Optional[int] = None
 
 
 class ModuleOut(BaseModel):
@@ -353,6 +363,7 @@ async def dock_ship(
 async def activate_module(
     ship_id: int,
     module_id: int,
+    body: ActivateModuleRequest = None,
     current_user: User = Depends(get_current_user),
     session=Depends(get_session),
 ):
@@ -364,6 +375,11 @@ async def activate_module(
     (returns 200 with active=True).  Cyclic modules (mining lasers, scanners,
     passive detectors, factories) are set active=True and will begin cycling
     on the next tick.
+
+    For solar_lance modules, provide ``target_ship_id`` in the request body
+    to specify the lance target. The target must be locked.
+
+    Stealth field modules cannot be activated while on decloak cooldown.
     """
     ship = await _get_owned_ship(ship_id, current_user, session)
 
@@ -373,6 +389,40 @@ async def activate_module(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Module not found on this ship",
         )
+
+    # Stealth field cooldown check
+    if module.module_type.value in STEALTH_FIELD_TYPES:
+        if module.stealth_cooldown_remaining > 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Stealth field on cooldown ({module.stealth_cooldown_remaining} ticks remaining)",
+            )
+
+    # Solar lance activation — requires a locked target
+    if module.module_type.value == "solar_lance":
+        target_id = body.target_ship_id if body else None
+        if target_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Solar lance requires a target_ship_id in the request body",
+            )
+        # Verify target is locked
+        lock_result = await session.exec(
+            select(TargetLock).where(
+                TargetLock.ship_id == ship.id,
+                TargetLock.target_ship_id == target_id,
+                TargetLock.status == LockStatus.locked,
+            )
+        )
+        if lock_result.first() is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Ship #{target_id} is not locked — lock target first",
+            )
+        lance_params = SOLARION_MODULE_PARAMS.get("solar_lance", {})
+        module.lance_state = "charging"
+        module.lance_charge_remaining = lance_params.get("charge_ticks", 60)
+        module.lance_target_ship_id = target_id
 
     module.active = True
     # Reset cycle timer so the first cycle fires after a full cycle_time
