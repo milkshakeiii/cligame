@@ -760,8 +760,18 @@ def module_install(
     module_type: str = typer.Argument(
         ...,
         help=(
-            "Module type: engine, reactor, cargo_bay, docking_bay, dropoff, "
-            "factory, mining_laser, scanner, passive_detector."
+            "Module type. Categories: "
+            "base (engine, reactor, cargo_bay, docking_bay, dropoff, factory, mining_laser, scanner, passive_detector), "
+            "turrets (small/medium/large_turret_kinetic/thermal), "
+            "missiles (light/heavy_missile_launcher, torpedo_launcher), "
+            "shields (small/medium/large_shield_extender/booster/hardener_kinetic/thermal/explosive), "
+            "armor (small/medium/large_armor_plate/repairer/hardener_kinetic/thermal/explosive), "
+            "research (research_module, strip_miner, enhanced_docking_bay, fortress), "
+            "Solarion (focused_beam_medium/large, reactive_armor_membrane_medium/large, "
+            "armor_repair_nexus_medium/large, solar_lance), "
+            "Voidborn (light/heavy_leech_projector, phase_shield_amplifier_medium/large, "
+            "small/medium_stealth_field, bio_repair_swarm), "
+            "shared (shield_purge)."
         ),
     ),
     volume: int = typer.Option(
