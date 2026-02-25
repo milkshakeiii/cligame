@@ -1006,13 +1006,15 @@ def display_team_research(data: list, json_mode: bool) -> None:
     for r in data:
         status = r.get("status", "?")
         color = {"researching": "cyan", "paused": "yellow", "complete": "green"}.get(status, "white")
-        pct = r.get("progress_pct", 0.0)
+        total = r.get("total_ticks", 1) or 1
+        remaining = r.get("ticks_remaining", 0)
+        pct = r.get("progress_pct", ((total - remaining) / total) * 100.0)
         t.add_row(
             str(r.get("id", "?")),
             r.get("tech_name", r.get("tech_id", "?")),
             f"[{color}]{status}[/{color}]",
             f"{pct:.0f}%",
-            str(r.get("ticks_remaining", 0)),
+            str(remaining),
             str(r.get("ship_id", "?")),
         )
 
