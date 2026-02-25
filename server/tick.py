@@ -213,6 +213,7 @@ async def _run_tick() -> None:
                 selectinload(Spaceship.movement_orders),
                 selectinload(Spaceship.build_orders),
                 selectinload(Spaceship.target_locks),
+                selectinload(Spaceship.team),
             )
         )
         ships: list[Spaceship] = list(ships_result.all())
@@ -1198,28 +1199,29 @@ def _process_weapon_fire(
 
             # Check stacking limit: max 2 same-type leeches from same source on same target
             max_stacks = params.get("max_stacks_per_source", 2)
+            leech_type_val = params.get("leech_type", mt)
             same_type_leeches = [
                 lch for lch in active_leeches
                 if lch.source_ship_id == ship.id
                 and lch.target_ship_id == target.id
-                and lch.leech_type == mt
+                and lch.leech_type == leech_type_val
             ]
 
             if len(same_type_leeches) >= max_stacks:
                 # Refresh the oldest one's duration
                 oldest = min(same_type_leeches, key=lambda lch: lch.created_at_tick)
-                oldest.ticks_remaining = params.get("duration_ticks", 30)
+                oldest.ticks_remaining = params.get("leech_duration", 30)
                 oldest.created_at_tick = current_tick
             else:
                 # Create new leech debuff
                 new_leech = LeechDebuff(
                     source_ship_id=ship.id,
                     target_ship_id=target.id,
-                    leech_type=mt,
-                    damage_per_tick=params.get("damage_per_tick", 3),
-                    damage_type=params.get("damage_type", "thermal"),
-                    cap_drain_per_tick=params.get("cap_drain_per_tick", 5),
-                    ticks_remaining=params.get("duration_ticks", 30),
+                    leech_type=params.get("leech_type", mt),
+                    damage_per_tick=params.get("leech_damage_per_tick", 3),
+                    damage_type=params.get("leech_damage_type", "kinetic"),
+                    cap_drain_per_tick=params.get("leech_cap_drain_per_tick", 5),
+                    ticks_remaining=params.get("leech_duration", 30),
                     created_at_tick=current_tick,
                 )
                 session.add(new_leech)
@@ -1546,7 +1548,7 @@ def _process_solar_lance(
             if module.lance_charge_remaining <= 0:
                 # Charge complete — attempt to fire
                 target = ship_map.get(module.lance_target_ship_id) if module.lance_target_ship_id else None
-                fire_cap_cost = lance_params.get("fire_cap_cost", 10_000)
+                fire_cap_cost = lance_params.get("cap_cost", 10_000)
                 can_fire = True
                 reason = ""
 
@@ -1639,7 +1641,7 @@ def _process_solar_lance(
                         )
 
                 # Enter cooldown
-                cooldown = lance_params.get("cooldown_ticks", 300)
+                cooldown = lance_params.get("cooldown", 300)
                 module.lance_state = "cooldown"
                 module.lance_cooldown_remaining = cooldown
                 module.lance_target_ship_id = None
@@ -1737,7 +1739,7 @@ def _process_shield_purge(
             continue
 
         # Cost: 10% of current shield HP
-        shield_cost = ship.shield_hp * SHARED_MODULE_PARAMS.get("shield_purge", {}).get("shield_cost_percent", 0.10)
+        shield_cost = ship.shield_hp * SHARED_MODULE_PARAMS.get("shield_purge", {}).get("shield_hp_cost_percent", 0.10)
         ship.shield_hp = max(0, ship.shield_hp - shield_cost)
 
         # Remove all leeches
@@ -1773,8 +1775,8 @@ def _process_bio_repair_swarm(
             continue
 
         params = VOIDBORN_MODULE_PARAMS.get("bio_repair_swarm", {})
-        repair_range = params.get("repair_range", 30_000)
-        repair_percent = params.get("repair_percent", 0.02)
+        repair_range = params.get("range", 30_000)
+        repair_percent = params.get("repair_percent_per_tick", 0.02)
         repaired_count = 0
 
         for other in all_ships:

@@ -390,12 +390,11 @@ async def create_ship(
             1 for s in existing_ships if s.ship_class == body.ship_class
         )
         if user_faction and user_faction in FACTION_SHIP_NAMES:
-            faction_names = FACTION_SHIP_NAMES[user_faction].get(
-                body.ship_class.value, []
+            faction_name = FACTION_SHIP_NAMES[user_faction].get(
+                body.ship_class.value
             )
-            if faction_names:
-                name_index = same_class_count % len(faction_names)
-                ship_name = f"{faction_names[name_index]}-{same_class_count + 1}"
+            if faction_name:
+                ship_name = f"{faction_name}-{same_class_count + 1}"
             else:
                 class_label = body.ship_class.value.replace("_", " ").title()
                 ship_name = f"{class_label}-{same_class_count + 1}"
@@ -411,6 +410,7 @@ async def create_ship(
         pos_y=pos_y,
         pos_z=pos_z,
         team_id=user_team_id,
+        faction=user_faction,
     )
     session.add(ship)
     await session.flush()  # Get ship.id before creating module

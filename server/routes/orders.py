@@ -421,7 +421,7 @@ async def activate_module(
             )
         lance_params = SOLARION_MODULE_PARAMS.get("solar_lance", {})
         module.lance_state = "charging"
-        module.lance_charge_remaining = lance_params.get("charge_ticks", 60)
+        module.lance_charge_remaining = lance_params.get("charge_time", 60)
         module.lance_target_ship_id = target_id
 
     module.active = True

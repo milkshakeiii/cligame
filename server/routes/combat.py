@@ -36,6 +36,8 @@ from server.models import (
     User,
     WeaponAssignment,
     WEAPON_TYPES,
+    get_max_locks,
+    get_ship_classes,
 )
 from server.routes.common import get_owned_ship
 
@@ -102,7 +104,7 @@ async def lock_target(
         l for l in ship.target_locks
         if l.status in (LockStatus.locking, LockStatus.locked)
     ]
-    max_locks = MAX_LOCKS.get(ship.ship_class.value, 2)
+    max_locks = get_max_locks(ship.faction, ship.ship_class.value)
     if len(active_locks) >= max_locks:
         raise HTTPException(
             status_code=422,
@@ -158,7 +160,7 @@ async def lock_target(
             ).get("decloak_cooldown", 10)
 
     # Compute lock time
-    consts = SHIP_CLASSES[ship.ship_class.value]
+    consts = get_ship_classes(ship.faction)[ship.ship_class.value]
     lock_time = compute_lock_time(
         ship.scan_resolution,
         target.effective_signature_radius(),

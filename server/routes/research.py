@@ -24,10 +24,12 @@ from server.models import (
     ModuleType,
     ResearchProgress,
     Spaceship,
+    Team,
     User,
 )
 from server.research import (
     get_completed_tech_ids,
+    get_effective_tech_tree,
     start_research,
 )
 from server.routes.common import get_owned_ship
@@ -159,10 +161,21 @@ async def research_start(
                 detail="All research modules are busy",
             )
 
+    # Look up faction for faction-specific tech tree
+    user_faction = None
+    if current_user.team_id is not None:
+        team_result = await session.exec(
+            select(Team).where(Team.id == current_user.team_id)
+        )
+        team = team_result.first()
+        if team:
+            user_faction = team.faction
+
     try:
         rp = await start_research(
             session, ship, module, body.tech_id, current_user.id,
             team_id=current_user.team_id,
+            faction=user_faction,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -249,8 +262,20 @@ async def tech_tree(
     completed = get_completed_tech_ids(all_research)
     researching = {r.tech_id for r in all_research if r.status == "researching"}
 
+    # Use faction-specific tech tree if user is on a team
+    user_faction = None
+    if current_user.team_id is not None:
+        team_result = await session.exec(
+            select(Team).where(Team.id == current_user.team_id)
+        )
+        team = team_result.first()
+        if team:
+            user_faction = team.faction
+
+    effective_tree = get_effective_tech_tree(user_faction)
+
     nodes = []
-    for tech_id, node in TECH_TREE.items():
+    for tech_id, node in effective_tree.items():
         tier = node["tier"]
         costs = RESEARCH_COSTS[tier]
 

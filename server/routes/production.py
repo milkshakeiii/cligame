@@ -72,6 +72,7 @@ async def _get_owned_ship(ship_id: int, user: User, session) -> Spaceship:
         session,
         selectinload(Spaceship.modules),
         selectinload(Spaceship.build_orders),
+        selectinload(Spaceship.team),
     )
 
 
@@ -114,9 +115,13 @@ async def queue_build(
     """
     ship = await _get_owned_ship(ship_id, current_user, session)
 
-    # Research gating: check if this ship class is unlocked
+    # Research gating: check if this ship class is unlocked (include team research)
+    from sqlmodel import or_
+    research_conditions = [ResearchProgress.user_id == current_user.id]
+    if current_user.team_id is not None:
+        research_conditions.append(ResearchProgress.team_id == current_user.team_id)
     research_result = await session.exec(
-        select(ResearchProgress).where(ResearchProgress.user_id == current_user.id)
+        select(ResearchProgress).where(or_(*research_conditions))
     )
     completed_techs = get_completed_tech_ids(research_result.all())
     if not is_ship_unlocked(body.blueprint.value, completed_techs):
@@ -174,7 +179,7 @@ async def queue_build(
 
     # Validate and create the build order (ore is consumed inside start_build)
     try:
-        order = start_build(ship, factory, body.blueprint)
+        order = start_build(ship, factory, body.blueprint, faction=ship.faction)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
