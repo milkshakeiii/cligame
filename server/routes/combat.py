@@ -94,6 +94,7 @@ async def lock_target(
         ship_id, current_user, session,
         selectinload(Spaceship.modules),
         selectinload(Spaceship.target_locks),
+        selectinload(Spaceship.team),
     )
 
     if ship.is_destroyed:
@@ -130,7 +131,7 @@ async def lock_target(
             Spaceship.id == body.target_ship_id,
             Spaceship.is_destroyed == False,  # noqa: E712
         )
-        .options(selectinload(Spaceship.modules))
+        .options(selectinload(Spaceship.modules), selectinload(Spaceship.team))
     )
     target = target_result.first()
     if target is None:
