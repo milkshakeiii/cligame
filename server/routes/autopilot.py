@@ -1,30 +1,21 @@
 """
 Autopilot routes for Phase 6.
 
-POST /api/ships/{id}/command/assume       -- Take player control of autopiloted ship
-POST /api/ships/{id}/command/release      -- Release ship to autopilot
-PUT  /api/ships/{id}/autopilot/profile    -- Change autopilot profile
 GET  /api/ships/{id}/autopilot/tick       -- Aggregated state for autopilot decisions
 """
 
 import math
-from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
-from pydantic import BaseModel
-from sqlmodel import select
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import selectinload
+from sqlmodel import select
 
 from server.auth import get_current_user
 from server.database import get_session
 from server.models import (
-    AutopilotProfile,
     CelestialObject,
-    DEFAULT_AUTOPILOT_PROFILES,
     Event,
     LockStatus,
-    MovementOrder,
-    OrderStatus,
     Spaceship,
     TargetLock,
     User,
@@ -32,24 +23,6 @@ from server.models import (
 from server.routes.common import get_owned_ship
 
 router = APIRouter(prefix="/api/ships", tags=["autopilot"])
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-VALID_PROFILES = {p.value for p in AutopilotProfile}
-
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
-
-class ReleaseRequest(BaseModel):
-    profile: Optional[str] = None
-
-
-class ProfileRequest(BaseModel):
-    profile: str
 
 
 # ---------------------------------------------------------------------------
@@ -118,145 +91,6 @@ def _dist(ax, ay, az, bx, by, bz) -> float:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
-
-
-@router.post("/{ship_id}/command/assume")
-async def assume_control(
-    ship_id: int,
-    current_user: User = Depends(get_current_user),
-    session=Depends(get_session),
-):
-    """
-    Take player control of an autopiloted ship.
-
-    The ship must currently be in autopilot_mode='active'. Sets mode to 'off'
-    and cancels all active movement orders.
-    """
-    ship = await get_owned_ship(
-        ship_id, current_user, session,
-        selectinload(Spaceship.modules),
-    )
-
-    # C1: Destroyed ship check
-    if ship.is_destroyed:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ship is destroyed")
-
-    if ship.autopilot_mode == "off":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ship is already under player control (autopilot_mode='off')",
-        )
-
-    # Set autopilot off
-    ship.autopilot_mode = "off"
-
-    # Cancel all active movement orders for this ship
-    orders_result = await session.exec(
-        select(MovementOrder).where(
-            MovementOrder.ship_id == ship.id,
-            MovementOrder.status == OrderStatus.active,
-        )
-    )
-    for order in orders_result.all():
-        order.status = OrderStatus.cancelled
-
-    await session.commit()
-
-    # L3: Refresh the ship object instead of re-querying
-    await session.refresh(ship)
-    return _ship_dict(ship)
-
-
-@router.post("/{ship_id}/command/release")
-async def release_to_autopilot(
-    ship_id: int,
-    # H7: Make body optional
-    body: ReleaseRequest = Body(default=ReleaseRequest()),
-    current_user: User = Depends(get_current_user),
-    session=Depends(get_session),
-):
-    """
-    Release a ship to autopilot control.
-
-    The ship must currently be in autopilot_mode='off'. If a profile is
-    provided in the body it is applied; otherwise the existing profile is kept,
-    or a default based on ship class is assigned.
-    """
-    ship = await get_owned_ship(
-        ship_id, current_user, session,
-        selectinload(Spaceship.modules),
-    )
-
-    # C1: Destroyed ship check
-    if ship.is_destroyed:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ship is destroyed")
-
-    if ship.autopilot_mode != "off":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ship is already autopiloted (autopilot_mode='{ship.autopilot_mode}')",
-        )
-
-    # Determine profile
-    if body.profile is not None:
-        if body.profile not in VALID_PROFILES:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid profile '{body.profile}'. Valid profiles: {sorted(VALID_PROFILES)}",
-            )
-        ship.autopilot_profile = body.profile
-    elif ship.autopilot_profile is None:
-        # Assign default based on ship class using imported constant
-        ship.autopilot_profile = DEFAULT_AUTOPILOT_PROFILES.get(
-            ship.ship_class.value, "mining"
-        )
-
-    ship.autopilot_mode = "active"
-
-    await session.commit()
-
-    # L3: Refresh the ship object instead of re-querying
-    await session.refresh(ship)
-    return _ship_dict(ship)
-
-
-@router.put("/{ship_id}/autopilot/profile")
-async def change_profile(
-    ship_id: int,
-    body: ProfileRequest,
-    current_user: User = Depends(get_current_user),
-    session=Depends(get_session),
-):
-    """
-    Change the autopilot profile on an active autopiloted ship.
-    """
-    ship = await get_owned_ship(
-        ship_id, current_user, session,
-        selectinload(Spaceship.modules),
-    )
-
-    # C1: Destroyed ship check
-    if ship.is_destroyed:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ship is destroyed")
-
-    if ship.autopilot_mode != "active":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ship must be in autopilot_mode='active' to change profile",
-        )
-
-    if body.profile not in VALID_PROFILES:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid profile '{body.profile}'. Valid profiles: {sorted(VALID_PROFILES)}",
-        )
-
-    ship.autopilot_profile = body.profile
-    await session.commit()
-
-    # L3: Refresh the ship object instead of re-querying
-    await session.refresh(ship)
-    return _ship_dict(ship)
 
 
 @router.get("/{ship_id}/autopilot/tick")

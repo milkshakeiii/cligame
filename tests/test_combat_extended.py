@@ -1,5 +1,5 @@
 """
-Extended tests for Phase 4: Combat system — edge cases, boundary conditions,
+Unit tests for Phase 4: Combat system — edge cases, boundary conditions,
 and coverage gaps not addressed by test_combat.py.
 
 Topics covered:
@@ -16,37 +16,28 @@ Topics covered:
     armor vs shield layer distinction, cap at 95%
   - Spaceship.effective_signature_radius: with shield extenders
   - Spaceship.effective_max_speed: armor plate penalty capped at 75%
-  - Combat API: auth errors (wrong user), max locks exhaustion,
-    unlocking non-existent lock, weapon module not found,
-    ship info for destroyed ship
+  - Wreck expiration timing
+  - Lock break range (scanner vs no-scanner)
 """
 
-import math
 import pytest
-from httpx import AsyncClient
 
 from server.combat import (
     apply_damage,
     apply_shield_regen,
-    compute_angular_velocity,
-    compute_final_hit_chance,
     compute_lock_time,
     compute_missile_damage,
     compute_range_factor,
     compute_tracking_hit_chance,
     compute_transversal_velocity,
-    compute_turret_damage,
 )
 from server.models import (
-    ARMOR_BASE_RESISTS,
-    DEFENSIVE_MODULE_PARAMS,
     SHIP_CLASSES,
-    SHIELD_BASE_RESISTS,
     ModuleType,
     ShipClass,
     Spaceship,
 )
-from tests.conftest import add_module_to_ship, make_test_ship, register_user
+from tests.conftest import add_module_to_ship, make_test_ship
 
 
 # ---------------------------------------------------------------------------
@@ -474,227 +465,6 @@ class TestEffectiveMaxSpeed:
         assert ship.armor_plate_speed_penalty() == pytest.approx(0.75, abs=1e-6)
         expected_speed = ship.max_speed() * 0.25
         assert ship.effective_max_speed() == pytest.approx(expected_speed, abs=1e-6)
-
-
-# ---------------------------------------------------------------------------
-# Integration tests: Combat API auth checks (wrong user)
-# ---------------------------------------------------------------------------
-
-
-async def _setup_two_users(client: AsyncClient):
-    """Register two users and return their auth data with ship IDs.
-
-    Installs a scanner on ship1 so it can lock targets at 200km range.
-    """
-    auth1 = await register_user(client, "ext_combat_user1")
-    auth2 = await register_user(client, "ext_combat_user2")
-
-    resp1 = await client.get(
-        "/api/ships", headers={"Authorization": f"Bearer {auth1['token']}"}
-    )
-    resp2 = await client.get(
-        "/api/ships", headers={"Authorization": f"Bearer {auth2['token']}"}
-    )
-    ship1_id = resp1.json()[0]["id"]
-    ship2_id = resp2.json()[0]["id"]
-
-    # Install scanner on ship1 so it can lock targets at 200km range
-    await client.post(
-        f"/api/ships/{ship1_id}/modules",
-        json={"module_type": "scanner", "volume": 0},
-        headers={"Authorization": f"Bearer {auth1['token']}"},
-    )
-
-    return auth1, auth2, ship1_id, ship2_id
-
-
-class TestCombatAPIAuthErrors:
-    async def test_lock_on_other_users_ship_is_403(self, client: AsyncClient):
-        """User2 cannot initiate a lock using User1's ship."""
-        auth1, auth2, ship1, ship2 = await _setup_two_users(client)
-
-        # auth2 tries to lock using ship1 (belongs to auth1)
-        resp = await client.post(
-            f"/api/ships/{ship1}/lock",
-            json={"target_ship_id": ship2},
-            headers={"Authorization": f"Bearer {auth2['token']}"},
-        )
-        assert resp.status_code == 403
-
-    async def test_list_locks_on_other_users_ship_is_403(self, client: AsyncClient):
-        auth1, auth2, ship1, ship2 = await _setup_two_users(client)
-
-        resp = await client.get(
-            f"/api/ships/{ship1}/locks",
-            headers={"Authorization": f"Bearer {auth2['token']}"},
-        )
-        assert resp.status_code == 403
-
-    async def test_unlock_on_other_users_ship_is_403(self, client: AsyncClient):
-        auth1, auth2, ship1, ship2 = await _setup_two_users(client)
-
-        # auth1 creates a lock first
-        await client.post(
-            f"/api/ships/{ship1}/lock",
-            json={"target_ship_id": ship2},
-            headers={"Authorization": f"Bearer {auth1['token']}"},
-        )
-
-        # auth2 tries to unlock on ship1
-        resp = await client.delete(
-            f"/api/ships/{ship1}/lock/{ship2}",
-            headers={"Authorization": f"Bearer {auth2['token']}"},
-        )
-        assert resp.status_code == 403
-
-    async def test_hold_fire_on_other_users_ship_is_403(self, client: AsyncClient):
-        auth1, auth2, ship1, ship2 = await _setup_two_users(client)
-
-        resp = await client.post(
-            f"/api/ships/{ship1}/weapons/hold",
-            headers={"Authorization": f"Bearer {auth2['token']}"},
-        )
-        assert resp.status_code == 403
-
-    async def test_weapon_assign_on_other_users_ship_is_403(self, client: AsyncClient):
-        auth1, auth2, ship1, ship2 = await _setup_two_users(client)
-
-        # auth1 installs a weapon
-        weapon_resp = await client.post(
-            f"/api/ships/{ship1}/modules",
-            json={"module_type": "small_turret_kinetic", "volume": 0},
-            headers={"Authorization": f"Bearer {auth1['token']}"},
-        )
-        mod_id = weapon_resp.json()["id"]
-
-        # auth2 tries to assign
-        resp = await client.post(
-            f"/api/ships/{ship1}/weapons/{mod_id}/assign",
-            json={"target_ship_id": ship2},
-            headers={"Authorization": f"Bearer {auth2['token']}"},
-        )
-        assert resp.status_code == 403
-
-
-class TestCombatAPIEdgeCases:
-    async def test_unlock_nonexistent_lock_returns_404(self, client: AsyncClient):
-        """Deleting a lock that doesn't exist should be 404."""
-        auth = await register_user(client, "unlock_404_user")
-        resp = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth['token']}"}
-        )
-        ship_id = resp.json()[0]["id"]
-
-        resp = await client.delete(
-            f"/api/ships/{ship_id}/lock/9999",
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 404
-
-    async def test_weapon_assign_module_not_found_is_404(self, client: AsyncClient):
-        """Assigning a weapon module that doesn't exist on the ship is 404."""
-        auth1 = await register_user(client, "weapon_notfound_user1")
-        auth2 = await register_user(client, "weapon_notfound_user2")
-
-        resp1 = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth1['token']}"}
-        )
-        resp2 = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth2['token']}"}
-        )
-        ship1_id = resp1.json()[0]["id"]
-        ship2_id = resp2.json()[0]["id"]
-
-        resp = await client.post(
-            f"/api/ships/{ship1_id}/weapons/99999/assign",
-            json={"target_ship_id": ship2_id},
-            headers={"Authorization": f"Bearer {auth1['token']}"},
-        )
-        assert resp.status_code == 404
-
-    async def test_lock_destroyed_ship_returns_404(self, client: AsyncClient):
-        """Locking a ship with is_destroyed=True should return 404."""
-        auth1 = await register_user(client, "lock_destroyed_user1")
-        auth2 = await register_user(client, "lock_destroyed_user2")
-
-        resp1 = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth1['token']}"}
-        )
-        resp2 = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth2['token']}"}
-        )
-        ship1_id = resp1.json()[0]["id"]
-        ship2_id = resp2.json()[0]["id"]
-
-        # The lock route checks is_destroyed on the *target*. We can't easily
-        # mark a ship destroyed via the API, so we verify locking nonexistent ship
-        # is 404 (which also covers the query filter for is_destroyed).
-        resp = await client.post(
-            f"/api/ships/{ship1_id}/lock",
-            json={"target_ship_id": 99999},
-            headers={"Authorization": f"Bearer {auth1['token']}"},
-        )
-        assert resp.status_code == 404
-
-    async def test_max_locks_mothership_is_7(self, client: AsyncClient):
-        """Mothership max locks = 7. On the 8th attempt we should get 422."""
-        auth = await register_user(client, "max_locks_user")
-        # Register 8 more users whose ships we'll lock
-        other_ship_ids = []
-        for i in range(8):
-            oa = await register_user(client, f"max_locks_target_{i}")
-            r = await client.get(
-                "/api/ships", headers={"Authorization": f"Bearer {oa['token']}"}
-            )
-            other_ship_ids.append(r.json()[0]["id"])
-
-        r = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth['token']}"}
-        )
-        my_ship = r.json()[0]["id"]
-
-        # Lock first 7 targets (mothership limit)
-        for target_id in other_ship_ids[:7]:
-            resp = await client.post(
-                f"/api/ships/{my_ship}/lock",
-                json={"target_ship_id": target_id},
-                headers={"Authorization": f"Bearer {auth['token']}"},
-            )
-            assert resp.status_code == 201
-
-        # 8th lock should fail
-        resp = await client.post(
-            f"/api/ships/{my_ship}/lock",
-            json={"target_ship_id": other_ship_ids[7]},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "maximum" in resp.json()["detail"].lower()
-
-    async def test_fire_all_returns_list(self, client: AsyncClient):
-        """fire-all with no weapons should return an empty list."""
-        auth = await register_user(client, "fire_all_empty_user")
-        auth2 = await register_user(client, "fire_all_empty_target")
-
-        r = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth['token']}"}
-        )
-        r2 = await client.get(
-            "/api/ships", headers={"Authorization": f"Bearer {auth2['token']}"}
-        )
-        ship1_id = r.json()[0]["id"]
-        ship2_id = r2.json()[0]["id"]
-
-        # Manually set up a lock object through the API (it starts as 'locking')
-        # We can't easily force it to 'locked' without tick loop, so
-        # this test just verifies that fire-all correctly rejects un-locked targets
-        resp = await client.post(
-            f"/api/ships/{ship1_id}/weapons/fire-all",
-            json={"target_ship_id": ship2_id},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        # No locked target → 422
-        assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

@@ -1675,6 +1675,8 @@ After all phases, the full set of event types:
 | `mothership_critical` | 8 | Mothership below 25% HP |
 | `match_ended` | 8 | Match concludes |
 | `surrender_vote` | 8 | Surrender vote started |
+| `command_rejected` | 8.5 | Command failed precondition check |
+| `command_processed` | 8.5 | Command successfully applied |
 
 ---
 
@@ -1793,6 +1795,17 @@ After all phases, the full set of event types:
 - `created_at_tick: int`
 - `expires_at_tick: int`
 
+**Command:** (Phase 8.5)
+- `id: int`
+- `user_id: int` — FK to User
+- `ship_id: Optional[int]` — FK to Spaceship (most commands target a ship)
+- `command_type: str` — CommandType enum value
+- `payload: str` — JSON-encoded command-specific parameters
+- `status: str` — "pending", "processed", "rejected"
+- `rejection_reason: Optional[str]`
+- `created_at: datetime`
+- `processed_at_tick: Optional[int]`
+
 ---
 
 ## Appendix: Implementation Order
@@ -1854,3 +1867,33 @@ Recommended implementation sequence within each phase:
 8. Add match events
 9. Add match API routes and CLI commands
 10. End-to-end integration testing
+
+### Phase 8.5 (Intent-Based Architecture Refactor)
+
+See `INTENT_REFACTOR.md` for the full design document.
+
+**Problem:** The current architecture has TOCTOU race conditions. Request handlers directly mutate game state via their own database sessions while the tick loop independently reads, simulates, and commits. Two concurrent requests can both validate stale state and double-spend resources.
+
+**Solution:** Refactor to command-query separation (CQS). The tick loop becomes the sole writer of game state. Request handlers only enqueue commands and read pre-computed views.
+
+1. Add `Command` model + `CommandType` enum + migration
+2. Create `server/commands.py` — command handler registry + `CommandRejected` exception
+3. Add `POST /api/commands` endpoint — enqueues commands, returns 202
+4. Add command processing phase to tick loop (new phase 0, before energy)
+5. Create `server/views.py` — per-player world state computation
+6. Add `GET /api/view` endpoint — returns player's visible state snapshot
+7. Migrate movement commands (orders, dock, stop) to command handlers
+8. Migrate module commands (activate, deactivate, install, uninstall) to command handlers
+9. Migrate combat commands (lock, unlock, assign, fire-all, hold) to command handlers
+10. Migrate production commands (build, research) to command handlers
+11. Migrate resource commands (transfer, scan) to command handlers
+12. Migrate ship management commands (create, rename, undock) to command handlers
+13. Migrate autopilot commands to command handlers
+14. Migrate team/match commands to command handlers
+15. Add `command_rejected` event type for failed commands
+16. Update CLI: all action commands become fire-and-forget
+17. Update CLI: add `spacegame view` as universal state reader
+18. Update `client/api.py` — replace mutation methods with `send_command` + `get_view`
+19. Remove deprecated mutation endpoints
+20. Remove individual GET endpoints superseded by view
+21. Update all tests for new API shape

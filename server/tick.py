@@ -51,6 +51,8 @@ from server.models import (
     GameState,
     LeechDebuff,
     LockStatus,
+    Match,
+    MatchStatus,
     MAX_LOCKS,
     ModuleType,
     MovementOrder,
@@ -62,6 +64,8 @@ from server.models import (
     ShipModule,
     BuildOrder,
     TargetLock,
+    Team,
+    User,
     TURRET_TYPES,
     MISSILE_TYPES,
     WEAPON_TYPES,
@@ -98,6 +102,7 @@ from server.scanning import (
     get_ships_that_detect_scan,
     DETAIL_CLASSIFICATION,
 )
+from server.match import cleanup_match_assignments
 from server.combat import (
     apply_armor_regen,
     apply_damage,
@@ -133,6 +138,15 @@ _detection_previous_contacts: dict[int, set[str]] = {}
 # state for the mining laser.  An event is only emitted on the *first* cycle
 # where no asteroid is found, not on every subsequent cycle.
 _mining_out_of_range: dict[int, set[int]] = {}
+
+# ---------------------------------------------------------------------------
+# In-memory state for match mothership HP warning cooldowns (Phase 8)
+# ---------------------------------------------------------------------------
+
+# Maps (match_id, ship_id) -> last tick a warning was emitted.
+# Prevents spamming mothership_under_attack / mothership_critical every tick.
+_mothership_warning_last_tick: dict[tuple[int, int], int] = {}
+_MOTHERSHIP_WARNING_COOLDOWN = 30  # ticks between repeated warnings
 
 # ---------------------------------------------------------------------------
 # Public control API (called from FastAPI lifespan)
@@ -251,6 +265,25 @@ async def _run_tick() -> None:
                     message=message,
                 )
             )
+
+        # ------------------------------------------------------------------
+        # Phase 0: Process command queue
+        # ------------------------------------------------------------------
+        from server.commands import TickContext, process_commands
+        ctx = TickContext(
+            session=session,
+            ships=ships,
+            celestial_objects=celestial_objects,
+            weapon_assignments=weapon_assignments,
+            pending_missiles=pending_missiles,
+            active_leeches=active_leeches,
+            current_tick=current_tick,
+            pending_events=pending_events,
+        )
+        await process_commands(ctx)
+        # Commands may have modified lists (new ships, new weapon assignments)
+        ships = ctx.ships
+        weapon_assignments = ctx.weapon_assignments
 
         # ------------------------------------------------------------------
         # Phase 1: Energy — capacitor regen
@@ -423,6 +456,13 @@ async def _run_tick() -> None:
         # Phase 6.9b: Wreck cleanup (expired wrecks despawn)
         # ------------------------------------------------------------------
         _cleanup_expired_wrecks(celestial_objects, current_tick, session)
+
+        # ------------------------------------------------------------------
+        # Phase 6.9c: Match win condition check
+        # ------------------------------------------------------------------
+        await _check_match_win_conditions(
+            session, ships, _ship_map, current_tick, emit,
+        )
 
         # ------------------------------------------------------------------
         # Phase 7: Detection
@@ -1510,6 +1550,102 @@ def _cleanup_expired_wrecks(
             continue
         if current_tick - obj.created_tick >= WRECK_LIFETIME_TICKS:
             session.delete(obj)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: Match win condition check
+# ---------------------------------------------------------------------------
+
+
+async def _check_match_win_conditions(
+    session,
+    ships: list[Spaceship],
+    ship_map: dict[int, Spaceship],
+    current_tick: int,
+    emit,
+) -> None:
+    """
+    After destruction processing, check if any match mothership was destroyed.
+    If so, end the match with the opposing team as winner.
+
+    Also checks for mothership HP thresholds and emits warning events.
+    """
+    active_matches_result = await session.exec(
+        select(Match).where(Match.status == MatchStatus.active.value)
+    )
+    active_matches = active_matches_result.all()
+
+    for match in active_matches:
+        t1_ms = ship_map.get(match.team1_mothership_id)
+        t2_ms = ship_map.get(match.team2_mothership_id)
+
+        winner_team_id = None
+
+        if t1_ms and t1_ms.is_destroyed:
+            winner_team_id = match.team2_id
+        elif t2_ms and t2_ms.is_destroyed:
+            winner_team_id = match.team1_id
+
+        if winner_team_id is not None:
+            match.status = MatchStatus.completed.value
+            match.winner_team_id = winner_team_id
+            match.ended_at_tick = current_tick
+
+            # Emit match_ended events to all players in both teams (before cleanup clears team_id)
+            for tid in [match.team1_id, match.team2_id]:
+                if tid is None:
+                    continue
+                user_result = await session.exec(
+                    select(User.id).where(User.team_id == tid)
+                )
+                for uid in user_result.all():
+                    emit(
+                        EventType.match_ended,
+                        f"Match '{match.name}' ended! Mothership destroyed.",
+                        user_id=uid,
+                    )
+
+            # Cleanup so players can join new matches
+            await cleanup_match_assignments(session, match)
+            continue
+
+        # Mothership warning events (under attack / critical) with cooldown
+        for ms, team_id in [(t1_ms, match.team1_id), (t2_ms, match.team2_id)]:
+            if ms is None or ms.is_destroyed or team_id is None:
+                continue
+            total_hp = ms.max_shield_hp + ms.max_armor_hp
+            current_hp = ms.shield_hp + ms.armor_hp
+            if total_hp <= 0:
+                continue
+            hp_pct = current_hp / total_hp
+
+            warning_type = None
+            if hp_pct < 0.25:
+                warning_type = EventType.mothership_critical
+            elif hp_pct < 0.75:
+                warning_type = EventType.mothership_under_attack
+
+            if warning_type is None:
+                continue
+
+            # Cooldown: only emit every _MOTHERSHIP_WARNING_COOLDOWN ticks
+            cooldown_key = (match.id, ms.id)
+            last_tick = _mothership_warning_last_tick.get(cooldown_key, -999)
+            if current_tick - last_tick < _MOTHERSHIP_WARNING_COOLDOWN:
+                continue
+            _mothership_warning_last_tick[cooldown_key] = current_tick
+
+            prefix = "CRITICAL" if warning_type == EventType.mothership_critical else "WARNING"
+            user_result = await session.exec(
+                select(User.id).where(User.team_id == team_id)
+            )
+            for uid in user_result.all():
+                emit(
+                    warning_type,
+                    f"{prefix}: Mothership '{ms.name}' at {hp_pct*100:.0f}% HP!",
+                    user_id=uid,
+                    ship_id=ms.id,
+                )
 
 
 # ---------------------------------------------------------------------------

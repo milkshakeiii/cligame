@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
+import sqlalchemy as sa
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -159,6 +160,13 @@ class Faction(str, Enum):
     voidborn = "voidborn"
 
 
+class MatchStatus(str, Enum):
+    pending = "pending"
+    active = "active"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
 class CelestialType(str, Enum):
     asteroid = "asteroid"
     planet = "planet"
@@ -207,6 +215,50 @@ class EventType(str, Enum):
     stealth_activated = "stealth_activated"
     stealth_deactivated = "stealth_deactivated"
     bio_repair_swarm_active = "bio_repair_swarm_active"
+    # --- Phase 8: Match events ---
+    match_started = "match_started"
+    mothership_under_attack = "mothership_under_attack"
+    mothership_critical = "mothership_critical"
+    match_ended = "match_ended"
+    surrender_vote = "surrender_vote"
+    # --- Phase 8.5: Command events ---
+    command_processed = "command_processed"
+    command_rejected = "command_rejected"
+
+
+class CommandType(str, Enum):
+    create_ship = "create_ship"
+    rename_ship = "rename_ship"
+    install_module = "install_module"
+    uninstall_module = "uninstall_module"
+    undock = "undock"
+    move = "move"
+    cancel_order = "cancel_order"
+    dock = "dock"
+    stop = "stop"
+    activate_module = "activate_module"
+    deactivate_module = "deactivate_module"
+    lock_target = "lock_target"
+    unlock_target = "unlock_target"
+    assign_weapon = "assign_weapon"
+    fire_all = "fire_all"
+    hold_fire = "hold_fire"
+    build = "build"
+    transfer_ore = "transfer_ore"
+    scan = "scan"
+    start_research = "start_research"
+    cancel_research = "cancel_research"
+    assume_control = "assume_control"
+    release_to_autopilot = "release_to_autopilot"
+    set_autopilot_profile = "set_autopilot_profile"
+    start_match = "start_match"
+    surrender = "surrender"
+
+
+class CommandStatus(str, Enum):
+    pending = "pending"
+    processed = "processed"
+    rejected = "rejected"
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +533,33 @@ BUILD_COSTS: Dict[str, dict] = {
     "destroyer": {"ore": 50_000, "ticks": 5_400},
     "cruiser": {"ore": 200_000, "ticks": 18_000},
 }
+
+# ---------------------------------------------------------------------------
+# Phase 8: Match system constants
+# ---------------------------------------------------------------------------
+
+ASTEROID_SIZES: Dict[str, float] = {
+    "small": 500.0,
+    "medium": 2_000.0,
+    "large": 10_000.0,
+    "huge": 50_000.0,
+}
+
+# Modules installed on each match mothership at start: (module_type, volume)
+MATCH_MOTHERSHIP_LOADOUT: list[tuple[str, int]] = [
+    ("reactor", 200),
+    ("reactor", 200),
+    ("cargo_bay", 500),
+    ("docking_bay", 500),
+    ("factory", 300_000),
+    ("mining_laser", 50),
+    ("scanner", 100),
+    ("passive_detector", 100),
+    ("large_turret_kinetic", 0),
+    ("large_turret_thermal", 0),
+    ("large_armor_plate", 0),
+    ("large_shield_extender", 0),
+]
 
 # ---------------------------------------------------------------------------
 # Phase 5: Research / Tech Tree
@@ -1093,6 +1172,34 @@ class Team(SQLModel, table=True):
     ships: List["Spaceship"] = Relationship(back_populates="team")
 
 
+class Match(SQLModel, table=True):
+    """A competitive match between two teams."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    status: str = Field(default=MatchStatus.pending.value, index=True)
+
+    team1_id: Optional[int] = Field(default=None, foreign_key="team.id")
+    team2_id: Optional[int] = Field(default=None, foreign_key="team.id")
+    # use_alter=True breaks circular FK dependency (match ↔ spaceship)
+    team1_mothership_id: Optional[int] = Field(
+        default=None,
+        sa_column=sa.Column(sa.Integer, sa.ForeignKey("spaceship.id", use_alter=True), nullable=True),
+    )
+    team2_mothership_id: Optional[int] = Field(
+        default=None,
+        sa_column=sa.Column(sa.Integer, sa.ForeignKey("spaceship.id", use_alter=True), nullable=True),
+    )
+    winner_team_id: Optional[int] = Field(default=None, foreign_key="team.id")
+
+    started_at_tick: Optional[int] = Field(default=None)
+    ended_at_tick: Optional[int] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Surrender tracking: comma-separated user IDs who voted
+    surrender_votes_team1: str = Field(default="")
+    surrender_votes_team2: str = Field(default="")
+
+
 class User(SQLModel, table=True):
     """Player account. Auth uses the token field."""
 
@@ -1157,6 +1264,9 @@ class Spaceship(SQLModel, table=True):
 
     # Team membership (Phase 7)
     team_id: Optional[int] = Field(default=None, foreign_key="team.id")
+
+    # Match scope (Phase 8) — NULL means free-play
+    match_id: Optional[int] = Field(default=None, foreign_key="match.id", index=True)
 
     # Relationships
     owner: Optional[User] = Relationship(back_populates="ships")
@@ -1481,6 +1591,9 @@ class CelestialObject(SQLModel, table=True):
     # Wreck-specific: tick when the object was created (for expiration)
     created_tick: Optional[int] = Field(default=None)
 
+    # Match scope (Phase 8) — NULL means free-play
+    match_id: Optional[int] = Field(default=None, foreign_key="match.id", index=True)
+
 
 class Event(SQLModel, table=True):
     """Persistent event log entry for a player."""
@@ -1572,6 +1685,22 @@ class LeechDebuff(SQLModel, table=True):
     cap_drain_per_tick: float = Field(default=0.0)
     ticks_remaining: int = Field(default=0)
     created_at_tick: int = Field(default=0)
+
+
+class Command(SQLModel, table=True):
+    """A queued player command to be processed by the tick loop."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    ship_id: Optional[int] = Field(default=None, foreign_key="spaceship.id")
+    command_type: str
+    payload: str = Field(default="{}")
+    status: str = Field(default=CommandStatus.pending.value, index=True)
+    rejection_reason: Optional[str] = None
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"server_default": sa.func.now()},
+    )
+    processed_at_tick: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1890,5 +2019,6 @@ def spawn_new_ship(
         ore=0.0,
         user_id=builder.user_id,
         team_id=builder.team_id,
+        match_id=builder.match_id,
     )
     return ship

@@ -42,6 +42,13 @@ Tick-based 3D space simulation CLI game (EVE Online-inspired). Players mine, sca
   - `display.py` — Rich formatting helpers
 - `tests/` — pytest test suite
 
+## Architecture: Intent-Based CQS (Phase 8.5+)
+- **The tick loop is the sole writer of game state.** Request handlers must NEVER directly mutate ships, modules, ore, locks, etc.
+- **Commands:** `POST /api/commands` enqueues an intent. Tick loop processes command queue at the start of each tick.
+- **Views:** `GET /api/view` returns the player's pre-computed world state snapshot.
+- **Why:** Eliminates TOCTOU race conditions inherent in async request handlers sharing mutable DB state with the tick loop.
+- See `INTENT_REFACTOR.md` for the full design document.
+
 ## Important Conventions
 - All CLI commands must support `--json` output for LLM playability
 - `spacegame watch` command streams events for LLM consumption

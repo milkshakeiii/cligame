@@ -1,16 +1,15 @@
 """
 Scanning routes.
 
-POST /api/ships/{id}/scan  — trigger an immediate active scan cycle
-GET  /api/nearby           — return nearby visible objects for a ship
-POST /api/alerts           — (stub) subscribe to passive detection alerts
+GET  /api/ships/{id}/nearby — return nearby visible objects for a ship
+GET  /api/nearby             — return nearby visible objects for a ship
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlmodel import select
 from sqlalchemy.orm import selectinload
@@ -19,23 +18,14 @@ from server.auth import get_current_user
 from server.database import get_session
 from server.models import (
     CelestialObject,
-    Event,
-    EventType,
-    GameState,
-    ModuleType,
     Spaceship,
     User,
 )
 from server.routes.common import get_owned_ship as _get_owned_ship_common
 from server.scanning import (
     DETAIL_CLASSIFICATION,
-    DETAIL_CONTACT,
-    DETAIL_DETAILED,
     DETAIL_IDENTIFICATION,
-    active_scan_detail_level,
     default_visibility_level,
-    passive_detection_range,
-    tick_active_scanner,
 )
 
 router = APIRouter(tags=["scanning"])
@@ -70,22 +60,6 @@ class ContactOut(BaseModel):
     max_capacitor: Optional[float] = None
 
 
-class ScanResponse(BaseModel):
-    tick: int
-    contacts: list[ContactOut]
-    message: str
-
-
-class AlertSubscribeRequest(BaseModel):
-    ship_id: int
-    min_range_km: Optional[float] = None  # alert when contacts within this many km
-    event_types: Optional[list[str]] = None
-
-
-class AlertSubscribeResponse(BaseModel):
-    message: str
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -95,12 +69,6 @@ def _dist(ax, ay, az, bx, by, bz) -> float:
     import math
     dx, dy, dz = ax - bx, ay - by, az - bz
     return math.sqrt(dx * dx + dy * dy + dz * dz)
-
-
-async def _get_current_tick(session) -> int:
-    result = await session.exec(select(GameState))
-    gs = result.first()
-    return gs.current_tick if gs else 0
 
 
 async def _get_owned_ship(ship_id: int, user: User, session) -> Spaceship:
@@ -138,91 +106,6 @@ def _contact_from_dict(d: dict) -> ContactOut:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
-
-
-@router.post("/api/ships/{ship_id}/scan", response_model=ScanResponse)
-async def active_scan(
-    ship_id: int,
-    current_user: User = Depends(get_current_user),
-    session=Depends(get_session),
-):
-    """
-    Trigger an immediate active scan cycle on the ship.
-
-    Requires the ship to have an active Scanner module.  The scan drains
-    capacitor immediately (200 cap) and returns all detected contacts with
-    detail levels per SPEC.md.
-
-    Note: The tick loop also runs scanner cycles automatically when the module
-    is active.  This endpoint allows an on-demand scan outside the normal cycle.
-    """
-    ship = await _get_owned_ship(ship_id, current_user, session)
-
-    # Find an active scanner module
-    scanner = next(
-        (m for m in ship.modules if m.module_type == ModuleType.scanner and m.active),
-        None,
-    )
-    if scanner is None:
-        # Check if there's any scanner at all (just not active)
-        any_scanner = next(
-            (m for m in ship.modules if m.module_type == ModuleType.scanner), None
-        )
-        if any_scanner is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Ship has no scanner module installed",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Scanner module is not active — activate it first",
-        )
-
-    # Check capacitor
-    if ship.capacitor < scanner.capacitor_per_cycle:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Insufficient capacitor: need {scanner.capacitor_per_cycle:.0f}, "
-                f"have {ship.capacitor:.0f}"
-            ),
-        )
-
-    # Drain capacitor
-    ship.capacitor -= scanner.capacitor_per_cycle
-
-    # Load all ships and objects for scanning
-    all_ships_result = await session.exec(
-        select(Spaceship).options(selectinload(Spaceship.modules))
-    )
-    all_ships = list(all_ships_result.all())
-
-    all_objects_result = await session.exec(select(CelestialObject))
-    all_objects = list(all_objects_result.all())
-
-    tick = await _get_current_tick(session)
-
-    scan_result = tick_active_scanner(ship, scanner, all_ships, all_objects)
-
-    contacts = [_contact_from_dict(c) for c in scan_result.contacts]
-
-    # Emit scan_complete event
-    event = Event(
-        tick=tick,
-        user_id=current_user.id,
-        ship_id=ship.id,
-        event_type=EventType.scan_complete,
-        message=f"Scan complete: {len(contacts)} contact(s) found",
-    )
-    session.add(event)
-
-    await session.commit()
-
-    return ScanResponse(
-        tick=tick,
-        contacts=contacts,
-        message=f"Scan complete: {len(contacts)} contact(s) found",
-    )
 
 
 async def _nearby_logic(
@@ -344,32 +227,3 @@ async def get_nearby(
     real-time default visibility.
     """
     return await _nearby_logic(ship_id, current_user, session)
-
-
-@router.post("/api/alerts", response_model=AlertSubscribeResponse)
-async def subscribe_alerts(
-    body: AlertSubscribeRequest,
-    current_user: User = Depends(get_current_user),
-    session=Depends(get_session),
-):
-    """
-    Subscribe to passive detection alerts for a ship.
-
-    In the current implementation, passive detectors automatically generate
-    detection events in the event log (GET /api/events) whenever they fire
-    their cycle.  This endpoint is a configuration stub — alert filtering
-    is applied when polling events via the ``types`` and ``ship_id`` query
-    parameters on GET /api/events.
-
-    Future: persistent alert subscriptions with configurable thresholds.
-    """
-    # Verify ship ownership
-    await _get_owned_ship(body.ship_id, current_user, session)
-
-    return AlertSubscribeResponse(
-        message=(
-            "Passive detection alerts are delivered via the event log. "
-            "Poll GET /api/events?types=detection&ship_id="
-            f"{body.ship_id} to receive detection notifications."
-        )
-    )

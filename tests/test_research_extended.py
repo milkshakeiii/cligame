@@ -7,35 +7,20 @@ Topics covered:
   - check_prerequisites: unknown tech returns error string
   - is_module_unlocked: module with None required tech
   - tick_research unit tests: pausing on low cap, resuming, completing, ship destroyed
-  - Research API edge cases:
-    - Cancelling research on a specific module
-    - Research status shows only active/paused/complete (not cancelled)
-    - Starting already-completed research fails
-    - Starting with unmet prerequisites fails
-    - Starting research on a destroyed ship fails
-    - Providing module_id body param selects correct module
-    - Research module on wrong ship type (volume constraint)
-  - Research gating on production:
-    - Building cruiser via API without research → 422
-    - Building cruiser via factory without research → 422
-  - Research gating on ships route:
-    - Installing large turrets without large_weapons research → 422
-    - Installing torpedo_launcher without research → 422
+  - Research API edge cases (GET-only):
+    - Auth required for research endpoints
+    - Status on wrong user's ship returns 403
+    - Tech tree requires auth, shows correct costs, has required fields
+    - Status on nonexistent ship returns 404
 """
 
 import pytest
 from httpx import AsyncClient
 
 from server.models import (
-    MODULE_REQUIRED_TECH,
     RESEARCH_COSTS,
-    RESEARCH_GATED_MODULES,
-    RESEARCH_GATED_SHIPS,
-    SHIP_REQUIRED_TECH,
     TECH_TREE,
-    ModuleType,
     ResearchProgress,
-    ShipClass,
     Spaceship,
 )
 from server.research import (
@@ -46,7 +31,7 @@ from server.research import (
     is_ship_unlocked,
     tick_research,
 )
-from tests.conftest import add_module_to_ship, make_test_ship, register_user
+from tests.conftest import register_user
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +522,7 @@ class TestTickResearchUnit:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests: Research API — additional cases
+# Integration tests: Research API — GET-only cases
 # ---------------------------------------------------------------------------
 
 
@@ -546,45 +531,11 @@ async def _get_ship_id(client: AsyncClient, token: str) -> int:
     return resp.json()[0]["id"]
 
 
-async def _install_research_module(client: AsyncClient, token: str, ship_id: int) -> int:
-    resp = await client.post(
-        f"/api/ships/{ship_id}/modules",
-        json={"module_type": "research_module", "volume": 0},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
-
-
 class TestResearchAPIExtended:
     async def test_research_requires_auth(self, client: AsyncClient):
         """No token should result in 401."""
         resp = await client.get("/api/ships/1/research/status")
         assert resp.status_code == 401
-
-    async def test_research_start_on_wrong_users_ship_403(self, client: AsyncClient):
-        auth1 = await register_user(client, "rext_user1")
-        auth2 = await register_user(client, "rext_user2")
-        ship1_id = await _get_ship_id(client, auth1["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship1_id}/research/start",
-            json={"tech_id": "1a_medium_weapons"},
-            headers={"Authorization": f"Bearer {auth2['token']}"},
-        )
-        assert resp.status_code == 403
-
-    async def test_research_cancel_on_wrong_users_ship_403(self, client: AsyncClient):
-        auth1 = await register_user(client, "rext_cancel1")
-        auth2 = await register_user(client, "rext_cancel2")
-        ship1_id = await _get_ship_id(client, auth1["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship1_id}/research/cancel",
-            json={},
-            headers={"Authorization": f"Bearer {auth2['token']}"},
-        )
-        assert resp.status_code == 403
 
     async def test_research_status_wrong_users_ship_403(self, client: AsyncClient):
         auth1 = await register_user(client, "rext_status1")
@@ -596,42 +547,6 @@ class TestResearchAPIExtended:
             headers={"Authorization": f"Bearer {auth2['token']}"},
         )
         assert resp.status_code == 403
-
-    async def test_start_research_with_unmet_prerequisites(self, client: AsyncClient):
-        """Starting a tier-2 tech without tier-1 prerequisite should fail."""
-        auth = await register_user(client, "rext_prereq_user")
-        ship_id = await _get_ship_id(client, auth["token"])
-        await _install_research_module(client, auth["token"], ship_id)
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/research/start",
-            json={"tech_id": "2a_large_weapons"},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "prerequisite" in resp.json()["detail"].lower()
-
-    async def test_all_research_modules_busy_returns_422(self, client: AsyncClient):
-        """When only one research module is installed and it's already researching,
-        the next start call should fail with 'all research modules are busy'."""
-        auth = await register_user(client, "rext_busy_user")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        # Give ship enough ore for two researches (we'll check the error before that)
-        # Actually, since ship has 0 ore, we'll hit the ore error first.
-        # Just check the "all modules busy" path by not giving ore at all.
-        # We need to first trigger the insufficient_ore to confirm the module is there.
-        await _install_research_module(client, auth["token"], ship_id)
-
-        # First start fails due to ore
-        resp1 = await client.post(
-            f"/api/ships/{ship_id}/research/start",
-            json={"tech_id": "1a_medium_weapons"},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp1.status_code == 422
-        # Confirm it's about ore
-        assert "ore" in resp1.json()["detail"].lower()
 
     async def test_tech_tree_requires_auth(self, client: AsyncClient):
         """The tech tree endpoint requires authentication."""
@@ -687,186 +602,3 @@ class TestResearchAPIExtended:
             headers={"Authorization": f"Bearer {auth['token']}"},
         )
         assert resp.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Integration tests: Research gating — additional module types
-# ---------------------------------------------------------------------------
-
-
-class TestResearchGatingExtended:
-    async def test_cannot_install_large_turret_kinetic_without_research(
-        self, client: AsyncClient
-    ):
-        auth = await register_user(client, "ext_gating1")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "large_turret_kinetic", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_cannot_install_torpedo_launcher_without_research(
-        self, client: AsyncClient
-    ):
-        auth = await register_user(client, "ext_gating2")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "torpedo_launcher", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_cannot_install_heavy_missile_launcher_without_research(
-        self, client: AsyncClient
-    ):
-        auth = await register_user(client, "ext_gating3")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "heavy_missile_launcher", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_cannot_install_medium_shield_extender_without_research(
-        self, client: AsyncClient
-    ):
-        auth = await register_user(client, "ext_gating4")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "medium_shield_extender", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_cannot_install_large_armor_plate_without_research(
-        self, client: AsyncClient
-    ):
-        auth = await register_user(client, "ext_gating5")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "large_armor_plate", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_cannot_install_fortress_without_research(self, client: AsyncClient):
-        auth = await register_user(client, "ext_gating6")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "fortress", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_cannot_build_cruiser_via_api_without_research(
-        self, client: AsyncClient
-    ):
-        """Direct ship creation of cruiser via POST /api/ships requires research."""
-        auth = await register_user(client, "ext_gating7")
-
-        resp = await client.post(
-            "/api/ships",
-            json={"name": "My Cruiser", "ship_class": "cruiser"},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_cannot_build_cruiser_via_factory_without_research(
-        self, client: AsyncClient
-    ):
-        """Factory build of cruiser requires research."""
-        auth = await register_user(client, "ext_gating8")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        # Install a factory
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "factory", "volume": 5000},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 201
-
-        # Try to build a cruiser
-        resp = await client.post(
-            f"/api/ships/{ship_id}/build",
-            json={"blueprint": "cruiser"},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 422
-        assert "research required" in resp.json()["detail"].lower()
-
-    async def test_can_install_light_missile_launcher_without_research(
-        self, client: AsyncClient
-    ):
-        """Light missile launcher is available without research."""
-        auth = await register_user(client, "ext_gating9")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "light_missile_launcher", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 201
-
-    async def test_can_install_small_shield_extender_without_research(
-        self, client: AsyncClient
-    ):
-        """Small shield extender is available without research."""
-        auth = await register_user(client, "ext_gating10")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "small_shield_extender", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 201
-
-    async def test_can_install_small_armor_plate_without_research(
-        self, client: AsyncClient
-    ):
-        """Small armor plate is available without research."""
-        auth = await register_user(client, "ext_gating11")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "small_armor_plate", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 201
-
-    async def test_can_install_small_armor_repairer_without_research(
-        self, client: AsyncClient
-    ):
-        """Small armor repairer is available without research."""
-        auth = await register_user(client, "ext_gating12")
-        ship_id = await _get_ship_id(client, auth["token"])
-
-        resp = await client.post(
-            f"/api/ships/{ship_id}/modules",
-            json={"module_type": "small_armor_repairer", "volume": 0},
-            headers={"Authorization": f"Bearer {auth['token']}"},
-        )
-        assert resp.status_code == 201

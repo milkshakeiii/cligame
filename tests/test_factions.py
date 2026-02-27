@@ -17,7 +17,6 @@ Covers:
 import math
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker, selectinload
 from sqlmodel import SQLModel, select
@@ -63,16 +62,12 @@ from server.research import (
     is_ship_unlocked,
     start_research,
 )
-from tests.conftest import add_module_to_ship, make_test_ship, register_user
+from tests.conftest import add_module_to_ship, make_test_ship
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def auth_headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
 
 
 def _make_team_ship(
@@ -1251,40 +1246,7 @@ class TestEffectiveSignatureRadius:
 
 
 # ---------------------------------------------------------------------------
-# 16. Integration: API tests for ship creation (faction context)
-# ---------------------------------------------------------------------------
-
-
-class TestShipCreationAPI:
-    """Integration tests for ship creation via API."""
-
-    async def test_create_ship_returns_correct_stats(self, client: AsyncClient):
-        auth = await register_user(client, "faction_ship_test")
-        resp = await client.post(
-            "/api/ships",
-            json={"name": "Test Corvette", "ship_class": "corvette"},
-            headers=auth_headers(auth["token"]),
-        )
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["ship_class"] == "corvette"
-        assert data["total_volume"] == SHIP_CLASSES["corvette"]["volume"]
-
-    async def test_create_strike_craft(self, client: AsyncClient):
-        auth = await register_user(client, "faction_sc_test")
-        resp = await client.post(
-            "/api/ships",
-            json={"name": "Fast Striker", "ship_class": "strike_craft"},
-            headers=auth_headers(auth["token"]),
-        )
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["ship_class"] == "strike_craft"
-        assert data["total_volume"] == SHIP_CLASSES["strike_craft"]["volume"]
-
-
-# ---------------------------------------------------------------------------
-# 17. Research start_research with DB (using db_session fixture)
+# 16. Research start_research with DB (using db_session fixture)
 # ---------------------------------------------------------------------------
 
 

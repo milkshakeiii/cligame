@@ -1,36 +1,28 @@
 """
-Research routes for Phase 5.
+Research routes (read-only views).
 
-POST  /api/ships/{id}/research/start   — Begin researching a tech
-POST  /api/ships/{id}/research/cancel  — Cancel active research on a module
 GET   /api/ships/{id}/research/status  — Current research progress on this ship
 GET   /api/research/tech-tree          — Full tech tree with completion status
 """
 
 from __future__ import annotations
 
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import select
-from sqlalchemy.orm import selectinload
 
 from server.auth import get_current_user
 from server.database import get_session
 from server.models import (
     RESEARCH_COSTS,
     TECH_TREE,
-    ModuleType,
     ResearchProgress,
-    Spaceship,
     Team,
     User,
 )
 from server.research import (
     get_completed_tech_ids,
     get_effective_tech_tree,
-    start_research,
 )
 from server.routes.common import get_owned_ship
 
@@ -41,11 +33,6 @@ router = APIRouter(tags=["research"])
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
-
-
-class ResearchStartRequest(BaseModel):
-    tech_id: str
-    module_id: Optional[int] = None  # research module ID; if None, first available
 
 
 class ResearchProgressOut(BaseModel):
@@ -70,10 +57,6 @@ class TechNodeOut(BaseModel):
     ore_cost: int
     research_ticks: int
     status: str  # "available", "researching", "complete", "locked"
-
-
-class ResearchCancelRequest(BaseModel):
-    module_id: Optional[int] = None  # if None, cancel all research on ship
 
 
 # ---------------------------------------------------------------------------
@@ -102,124 +85,6 @@ def _rp_to_out(rp: ResearchProgress) -> ResearchProgressOut:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/api/ships/{ship_id}/research/start",
-    response_model=ResearchProgressOut,
-    status_code=status.HTTP_201_CREATED,
-)
-async def research_start(
-    ship_id: int,
-    body: ResearchStartRequest,
-    current_user: User = Depends(get_current_user),
-    session=Depends(get_session),
-):
-    """Begin researching a tech using a research module on this ship."""
-    ship = await get_owned_ship(
-        ship_id, current_user, session,
-        selectinload(Spaceship.modules),
-    )
-
-    if ship.is_destroyed:
-        raise HTTPException(status_code=422, detail="Ship is destroyed")
-
-    # Find the research module
-    research_modules = [
-        m for m in ship.modules
-        if m.module_type == ModuleType.research_module
-    ]
-    if not research_modules:
-        raise HTTPException(
-            status_code=422,
-            detail="Ship has no research module installed",
-        )
-
-    if body.module_id is not None:
-        module = next((m for m in research_modules if m.id == body.module_id), None)
-        if module is None:
-            raise HTTPException(status_code=404, detail="Research module not found on this ship")
-    else:
-        # Find first available (not currently researching)
-        busy_module_ids = set()
-        busy_result = await session.exec(
-            select(ResearchProgress).where(
-                ResearchProgress.ship_id == ship.id,
-                ResearchProgress.status == "researching",
-            )
-        )
-        for rp in busy_result.all():
-            busy_module_ids.add(rp.module_id)
-
-        module = next(
-            (m for m in research_modules if m.id not in busy_module_ids),
-            None,
-        )
-        if module is None:
-            raise HTTPException(
-                status_code=422,
-                detail="All research modules are busy",
-            )
-
-    # Look up faction for faction-specific tech tree
-    user_faction = None
-    if current_user.team_id is not None:
-        team_result = await session.exec(
-            select(Team).where(Team.id == current_user.team_id)
-        )
-        team = team_result.first()
-        if team:
-            user_faction = team.faction
-
-    try:
-        rp = await start_research(
-            session, ship, module, body.tech_id, current_user.id,
-            team_id=current_user.team_id,
-            faction=user_faction,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
-    await session.commit()
-    await session.refresh(rp)
-    return _rp_to_out(rp)
-
-
-@router.post("/api/ships/{ship_id}/research/cancel", status_code=status.HTTP_204_NO_CONTENT)
-async def research_cancel(
-    ship_id: int,
-    body: ResearchCancelRequest,
-    current_user: User = Depends(get_current_user),
-    session=Depends(get_session),
-):
-    """Cancel active research on this ship. Ore is not refunded."""
-    ship = await get_owned_ship(
-        ship_id, current_user, session,
-        selectinload(Spaceship.modules),
-    )
-
-    result = await session.exec(
-        select(ResearchProgress).where(
-            ResearchProgress.ship_id == ship.id,
-            ResearchProgress.status.in_(["researching", "paused"]),
-        )
-    )
-    active = result.all()
-
-    if body.module_id is not None:
-        active = [r for r in active if r.module_id == body.module_id]
-
-    if not active:
-        raise HTTPException(status_code=404, detail="No active research to cancel")
-
-    for rp in active:
-        rp.status = "cancelled"
-        # Deactivate the research module
-        mod = next((m for m in ship.modules if m.id == rp.module_id), None)
-        if mod:
-            mod.active = False
-
-    await session.commit()
 
 
 @router.get("/api/ships/{ship_id}/research/status", response_model=list[ResearchProgressOut])

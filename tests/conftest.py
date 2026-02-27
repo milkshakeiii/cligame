@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 import pytest_asyncio
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -86,6 +86,9 @@ def _build_test_app(test_session_factory) -> FastAPI:
     from server.routes.research import router as research_router
     from server.routes.autopilot import router as autopilot_router
     from server.routes.teams import router as teams_router
+    from server.routes.matches import router as matches_router
+    from server.routes.commands import router as commands_router
+    from server.routes.view import router as view_router
 
     async def override_get_session():
         async with test_session_factory() as session:
@@ -110,6 +113,89 @@ def _build_test_app(test_session_factory) -> FastAPI:
     test_app.include_router(research_router)
     test_app.include_router(autopilot_router)
     test_app.include_router(teams_router)
+    test_app.include_router(matches_router)
+    test_app.include_router(commands_router)
+    test_app.include_router(view_router)
+
+    # Test-only endpoint: process commands without a running tick loop
+    from server.commands import TickContext, process_commands
+    from server.models import (
+        CelestialObject,
+        Event,
+        LeechDebuff,
+        PendingMissile,
+        WeaponAssignment,
+    )
+    from sqlmodel import select
+    from sqlalchemy.orm import selectinload
+
+    @test_app.post("/api/_test/process_commands")
+    async def test_process_commands(session=Depends(get_session)):
+        """Process all pending commands. Test-only endpoint."""
+        # Load current tick
+        gs_result = await session.exec(select(GameState))
+        gs = gs_result.first()
+        current_tick = gs.current_tick if gs else 0
+
+        # Load game state
+        ships_result = await session.exec(
+            select(Spaceship).options(
+                selectinload(Spaceship.modules),
+                selectinload(Spaceship.movement_orders),
+                selectinload(Spaceship.build_orders),
+                selectinload(Spaceship.target_locks),
+                selectinload(Spaceship.team),
+            )
+        )
+        ships = list(ships_result.all())
+
+        objs_result = await session.exec(select(CelestialObject))
+        celestial_objects = list(objs_result.all())
+
+        wa_result = await session.exec(select(WeaponAssignment))
+        weapon_assignments = list(wa_result.all())
+
+        pm_result = await session.exec(select(PendingMissile))
+        pending_missiles = list(pm_result.all())
+
+        ld_result = await session.exec(select(LeechDebuff))
+        active_leeches = list(ld_result.all())
+
+        pending_events: list[Event] = []
+
+        ctx = TickContext(
+            session=session,
+            ships=ships,
+            celestial_objects=celestial_objects,
+            weapon_assignments=weapon_assignments,
+            pending_missiles=pending_missiles,
+            active_leeches=active_leeches,
+            current_tick=current_tick,
+            pending_events=pending_events,
+        )
+        await process_commands(ctx)
+
+        # Persist events
+        for ev in pending_events:
+            session.add(ev)
+        await session.commit()
+
+        return {"processed": True, "tick": current_tick, "events": len(pending_events)}
+
+    @test_app.post("/api/_test/dock_ship")
+    async def test_dock_ship(body: dict, session=Depends(get_session)):
+        """Directly dock a ship (test-only, bypasses movement phase)."""
+        ship_id = body["ship_id"]
+        target_id = body["target_ship_id"]
+        result = await session.exec(
+            select(Spaceship).where(Spaceship.id == ship_id)
+        )
+        ship = result.first()
+        if ship is None:
+            return {"error": "Ship not found"}
+        ship.docked_in_id = target_id
+        await session.commit()
+        return {"docked": True, "ship_id": ship_id, "docked_in_id": target_id}
 
     return test_app
 

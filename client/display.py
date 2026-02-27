@@ -633,6 +633,12 @@ EVENT_COLORS: dict[str, str] = {
     "research_started": "cyan",
     "research_complete": "bold green",
     "research_paused": "yellow",
+    # Match events
+    "match_started": "bold green",
+    "mothership_under_attack": "bold yellow",
+    "mothership_critical": "bold red",
+    "match_ended": "bold cyan",
+    "surrender_vote": "yellow",
     # Combat events
     "target_locked": "bold yellow",
     "target_lost": "yellow",
@@ -1048,6 +1054,209 @@ def display_leeches(data: list, json_mode: bool) -> None:
             str(l.get("ticks_remaining", 0)),
         )
     console.print(t)
+
+
+# ---------------------------------------------------------------------------
+# Matches (Phase 8)
+# ---------------------------------------------------------------------------
+
+
+def display_matches(data: list, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    if not data:
+        console.print("[dim]No matches found.[/dim]")
+        return
+    t = Table(box=box.SIMPLE, title="Matches")
+    t.add_column("ID", justify="right")
+    t.add_column("Name", style="bold")
+    t.add_column("Status")
+    t.add_column("Team 1", justify="right")
+    t.add_column("Team 2", justify="right")
+    t.add_column("Winner", justify="right")
+    for m in data:
+        status_color = {
+            "pending": "yellow",
+            "active": "green",
+            "completed": "cyan",
+            "cancelled": "dim",
+        }.get(m.get("status", ""), "white")
+        winner = str(m["winner_team_id"]) if m.get("winner_team_id") else "-"
+        t.add_row(
+            str(m["id"]),
+            m["name"],
+            f"[{status_color}]{m['status']}[/{status_color}]",
+            str(m.get("team1_id") or "-"),
+            str(m.get("team2_id") or "-"),
+            winner,
+        )
+    console.print(t)
+
+
+def display_match_info(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+
+    status_color = {
+        "pending": "yellow",
+        "active": "green",
+        "completed": "cyan",
+        "cancelled": "dim",
+    }.get(data.get("status", ""), "white")
+
+    header = (
+        f"[bold]{data.get('name', '?')}[/bold]  (Match #{data.get('id', '?')})\n"
+        f"  Status     : [{status_color}]{data.get('status', '?')}[/{status_color}]"
+    )
+
+    if data.get("started_at_tick") is not None:
+        header += f"\n  Started    : Tick {data['started_at_tick']}"
+    if data.get("ended_at_tick") is not None:
+        header += f"\n  Ended      : Tick {data['ended_at_tick']}"
+    if data.get("winner_team_id") is not None:
+        header += f"\n  Winner     : Team #{data['winner_team_id']}"
+
+    # Team info
+    for label, team_key, ms_key in [
+        ("Team 1", "team1", "team1_mothership"),
+        ("Team 2", "team2", "team2_mothership"),
+    ]:
+        team = data.get(team_key)
+        if team:
+            header += (
+                f"\n  {label}      : {team['name']}  "
+                f"({team['faction'].title()}, {team['member_count']} player(s))"
+            )
+            ms = data.get(ms_key)
+            if ms:
+                shield_bar = _hp_bar(ms["shield_hp"], ms["max_shield_hp"], "blue", 15)
+                armor_bar = _hp_bar(ms["armor_hp"], ms["max_armor_hp"], "yellow", 15)
+                destroyed = " [bold red]DESTROYED[/bold red]" if ms.get("is_destroyed") else ""
+                header += (
+                    f"\n    Mothership : {ms['name']}{destroyed}"
+                    f"\n      Shield   : {shield_bar}"
+                    f"\n      Armor    : {armor_bar}"
+                )
+        else:
+            header += f"\n  {label}      : [dim]Waiting for opponent[/dim]"
+
+    console.print(Panel(header, title=f"Match #{data.get('id', '?')}", border_style="cyan"))
+
+
+def display_surrender(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    if data.get("match_ended"):
+        console.print(f"[bold red]{data.get('message', 'Match ended by surrender.')}[/bold red]")
+    else:
+        console.print(
+            f"[yellow]{data.get('message', 'Vote recorded.')}[/yellow]  "
+            f"({data.get('votes', 0)}/{data.get('needed', 0)} votes needed)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# View (Intent-based CQS)
+# ---------------------------------------------------------------------------
+
+
+def display_view(data: dict, json_mode: bool, events_only: bool = False) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+
+    tick = data.get("tick", 0)
+    console.print(Panel(f"Tick: [bold cyan]{tick}[/bold cyan]", title="World View", border_style="blue"))
+
+    # Team info
+    team = data.get("team")
+    if team:
+        console.print(
+            f"  Team: [bold]{team['name']}[/bold] (#{team['id']})  "
+            f"Faction: [cyan]{team.get('faction', '?').title()}[/cyan]"
+        )
+
+    # Match info
+    match = data.get("match")
+    if match:
+        console.print(
+            f"  Match: [bold]{match.get('name', '?')}[/bold] (#{match['id']})  "
+            f"Status: {match.get('status', '?')}"
+        )
+
+    if not events_only:
+        # Ships
+        ships = data.get("ships", [])
+        if ships:
+            t = Table(box=box.SIMPLE_HEAVY, title="Your Ships", show_lines=False)
+            t.add_column("ID", style="dim", justify="right")
+            t.add_column("Name", style="bold")
+            t.add_column("Class")
+            t.add_column("Position")
+            t.add_column("Speed")
+            t.add_column("Ore / Cargo")
+            t.add_column("Shield")
+            t.add_column("Armor")
+            t.add_column("Cap %")
+
+            for s in ships:
+                pos = f"({s['pos_x']:.0f}, {s['pos_y']:.0f}, {s['pos_z']:.0f})"
+                speed = _speed_vec(s["vel_x"], s["vel_y"], s["vel_z"])
+                ore = f"{s['ore']:.0f}/{s['cargo_capacity']:.0f}"
+                shield_pct = (s["shield_hp"] / s["max_shield_hp"] * 100) if s.get("max_shield_hp") else 0
+                armor_pct = (s["armor_hp"] / s["max_armor_hp"] * 100) if s.get("max_armor_hp") else 0
+                cap_pct = (s["capacitor"] / s["max_capacitor"] * 100) if s.get("max_capacitor") else 0
+                destroyed = " [red]X[/red]" if s.get("is_destroyed") else ""
+                t.add_row(
+                    str(s["id"]),
+                    s["name"] + destroyed,
+                    s["ship_class"],
+                    pos,
+                    speed,
+                    ore,
+                    f"{shield_pct:.0f}%",
+                    f"{armor_pct:.0f}%",
+                    f"{cap_pct:.0f}%",
+                )
+            console.print(t)
+
+        # Nearby contacts
+        nearby = data.get("nearby", [])
+        if nearby:
+            _display_contacts_table(nearby)
+
+    # Events
+    events = data.get("events", [])
+    if events:
+        console.print(f"\n[bold]Events ({len(events)}):[/bold]")
+        for e in events:
+            tick_num = e.get("tick", "?")
+            etype = e.get("type", "event").upper()
+            ship_part = f"Ship #{e['ship_id']}: " if e.get("ship_id") is not None else ""
+            msg = e.get("message", "")
+            color = EVENT_COLORS.get(e.get("type", ""), "white")
+            console.print(f"  [dim][Tick {tick_num}][/dim] [{color}]{etype}[/{color}] {ship_part}{msg}")
+
+    # Pending commands
+    commands = data.get("pending_commands", [])
+    pending = [c for c in commands if c.get("status") == "pending"]
+    if pending:
+        console.print(f"\n[yellow]{len(pending)} pending command(s)[/yellow]")
+
+
+def display_command_queued(data: dict, json_mode: bool) -> None:
+    if json_mode:
+        _json_out(data)
+        return
+    cmd_id = data.get("command_id", "?")
+    cmd_type = data.get("type", "?")
+    console.print(
+        f"[green]Command queued[/green]  id={cmd_id}  type=[bold]{cmd_type}[/bold]  "
+        f"status={data.get('status', 'pending')}"
+    )
 
 
 # ---------------------------------------------------------------------------

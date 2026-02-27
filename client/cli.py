@@ -38,6 +38,7 @@ weapon_app = typer.Typer(help="Weapon commands.", no_args_is_help=True)
 research_app = typer.Typer(help="Research / tech tree commands.", no_args_is_help=True)
 command_app = typer.Typer(help="Autopilot / command authority commands.", no_args_is_help=True)
 team_app = typer.Typer(help="Team management commands.", no_args_is_help=True)
+match_app = typer.Typer(help="Match management commands.", no_args_is_help=True)
 
 app.add_typer(ship_app, name="ship")
 app.add_typer(order_app, name="order")
@@ -48,6 +49,7 @@ app.add_typer(weapon_app, name="weapon")
 app.add_typer(research_app, name="research")
 app.add_typer(command_app, name="command")
 app.add_typer(team_app, name="team")
+app.add_typer(match_app, name="match")
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +72,20 @@ def _handle(fn, *args, **kwargs):
     except SpaceGameError as exc:
         display.print_error(str(exc))
         raise typer.Exit(code=1)
+
+
+def _show_queued(data: dict, json_mode: bool, context: str = "") -> None:
+    """Display a command receipt."""
+    if json_mode:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        cmd_id = data.get("command_id", "?")
+        cmd_type = data.get("type", "?")
+        msg = f"Command #{cmd_id} ({cmd_type}) queued."
+        if context:
+            msg += f" {context}"
+        display.print_success(msg)
 
 
 def _normalize(s: str) -> str:
@@ -120,26 +136,14 @@ def _resolve_object(client: SpaceGameClient, ship_id: int, name: str) -> int:
     Canonical name is always '{Type} {id}' — e.g. 'Asteroid 29'.
     Accepts 'asteroid29', 'Asteroid 29', 'asteroid 29', etc.
     """
-    seen_ids: set[int] = set()
     objects: list[dict] = []
 
-    # Try nearby first (passive, no scanner needed)
+    # Use nearby (passive detector) — scan is now a command, not immediate
     try:
         nearby = client.nearby(ship_id)
         for c in nearby:
-            if c.get("type") == "object" and c["id"] not in seen_ids:
+            if c.get("type") == "object":
                 objects.append(c)
-                seen_ids.add(c["id"])
-    except SpaceGameError:
-        pass
-
-    # Also try scan (active scanner, longer range) — even if nearby found some
-    try:
-        scan_data = client.scan(ship_id)
-        for c in scan_data.get("contacts", []):
-            if c.get("type") == "object" and c["id"] not in seen_ids:
-                objects.append(c)
-                seen_ids.add(c["id"])
     except SpaceGameError:
         pass
 
@@ -327,13 +331,7 @@ def ship_create(
     """Create (spawn) a new ship. Name is auto-generated if omitted."""
     client = _client()
     data = _handle(client.create_ship, name, ship_class)
-    if json:
-        import json as _json
-        print(_json.dumps(data, indent=2))
-    else:
-        display.print_success(
-            f"Ship '{data['name']}' (#{data['id']}) created — class: {data['ship_class']}"
-        )
+    _show_queued(data, json, f"Creating {ship_class}.")
 
 
 @ship_app.command("rename")
@@ -346,11 +344,7 @@ def ship_rename(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.rename_ship, resolved, new_name)
-    if json:
-        import json as _json
-        print(_json.dumps(data, indent=2))
-    else:
-        display.print_success(f"Ship #{data['id']} renamed to '{data['name']}'.")
+    _show_queued(data, json, f"Renaming to '{new_name}'.")
 
 
 @ship_app.command("info")
@@ -453,7 +447,7 @@ def order_approach(
             raise typer.Exit(code=1)
 
     data = _handle(client.create_order, resolved, payload)
-    display.display_order(data, json)
+    _show_queued(data, json, "Approaching target.")
 
 
 @order_app.command("orbit")
@@ -495,7 +489,7 @@ def order_orbit(
         payload["target_object_id"] = _resolve_object(client, resolved, obj)
 
     data = _handle(client.create_order, resolved, payload)
-    display.display_order(data, json)
+    _show_queued(data, json, "Orbiting target.")
 
 
 @order_app.command("keep-distance")
@@ -537,7 +531,7 @@ def order_keep_distance(
         payload["target_object_id"] = _resolve_object(client, resolved, obj)
 
     data = _handle(client.create_order, resolved, payload)
-    display.display_order(data, json)
+    _show_queued(data, json, "Keeping distance.")
 
 
 @order_app.command("dock")
@@ -551,7 +545,7 @@ def order_dock(
     resolved = _resolve_ship(client, ship_id)
     resolved_target = _resolve_ship(client, target)
     data = _handle(client.dock_ship, resolved, resolved_target)
-    display.display_order(data, json)
+    _show_queued(data, json, "Docking ship.")
 
 
 @order_app.command("stop")
@@ -564,7 +558,7 @@ def order_stop(
     resolved = _resolve_ship(client, ship_id)
     payload = {"order_type": "stop"}
     data = _handle(client.create_order, resolved, payload)
-    display.display_order(data, json)
+    _show_queued(data, json, "Stopping ship.")
 
 
 @order_app.command("cancel")
@@ -577,7 +571,7 @@ def order_cancel(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.cancel_order, resolved, order_id)
-    display.display_order_cancel(data, json)
+    _show_queued(data, json, "Cancelling order.")
 
 
 # ---------------------------------------------------------------------------
@@ -602,11 +596,14 @@ def mine_start(
     results = []
     for laser in lasers:
         result = _handle(client.activate_module, resolved, laser["id"])
-        if result:
-            results.append(result)
+        results.append(result)
 
-    payload = {"lasers": results, "action": "start"}
-    display.display_mine_action(payload, json, action="start")
+    n = len(results)
+    if json:
+        import json as _json
+        print(_json.dumps(results, indent=2))
+    else:
+        display.print_success(f"{n} mining laser(s) activation queued.")
 
 
 @mine_app.command("stop")
@@ -626,11 +623,14 @@ def mine_stop(
     results = []
     for laser in lasers:
         result = _handle(client.deactivate_module, resolved, laser["id"])
-        if result:
-            results.append(result)
+        results.append(result)
 
-    payload = {"lasers": results, "action": "stop"}
-    display.display_mine_action(payload, json, action="stop")
+    n = len(results)
+    if json:
+        import json as _json
+        print(_json.dumps(results, indent=2))
+    else:
+        display.print_success(f"{n} mining laser(s) deactivation queued.")
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +649,7 @@ def transfer(
     resolved = _resolve_ship(client, ship_id)
     resolved_target = _resolve_ship(client, target)
     data = _handle(client.transfer_ore, resolved, resolved_target)
-    display.display_transfer(data, json)
+    _show_queued(data, json, "Transferring ore.")
 
 
 # ---------------------------------------------------------------------------
@@ -717,7 +717,7 @@ def build_cmd(
     else:
         factory_module_id = _resolve_module(client, resolved, factory_module) if factory_module else None
         data = _handle(client.queue_build, resolved, blueprint, factory_module_id)
-        display.display_build_order(data, json)
+        _show_queued(data, json, f"Building {blueprint}.")
 
 
 # ---------------------------------------------------------------------------
@@ -734,7 +734,7 @@ def scan(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.scan, resolved)
-    display.display_scan_results(data, json)
+    _show_queued(data, json, "Scanning.")
 
 
 @app.command()
@@ -784,7 +784,7 @@ def module_install(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.install_module, resolved, module_type, volume)
-    display.display_module(data, json, action="Module installed")
+    _show_queued(data, json, f"Installing {module_type}.")
 
 
 @module_app.command("uninstall")
@@ -797,8 +797,8 @@ def module_uninstall(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     module_id = _resolve_module(client, resolved, module)
-    _handle(client.uninstall_module, resolved, module_id)
-    display.display_module_uninstall(json)
+    data = _handle(client.uninstall_module, resolved, module_id)
+    _show_queued(data, json, "Uninstalling module.")
 
 
 @module_app.command("activate")
@@ -812,7 +812,7 @@ def module_activate(
     resolved = _resolve_ship(client, ship_id)
     module_id = _resolve_module(client, resolved, module)
     data = _handle(client.activate_module, resolved, module_id)
-    display.display_module(data, json, action="Module activated")
+    _show_queued(data, json, "Activating module.")
 
 
 @module_app.command("deactivate")
@@ -826,7 +826,7 @@ def module_deactivate(
     resolved = _resolve_ship(client, ship_id)
     module_id = _resolve_module(client, resolved, module)
     data = _handle(client.deactivate_module, resolved, module_id)
-    display.display_module(data, json, action="Module deactivated")
+    _show_queued(data, json, "Deactivating module.")
 
 
 # ---------------------------------------------------------------------------
@@ -845,7 +845,7 @@ def target_lock(
     resolved = _resolve_ship(client, ship_id)
     resolved_target = _resolve_ship(client, target)
     data = _handle(client.lock_target, resolved, resolved_target)
-    display.display_lock(data, json)
+    _show_queued(data, json, "Locking target.")
 
 
 @target_app.command("unlock")
@@ -858,12 +858,8 @@ def target_unlock(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     resolved_target = _resolve_ship(client, target)
-    _handle(client.unlock_target, resolved, resolved_target)
-    if json:
-        import json as _json
-        print(_json.dumps({"status": "unlocked", "target_ship_id": resolved_target}))
-    else:
-        display.print_success(f"Lock on Ship #{resolved_target} released.")
+    data = _handle(client.unlock_target, resolved, resolved_target)
+    _show_queued(data, json, "Unlocking target.")
 
 
 @target_app.command("list")
@@ -896,7 +892,7 @@ def weapon_assign(
     module_id = _resolve_module(client, resolved, module)
     resolved_target = _resolve_ship(client, target)
     data = _handle(client.assign_weapon, resolved, module_id, resolved_target)
-    display.display_weapon_assign(data, json)
+    _show_queued(data, json, "Assigning weapon.")
 
 
 @weapon_app.command("fire-all")
@@ -910,7 +906,7 @@ def weapon_fire_all(
     resolved = _resolve_ship(client, ship_id)
     resolved_target = _resolve_ship(client, target)
     data = _handle(client.fire_all_weapons, resolved, resolved_target)
-    display.display_weapon_assignments(data, json)
+    _show_queued(data, json, "Firing all weapons.")
 
 
 @weapon_app.command("hold")
@@ -921,12 +917,8 @@ def weapon_hold(
     """Deactivate all weapons and clear weapon assignments (cease fire)."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
-    _handle(client.hold_fire, resolved)
-    if json:
-        import json as _json
-        print(_json.dumps({"status": "holding_fire"}))
-    else:
-        display.print_success("All weapons deactivated. Holding fire.")
+    data = _handle(client.hold_fire, resolved)
+    _show_queued(data, json, "Holding fire.")
 
 
 # ---------------------------------------------------------------------------
@@ -948,7 +940,7 @@ def research_start(
     resolved = _resolve_ship(client, ship_id)
     module_id = _resolve_module(client, resolved, module) if module else None
     data = _handle(client.start_research, resolved, tech_id, module_id)
-    display.display_research_progress(data, json)
+    _show_queued(data, json, f"Starting research on {tech_id}.")
 
 
 @research_app.command("cancel")
@@ -963,12 +955,8 @@ def research_cancel(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     module_id = _resolve_module(client, resolved, module) if module else None
-    _handle(client.cancel_research, resolved, module_id)
-    if json:
-        import json as _json
-        print(_json.dumps({"status": "cancelled"}))
-    else:
-        display.print_success("Research cancelled.")
+    data = _handle(client.cancel_research, resolved, module_id)
+    _show_queued(data, json, "Cancelling research.")
 
 
 @research_app.command("status")
@@ -1007,13 +995,7 @@ def command_assume(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.assume_command, resolved)
-    if json:
-        import json as _json
-        print(_json.dumps(data, indent=2))
-    else:
-        display.print_success(
-            f"Command assumed for Ship #{resolved}. Autopilot disengaged."
-        )
+    _show_queued(data, json, "Assuming manual control.")
 
 
 @command_app.command("release")
@@ -1029,14 +1011,7 @@ def command_release(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.release_command, resolved, profile)
-    if json:
-        import json as _json
-        print(_json.dumps(data, indent=2))
-    else:
-        ap_profile = data.get("autopilot_profile", profile or "default")
-        display.print_success(
-            f"Ship #{resolved} released to autopilot (profile: {ap_profile})."
-        )
+    _show_queued(data, json, "Releasing to autopilot.")
 
 
 @command_app.command("profile")
@@ -1052,26 +1027,7 @@ def command_profile(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     data = _handle(client.set_autopilot_profile, resolved, profile)
-    if json:
-        import json as _json
-        print(_json.dumps(data, indent=2))
-    else:
-        new_profile = data.get("profile", profile)
-        display.print_success(
-            f"Ship #{resolved} autopilot profile set to '{new_profile}'."
-        )
-
-
-@command_app.command("tick")
-def command_tick(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
-):
-    """Show aggregated autopilot state for a ship."""
-    client = _client()
-    resolved = _resolve_ship(client, ship_id)
-    data = _handle(client.autopilot_tick, resolved)
-    display.display_autopilot_tick(data, json)
+    _show_queued(data, json, f"Setting profile to '{profile}'.")
 
 
 # ---------------------------------------------------------------------------
@@ -1152,6 +1108,29 @@ def team_research(
         print(_json.dumps(data, indent=2))
     else:
         display.display_team_research(data, json)
+
+
+# ---------------------------------------------------------------------------
+# View command (Intent-based CQS)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def view(
+    ship_id: Optional[int] = typer.Option(None, "--ship", "-s", help="Filter to a single ship."),
+    since_tick: Optional[int] = typer.Option(None, "--since", help="Events since this tick."),
+    events_only: bool = typer.Option(False, "--events", "-e", help="Show only events."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """
+    Show your complete world state snapshot.
+
+    Displays ships, nearby contacts, events, and pending commands.
+    This is the primary view for the intent-based command system.
+    """
+    client = _client()
+    data = _handle(client.get_view, ship_id=ship_id, since_tick=since_tick)
+    display.display_view(data, json, events_only=events_only)
 
 
 # ---------------------------------------------------------------------------
@@ -1255,6 +1234,107 @@ def watch(
         if not json:
             display.console.print("\n[dim]Watch stopped.[/dim]")
         raise SystemExit(0)
+
+
+# ---------------------------------------------------------------------------
+# Match commands (Phase 8)
+# ---------------------------------------------------------------------------
+
+
+@match_app.command("create")
+def match_create(
+    name: str = typer.Argument(..., help="Match name"),
+    faction: str = typer.Option(..., "-f", "--faction", help="Your faction (solarion or voidborn)"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Create a new match and team."""
+    c = _client()
+    try:
+        data = c.create_match(name, faction)
+    except SpaceGameError as e:
+        display.print_error(str(e))
+        raise SystemExit(1)
+    if json:
+        display._json_out(data)
+    else:
+        display.console.print(
+            f"[green]Match created![/green]  ID: {data['id']}  Name: {data['name']}  "
+            f"Team 1 ID: {data.get('team1_id')}"
+        )
+
+
+@match_app.command("list")
+def match_list(
+    status: Optional[str] = typer.Option(None, "--status", "-s", help="Filter by status"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """List matches."""
+    c = _client()
+    try:
+        data = c.list_matches(status=status)
+    except SpaceGameError as e:
+        display.print_error(str(e))
+        raise SystemExit(1)
+    display.display_matches(data, json)
+
+
+@match_app.command("info")
+def match_info(
+    match_id: int = typer.Argument(..., help="Match ID"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Show match details."""
+    c = _client()
+    try:
+        data = c.get_match(match_id)
+    except SpaceGameError as e:
+        display.print_error(str(e))
+        raise SystemExit(1)
+    display.display_match_info(data, json)
+
+
+@match_app.command("join")
+def match_join(
+    match_id: int = typer.Argument(..., help="Match ID to join"),
+    faction: str = typer.Option(..., "-f", "--faction", help="Your faction (must be opposite of team 1)"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Join a match as team 2."""
+    c = _client()
+    try:
+        data = c.join_match(match_id, faction)
+    except SpaceGameError as e:
+        display.print_error(str(e))
+        raise SystemExit(1)
+    if json:
+        display._json_out(data)
+    else:
+        display.console.print(
+            f"[green]{data.get('message', 'Joined!')}[/green]  "
+            f"Team ID: {data.get('team_id')}  Faction: {data.get('faction')}"
+        )
+
+
+@match_app.command("start")
+def match_start(
+    match_id: int = typer.Argument(..., help="Match ID to start"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Start a match (both teams must have players)."""
+    c = _client()
+    data = _handle(c.start_match, match_id)
+    _show_queued(data, json, "Starting match.")
+
+
+@match_app.command("surrender")
+def match_surrender(
+    match_id: int = typer.Argument(..., help="Match ID"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Cast a surrender vote for your team."""
+    c = _client()
+    data = _handle(c.surrender_match, match_id)
+    _show_queued(data, json, "Surrender vote cast.")
 
 
 # ---------------------------------------------------------------------------

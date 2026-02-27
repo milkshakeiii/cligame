@@ -7,6 +7,7 @@ This file defines the subagent roles used to build the space simulation game. Th
 - **Shared state is files on disk.** Agents communicate through the files they read and write.
 - **Agents have scoped access.** Each agent can only read/write files in their domain.
 - **SPEC.md is the source of truth** for what the game should do. PLAN.md covers architecture and tech stack.
+- **INTENT_REFACTOR.md** defines the command-query separation architecture. After Phase 8.5, all game-state mutations must go through the command queue (processed by the tick loop), never directly from request handlers.
 - **Review and playtest results** are written to report files. The orchestrator re-spawns developer agents to address findings.
 
 ## Workflow

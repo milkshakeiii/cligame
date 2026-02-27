@@ -33,12 +33,17 @@ cligame/
 │   ├── models.py               # SQLModel ORM models
 │   ├── auth.py                 # Token auth dependency
 │   ├── tick.py                 # Tick loop (asyncio background task)
+│   ├── commands.py             # Command handler registry (Phase 8.5)
+│   ├── views.py                # Player view computation (Phase 8.5)
 │   ├── physics.py              # Vector math + movement behaviors
 │   ├── mining.py               # Mining laser cycling + ore extraction
 │   ├── production.py           # Factory build queue logic
 │   ├── scanning.py             # Active/passive scan + fog of war
 │   ├── energy.py               # Capacitor regen + drain model
+│   ├── match.py                # Match map generation + mothership creation
 │   └── routes/
+│       ├── commands.py         # POST /api/commands (Phase 8.5)
+│       ├── views.py            # GET /api/view (Phase 8.5)
 │       ├── game.py             # GET /api/game/status
 │       ├── ships.py            # CRUD /api/ships/...
 │       ├── orders.py           # Movement + module orders
@@ -124,6 +129,7 @@ Integration: Simple Euler (v += a*dt, p += v*dt) with speed clamping
 **Implementation**: `asyncio` background task started via FastAPI lifespan
 
 **Each tick**:
+0. **Command phase**: Drain command queue, validate preconditions against current state, apply mutations (or reject with event). See `INTENT_REFACTOR.md`.
 1. Increment tick counter
 2. **Energy phase**: Regenerate capacitor for all ships (fastest regen ~25-30% capacity)
 3. **Module phase**: Cycle active modules, drain capacitor, deactivate if depleted
@@ -132,8 +138,25 @@ Integration: Simple Euler (v += a*dt, p += v*dt) with speed clamping
 6. **Physics phase**: Process movement orders, calculate acceleration, apply physics
 7. **Detection phase**: Run passive detection alerts, check subscriber conditions
 8. Mark completed orders
+9. **Commit once** — single DB write per tick
 
 **Default**: 1-second tick interval
+
+## Architecture: Intent-Based Command-Query Separation
+
+> **Phase 8.5 refactor.** See `INTENT_REFACTOR.md` for the full design document.
+
+The tick loop is the **sole writer** of game state. Request handlers only:
+1. Enqueue commands (`POST /api/commands` → 202 Accepted)
+2. Read pre-computed views (`GET /api/view` → player's world state)
+
+This eliminates TOCTOU race conditions by design — there's only one writer (the tick loop), so there's nothing to race against. Commands are validated against the current in-memory state during the tick's command phase.
+
+**Key files:**
+- `server/commands.py` — Command handler registry, `CommandRejected` exception
+- `server/views.py` — Per-player world state computation
+- `server/routes/commands.py` — `POST /api/commands` endpoint
+- `server/routes/views.py` — `GET /api/view` endpoint
 
 ## Energy System (`server/energy.py`)
 
@@ -146,12 +169,28 @@ EVE Online-style capacitor:
 
 ## API Endpoints
 
-### Game State
+> **After Phase 8.5:** All game-state mutations go through `POST /api/commands`. All game-state reads go through `GET /api/view`. The legacy per-resource endpoints below are retained for reference (and as fallback during migration) but will be removed.
+
+### Core (Phase 8.5+)
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/api/commands` | POST | Enqueue a command (fire-and-forget, returns 202) |
+| `/api/commands` | GET | List player's recent commands + their status |
+| `/api/view` | GET | Player's complete world state snapshot |
 | `/api/game/status` | GET | Current tick, running state |
 
-### Ships
+### Auth (not tick-dependent, stays as-is)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/register` | POST | Create account + queue starter ship command |
+| `/api/auth/login` | POST | Get auth token |
+
+### Legacy (pre-8.5, to be removed)
+
+<details>
+<summary>Click to expand legacy endpoints</summary>
+
+#### Ships
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/ships` | GET | List user's ships |
@@ -160,7 +199,7 @@ EVE Online-style capacitor:
 | `/api/ships/{id}/modules` | GET | List installed modules |
 | `/api/ships/{id}/modules` | POST | Install/configure module |
 
-### Orders & Actions
+#### Orders & Actions
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/ships/{id}/orders` | POST | Create movement order |
@@ -169,7 +208,7 @@ EVE Online-style capacitor:
 | `/api/ships/{id}/transfer` | POST | Transfer ore to target ship |
 | `/api/ships/{id}/build` | POST | Queue ship construction |
 
-### Scanning & Environment
+#### Scanning & Environment
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/ships/{id}/scan` | POST | Active scan (costs capacitor) |
@@ -177,21 +216,26 @@ EVE Online-style capacitor:
 | `/api/objects` | GET | List known celestial objects |
 | `/api/alerts` | POST | Subscribe to passive detection alerts |
 
+</details>
+
 ## CLI Commands (`client/cli.py`)
+
+> **After Phase 8.5:** Action commands are fire-and-forget. `spacegame view` is the universal state reader.
 
 ```bash
 # Auth
 spacegame login <username>
 spacegame whoami
 
-# Game status
-spacegame status                              # Game state + your ships
+# World state (Phase 8.5+)
+spacegame view                                # Full world state snapshot
+spacegame view --ship <id>                    # Filtered to one ship
+spacegame view --events                       # Recent events only
+spacegame watch                               # Stream view updates every tick
 
 # Ship management
-spacegame ship list                           # List your ships
-spacegame ship create <name> --class frigate  # Create ship
-spacegame ship info <id>                      # Ship detail + modules
-spacegame ship modules <id>                   # Module loadout
+spacegame ship create <name> --class frigate  # Queue create command
+spacegame ship rename <id> <name>             # Queue rename command
 
 # Movement orders
 spacegame order approach <ship_id> --point X Y Z
@@ -209,15 +253,17 @@ spacegame transfer <ship_id> --target <id>    # Transfer ore
 
 # Production
 spacegame build <ship_id> --blueprint scout   # Queue build order
-spacegame build status <ship_id>              # Build queue
 
 # Scanning
-spacegame scan <ship_id>                      # Active scan
-spacegame alert add <ship_id> --min-size 10   # Subscribe to alerts
+spacegame scan <ship_id>                      # Activate scanner
 
 # Module management
+spacegame module install <ship_id> <type> --volume <n>
+spacegame module uninstall <ship_id> <module_id>
 spacegame module activate <ship_id> <module_id>
 spacegame module deactivate <ship_id> <module_id>
+
+# All commands support --json for LLM consumption
 ```
 
 ## Implementation Order
@@ -246,16 +292,39 @@ spacegame module deactivate <ship_id> <module_id>
 17. Stealth mechanics (signature radius, detection reduction)
 18. CLI commands for scanning and alerts
 
-### Phase 4: Combat (TBD)
+### Phase 4: Combat
 19. Weapon modules + damage model
 20. Shield modules
 21. Electronic warfare
 22. Combat CLI commands
 
-### Phase 5: Multiplayer (TBD)
-23. Shared universe vs instances
-24. Player interaction + factions
-25. Fleet commands
+### Phase 5: Research & Tech Tree
+23. Research module + tech tree
+24. Tier-gated production
+25. Advanced modules (strip miner, fortress, etc.)
+
+### Phase 6: Autopilot AI
+26. Autopilot state machine + profiles
+27. Autopilot tick aggregation endpoint
+28. Team signals and objectives
+
+### Phase 7: Factions
+29. Solarian / Voidborn faction modules + stats
+30. Faction-specific tech branches
+31. Superweapons (Solar Lance, Bio-Repair Swarm)
+
+### Phase 8: Teams & Matches
+32. Match lifecycle (create, join, start, surrender)
+33. Map generation + mothership spawning
+34. Win condition detection
+
+### Phase 8.5: Intent-Based Architecture Refactor
+35. Command model + handler registry + `POST /api/commands`
+36. Command processing phase in tick loop (phase 0)
+37. Migrate all mutation endpoints to command handlers
+38. View computation + `GET /api/view`
+39. Update CLI to fire-and-forget commands + view reader
+40. Remove legacy mutation endpoints
 
 ## Verification
 

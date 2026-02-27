@@ -179,17 +179,15 @@ class SpaceGameClient:
         return self._request("GET", "/api/ships")
 
     def create_ship(self, name: Optional[str], ship_class: str) -> dict:
-        """POST /api/ships"""
-        body: dict = {"ship_class": ship_class}
+        """Create a new ship (command)."""
+        payload: dict = {"ship_class": ship_class}
         if name is not None:
-            body["name"] = name
-        return self._request("POST", "/api/ships", json_body=body)
+            payload["name"] = name
+        return self.send_command("create_ship", **payload)
 
     def rename_ship(self, ship_id: int, new_name: str) -> dict:
-        """POST /api/ships/{ship_id}/rename"""
-        return self._request(
-            "POST", f"/api/ships/{ship_id}/rename", json_body={"name": new_name}
-        )
+        """Rename a ship (command)."""
+        return self.send_command("rename_ship", ship_id=ship_id, name=new_name)
 
     def get_ship(self, ship_id: int) -> dict:
         """GET /api/ships/{ship_id}"""
@@ -200,56 +198,48 @@ class SpaceGameClient:
         return self._request("GET", f"/api/ships/{ship_id}/modules")
 
     def install_module(self, ship_id: int, module_type: str, volume: int = 0) -> dict:
-        """POST /api/ships/{ship_id}/modules"""
-        return self._request(
-            "POST",
-            f"/api/ships/{ship_id}/modules",
-            json_body={"module_type": module_type, "volume": volume},
-        )
+        """Install a module on a ship (command)."""
+        return self.send_command("install_module", ship_id=ship_id, module_type=module_type, volume=volume)
 
-    def uninstall_module(self, ship_id: int, module_id: int) -> None:
-        """DELETE /api/ships/{ship_id}/modules/{module_id}"""
-        self._request("DELETE", f"/api/ships/{ship_id}/modules/{module_id}")
+    def uninstall_module(self, ship_id: int, module_id: int) -> dict:
+        """Uninstall a module from a ship (command)."""
+        return self.send_command("uninstall_module", ship_id=ship_id, module_id=module_id)
 
     def activate_module(self, ship_id: int, module_id: int) -> dict:
-        """POST /api/ships/{ship_id}/modules/{module_id}/activate"""
-        return self._request("POST", f"/api/ships/{ship_id}/modules/{module_id}/activate")
+        """Activate a module (command)."""
+        return self.send_command("activate_module", ship_id=ship_id, module_id=module_id)
 
     def deactivate_module(self, ship_id: int, module_id: int) -> dict:
-        """POST /api/ships/{ship_id}/modules/{module_id}/deactivate"""
-        return self._request("POST", f"/api/ships/{ship_id}/modules/{module_id}/deactivate")
+        """Deactivate a module (command)."""
+        return self.send_command("deactivate_module", ship_id=ship_id, module_id=module_id)
 
     # ------------------------------------------------------------------
     # Movement orders
     # ------------------------------------------------------------------
 
     def create_order(self, ship_id: int, payload: dict) -> dict:
-        """POST /api/ships/{ship_id}/orders"""
-        return self._request("POST", f"/api/ships/{ship_id}/orders", json_body=payload)
+        """Create a movement order (command). Extracts order_type from payload."""
+        order_type = payload.get("order_type", "")
+        if order_type == "stop":
+            return self.send_command("stop", ship_id=ship_id)
+        # Forward the full payload as command payload for move
+        return self.send_command("move", ship_id=ship_id, **payload)
 
     def cancel_order(self, ship_id: int, order_id: int) -> dict:
-        """POST /api/ships/{ship_id}/orders/{order_id}/cancel"""
-        return self._request("POST", f"/api/ships/{ship_id}/orders/{order_id}/cancel")
+        """Cancel a movement order (command)."""
+        return self.send_command("cancel_order", ship_id=ship_id, order_id=order_id)
 
     def dock_ship(self, ship_id: int, target_ship_id: int) -> dict:
-        """POST /api/ships/{ship_id}/dock"""
-        return self._request(
-            "POST",
-            f"/api/ships/{ship_id}/dock",
-            json_body={"target_ship_id": target_ship_id},
-        )
+        """Dock a ship (command)."""
+        return self.send_command("dock", ship_id=ship_id, target_ship_id=target_ship_id)
 
     # ------------------------------------------------------------------
     # Mining & resources
     # ------------------------------------------------------------------
 
     def transfer_ore(self, ship_id: int, target_ship_id: int) -> dict:
-        """POST /api/ships/{ship_id}/transfer"""
-        return self._request(
-            "POST",
-            f"/api/ships/{ship_id}/transfer",
-            json_body={"target_ship_id": target_ship_id},
-        )
+        """Transfer ore to another ship (command)."""
+        return self.send_command("transfer_ore", ship_id=ship_id, target_ship_id=target_ship_id)
 
     # ------------------------------------------------------------------
     # Production
@@ -261,11 +251,11 @@ class SpaceGameClient:
         blueprint: str,
         factory_module_id: Optional[int] = None,
     ) -> dict:
-        """POST /api/ships/{ship_id}/build"""
-        body: dict = {"blueprint": blueprint}
+        """Queue a build order (command)."""
+        payload: dict = {"blueprint": blueprint}
         if factory_module_id is not None:
-            body["factory_module_id"] = factory_module_id
-        return self._request("POST", f"/api/ships/{ship_id}/build", json_body=body)
+            payload["factory_module_id"] = factory_module_id
+        return self.send_command("build", ship_id=ship_id, **payload)
 
     def get_build_queue(self, ship_id: int) -> dict:
         """GET /api/ships/{ship_id}/build"""
@@ -276,8 +266,8 @@ class SpaceGameClient:
     # ------------------------------------------------------------------
 
     def scan(self, ship_id: int) -> dict:
-        """POST /api/ships/{ship_id}/scan"""
-        return self._request("POST", f"/api/ships/{ship_id}/scan")
+        """Trigger an active scan (command)."""
+        return self.send_command("scan", ship_id=ship_id)
 
     def nearby(self, ship_id: int) -> list:
         """GET /api/nearby?ship_id={ship_id}"""
@@ -288,40 +278,28 @@ class SpaceGameClient:
     # ------------------------------------------------------------------
 
     def lock_target(self, ship_id: int, target_ship_id: int) -> dict:
-        """POST /api/ships/{ship_id}/lock"""
-        return self._request(
-            "POST",
-            f"/api/ships/{ship_id}/lock",
-            json_body={"target_ship_id": target_ship_id},
-        )
+        """Lock a target (command)."""
+        return self.send_command("lock_target", ship_id=ship_id, target_ship_id=target_ship_id)
 
-    def unlock_target(self, ship_id: int, target_id: int) -> None:
-        """DELETE /api/ships/{ship_id}/lock/{target_id}"""
-        self._request("DELETE", f"/api/ships/{ship_id}/lock/{target_id}")
+    def unlock_target(self, ship_id: int, target_id: int) -> dict:
+        """Unlock a target (command)."""
+        return self.send_command("unlock_target", ship_id=ship_id, target_ship_id=target_id)
 
     def list_locks(self, ship_id: int) -> list:
         """GET /api/ships/{ship_id}/locks"""
         return self._request("GET", f"/api/ships/{ship_id}/locks")
 
     def assign_weapon(self, ship_id: int, module_id: int, target_ship_id: int) -> dict:
-        """POST /api/ships/{ship_id}/weapons/{module_id}/assign"""
-        return self._request(
-            "POST",
-            f"/api/ships/{ship_id}/weapons/{module_id}/assign",
-            json_body={"target_ship_id": target_ship_id},
-        )
+        """Assign a weapon to a target (command)."""
+        return self.send_command("assign_weapon", ship_id=ship_id, module_id=module_id, target_ship_id=target_ship_id)
 
-    def fire_all_weapons(self, ship_id: int, target_ship_id: int) -> list:
-        """POST /api/ships/{ship_id}/weapons/fire-all"""
-        return self._request(
-            "POST",
-            f"/api/ships/{ship_id}/weapons/fire-all",
-            json_body={"target_ship_id": target_ship_id},
-        )
+    def fire_all_weapons(self, ship_id: int, target_ship_id: int) -> dict:
+        """Fire all weapons at a target (command)."""
+        return self.send_command("fire_all", ship_id=ship_id, target_ship_id=target_ship_id)
 
-    def hold_fire(self, ship_id: int) -> None:
-        """POST /api/ships/{ship_id}/weapons/hold"""
-        self._request("POST", f"/api/ships/{ship_id}/weapons/hold")
+    def hold_fire(self, ship_id: int) -> dict:
+        """Hold fire on all weapons (command)."""
+        return self.send_command("hold_fire", ship_id=ship_id)
 
     # ------------------------------------------------------------------
     # Research (Phase 5)
@@ -333,22 +311,22 @@ class SpaceGameClient:
         tech_id: str,
         module_id: Optional[int] = None,
     ) -> dict:
-        """POST /api/ships/{ship_id}/research/start"""
-        body: dict = {"tech_id": tech_id}
+        """Start researching a technology (command)."""
+        payload: dict = {"tech_id": tech_id}
         if module_id is not None:
-            body["module_id"] = module_id
-        return self._request("POST", f"/api/ships/{ship_id}/research/start", json_body=body)
+            payload["module_id"] = module_id
+        return self.send_command("start_research", ship_id=ship_id, **payload)
 
     def cancel_research(
         self,
         ship_id: int,
         module_id: Optional[int] = None,
-    ) -> None:
-        """POST /api/ships/{ship_id}/research/cancel"""
-        body: dict = {}
+    ) -> dict:
+        """Cancel active research (command)."""
+        payload: dict = {}
         if module_id is not None:
-            body["module_id"] = module_id
-        self._request("POST", f"/api/ships/{ship_id}/research/cancel", json_body=body)
+            payload["module_id"] = module_id
+        return self.send_command("cancel_research", ship_id=ship_id, **payload)
 
     def research_status(self, ship_id: int) -> list:
         """GET /api/ships/{ship_id}/research/status"""
@@ -363,23 +341,19 @@ class SpaceGameClient:
     # ------------------------------------------------------------------
 
     def assume_command(self, ship_id: int) -> dict:
-        """POST /api/ships/{ship_id}/command/assume"""
-        return self._request("POST", f"/api/ships/{ship_id}/command/assume")
+        """Assume manual control of a ship (command)."""
+        return self.send_command("assume_control", ship_id=ship_id)
 
     def release_command(self, ship_id: int, profile: Optional[str] = None) -> dict:
-        """POST /api/ships/{ship_id}/command/release"""
-        body: dict = {}
+        """Release a ship to autopilot (command)."""
+        payload: dict = {}
         if profile is not None:
-            body["profile"] = profile
-        return self._request("POST", f"/api/ships/{ship_id}/command/release", json_body=body)
+            payload["profile"] = profile
+        return self.send_command("release_to_autopilot", ship_id=ship_id, **payload)
 
     def set_autopilot_profile(self, ship_id: int, profile: str) -> dict:
-        """PUT /api/ships/{ship_id}/autopilot/profile"""
-        return self._request("PUT", f"/api/ships/{ship_id}/autopilot/profile", json_body={"profile": profile})
-
-    def autopilot_tick(self, ship_id: int) -> dict:
-        """GET /api/ships/{ship_id}/autopilot/tick"""
-        return self._request("GET", f"/api/ships/{ship_id}/autopilot/tick")
+        """Set autopilot profile (command)."""
+        return self.send_command("set_autopilot_profile", ship_id=ship_id, profile=profile)
 
     # ------------------------------------------------------------------
     # Teams (Phase 7)
@@ -414,22 +388,63 @@ class SpaceGameClient:
         return self._request("GET", f"/api/ships/{ship_id}/leeches")
 
     # ------------------------------------------------------------------
-    # Alerts
+    # Matches (Phase 8)
     # ------------------------------------------------------------------
 
-    def subscribe_alerts(
-        self,
-        ship_id: int,
-        min_range_km: Optional[float] = None,
-        event_types: Optional[list[str]] = None,
-    ) -> dict:
-        """POST /api/alerts"""
-        body: dict = {"ship_id": ship_id}
-        if min_range_km is not None:
-            body["min_range_km"] = min_range_km
-        if event_types is not None:
-            body["event_types"] = event_types
-        return self._request("POST", "/api/alerts", json_body=body)
+    def create_match(self, name: str, faction: str) -> dict:
+        """POST /api/matches — create a new match."""
+        return self._request("POST", "/api/matches", json_body={"name": name, "faction": faction})
+
+    def list_matches(self, status: Optional[str] = None) -> list:
+        """GET /api/matches — list matches."""
+        params: dict = {}
+        if status is not None:
+            params["status_filter"] = status
+        return self._request("GET", "/api/matches", params=params)
+
+    def get_match(self, match_id: int) -> dict:
+        """GET /api/matches/{match_id} — match details."""
+        return self._request("GET", f"/api/matches/{match_id}")
+
+    def join_match(self, match_id: int, faction: str) -> dict:
+        """POST /api/matches/{match_id}/join — join as team2."""
+        return self._request("POST", f"/api/matches/{match_id}/join", json_body={"faction": faction})
+
+    def start_match(self, match_id: int) -> dict:
+        """Start a match (command)."""
+        return self.send_command("start_match", match_id=match_id)
+
+    def surrender_match(self, match_id: int) -> dict:
+        """Cast a surrender vote (command)."""
+        return self.send_command("surrender", match_id=match_id)
+
+    # ------------------------------------------------------------------
+    # Commands & View (Intent-based CQS)
+    # ------------------------------------------------------------------
+
+    def send_command(self, command_type: str, ship_id: Optional[int] = None, **payload) -> dict:
+        """POST /api/commands — enqueue a command for tick-loop processing."""
+        body: dict = {"type": command_type, "payload": payload}
+        if ship_id is not None:
+            body["ship_id"] = ship_id
+        return self._request("POST", "/api/commands", json_body=body)
+
+    def get_view(self, ship_id: Optional[int] = None, since_tick: Optional[int] = None) -> dict:
+        """GET /api/view — player's complete world state snapshot."""
+        params: dict = {}
+        if ship_id is not None:
+            params["ship_id"] = ship_id
+        if since_tick is not None:
+            params["since_tick"] = since_tick
+        return self._request("GET", "/api/view", params=params)
+
+    def list_commands(self, status: Optional[str] = None, limit: int = 50) -> list:
+        """GET /api/commands — list player's commands."""
+        params: dict = {"limit": limit}
+        if status is not None:
+            params["status"] = status
+        return self._request("GET", "/api/commands", params=params)
+
 
 
 # ---------------------------------------------------------------------------
