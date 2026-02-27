@@ -133,15 +133,8 @@ async def join_team(
             detail="Team not found.",
         )
 
-    # Assign user to team
+    # Assign user to team (ships are assigned at match start, not here)
     current_user.team_id = team.id
-
-    # Also assign all of the user's existing ships to this team
-    ship_result = await session.exec(
-        select(Spaceship).where(Spaceship.user_id == current_user.id)
-    )
-    for ship in ship_result.all():
-        ship.team_id = team.id
 
     await session.commit()
 

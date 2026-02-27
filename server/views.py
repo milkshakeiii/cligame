@@ -48,10 +48,14 @@ async def compute_player_view(
 ) -> dict:
     """Build the complete world state visible to a player."""
 
-    # --- Player's ships ---
+    # --- Player's ships (team-shared when on a team) ---
+    on_team = user.team_id is not None
+    ship_owner_filter = (
+        Spaceship.team_id == user.team_id if on_team else Spaceship.user_id == user.id
+    )
     ship_query = (
         select(Spaceship)
-        .where(Spaceship.user_id == user.id)
+        .where(ship_owner_filter)
         .options(
             selectinload(Spaceship.modules),
             selectinload(Spaceship.movement_orders),
@@ -187,10 +191,21 @@ async def compute_player_view(
     # --- Nearby contacts ---
     nearby = []
     if ships:
+        # Collect all target IDs locked by the player's ships
+        locked_target_ids: set[int] = set()
+        for ship in ships:
+            for l in ship.target_locks:
+                status = l.status.value if hasattr(l.status, "value") else l.status
+                if status == "locked":
+                    locked_target_ids.add(l.target_ship_id)
+
         # Hoist queries outside per-ship loop to avoid N+1 (Fix 11)
+        other_filter = (
+            Spaceship.team_id != user.team_id if on_team else Spaceship.user_id != user.id
+        )
         other_ships_result = await session.exec(
             select(Spaceship).where(
-                Spaceship.user_id != user.id,
+                other_filter,
                 Spaceship.is_destroyed == False,
                 Spaceship.docked_in_id == None,
             )
@@ -233,6 +248,11 @@ async def compute_player_view(
                         contact["ship_class"] = other.ship_class.value
                     if detail >= DETAIL_IDENTIFICATION:
                         contact["name"] = other.name
+                    if other.id in locked_target_ids:
+                        contact["shield_hp"] = other.shield_hp
+                        contact["max_shield_hp"] = other.max_shield_hp
+                        contact["armor_hp"] = other.armor_hp
+                        contact["max_armor_hp"] = other.max_armor_hp
                     # Avoid duplicates
                     if not any(c["type"] == "ship" and c["id"] == other.id for c in nearby):
                         nearby.append(contact)
@@ -262,11 +282,16 @@ async def compute_player_view(
 
     nearby.sort(key=lambda c: c["distance"])
 
-    # --- Recent events ---
+    # --- Recent events (team-shared when on a team) ---
     event_since = since_tick if since_tick is not None else max(0, current_tick - 20)
+    team_ship_ids = [s.id for s in ships]
+    if on_team and team_ship_ids:
+        event_owner_filter = Event.ship_id.in_(team_ship_ids)
+    else:
+        event_owner_filter = Event.user_id == user.id
     events_result = await session.exec(
         select(Event)
-        .where(Event.user_id == user.id, Event.tick >= event_since)
+        .where(event_owner_filter, Event.tick >= event_since)
         .order_by(Event.tick.desc(), Event.id.desc())
         .limit(100)
     )
