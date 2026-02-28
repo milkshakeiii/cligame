@@ -347,9 +347,21 @@ class SpaceGameClient:
     # Loadout (claim/reship)
     # ------------------------------------------------------------------
 
-    def claim_ship(self, ship_id: int, modules: list[dict]) -> dict:
-        """Claim an unclaimed hull with modules (command)."""
-        return self.send_command("claim_ship", ship_id=ship_id, modules=modules)
+    def claim_ship(
+        self,
+        ship_id: Optional[int] = None,
+        modules: Optional[list[dict]] = None,
+        ship_class: Optional[str] = None,
+    ) -> dict:
+        """Claim an unclaimed hull with modules (command).
+
+        Either ``ship_id`` (existing hull) or ``ship_class`` (auto-create a
+        free hull) must be provided.
+        """
+        kwargs: dict[str, Any] = {"modules": modules or []}
+        if ship_class is not None:
+            kwargs["ship_class"] = ship_class
+        return self.send_command("claim_ship", ship_id=ship_id, **kwargs)
 
     def reship(self, ship_id: int) -> dict:
         """Dock and reship — strip modules, get partial point refund (command)."""

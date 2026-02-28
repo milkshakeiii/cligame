@@ -533,8 +533,10 @@ class TestTickResearchUnit:
 
 
 async def _get_ship_id(client: AsyncClient, token: str) -> int:
-    resp = await client.get("/api/ships", headers={"Authorization": f"Bearer {token}"})
-    return resp.json()[0]["id"]
+    from tests.conftest import spawn_test_mothership
+    headers = {"Authorization": f"Bearer {token}"}
+    ship = await spawn_test_mothership(client, headers)
+    return ship["id"]
 
 
 class TestResearchAPIExtended:

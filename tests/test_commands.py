@@ -15,7 +15,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from tests.conftest import register_user
+from tests.conftest import register_user, spawn_test_mothership
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +172,6 @@ class TestShipCommands:
         await _send_command(client, headers, "create_ship", ship_class="strike_craft")
         await _process(client)
 
-        # Verify ship exists (registration auto-creates a mothership)
         resp = await client.get("/api/ships", headers=headers)
         assert resp.status_code == 200
         ships = resp.json()
@@ -418,12 +417,8 @@ class TestDockedShipRestrictions:
 
     async def _make_docked_ship(self, client: AsyncClient, headers: dict) -> dict:
         """Create a frigate and dock it in the mothership via test helper."""
-        # The mothership is auto-created on registration. Create a frigate.
+        mothership = await spawn_test_mothership(client, headers)
         frigate = await _create_ship(client, headers)
-        # Get mothership
-        resp = await client.get("/api/ships", headers=headers)
-        ships = resp.json()
-        mothership = next(s for s in ships if s["ship_class"] == "mothership")
         # Directly dock the frigate (bypasses movement phase, test-only)
         resp = await client.post(
             "/api/_test/dock_ship",
@@ -469,13 +464,10 @@ class TestDockedShipRestrictions:
     @pytest.mark.anyio
     async def test_activate_module_while_docked(self, client: AsyncClient):
         headers = await _auth_header(client)
+        mothership = await spawn_test_mothership(client, headers)
         # Create a ship, install scanner, then dock it
         frigate = await _create_ship(client, headers)
         scanner = await _install_module(client, headers, frigate["id"], "starter_passive_detector")
-
-        resp = await client.get("/api/ships", headers=headers)
-        ships = resp.json()
-        mothership = next(s for s in ships if s["ship_class"] == "mothership")
 
         # Directly dock (test helper)
         await client.post(
@@ -512,10 +504,7 @@ class TestScanTrigger:
     @pytest.mark.anyio
     async def test_scan_triggers_cycle_reset(self, client: AsyncClient):
         headers = await _auth_header(client)
-        # Use mothership (auto-created at registration) since scanner requires 500 m³
-        resp = await client.get("/api/ships", headers=headers)
-        ships = resp.json()
-        ship = next(s for s in ships if s["ship_class"] == "mothership")
+        ship = await spawn_test_mothership(client, headers)
         scanner = await _install_module(client, headers, ship["id"], "scanner")
         await _activate_module(client, headers, ship["id"], scanner["id"])
 

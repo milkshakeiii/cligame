@@ -151,12 +151,12 @@ def _module_to_out(m: ShipModule) -> ModuleOut:
     )
     mt = m.module_type
     mt_val = mt.value
-    if mt == ModuleType.mining_laser:
+    if mt in (ModuleType.mining_laser, ModuleType.strip_miner, ModuleType.starter_mining_laser):
         base.mining_yield = m.mining_yield
         base.mining_range = m.mining_range
     elif mt == ModuleType.scanner:
         base.scan_range = m.scan_range
-    elif mt == ModuleType.passive_detector:
+    elif mt in (ModuleType.passive_detector, ModuleType.starter_passive_detector):
         base.detection_range = m.detection_range
     elif mt == ModuleType.factory:
         base.factory_max_class = m.factory_max_class

@@ -18,14 +18,17 @@ from server.auth import get_current_user
 from server.database import get_session
 from server.models import (
     CelestialObject,
+    ModuleType,
     Spaceship,
     User,
 )
 from server.routes.common import get_owned_ship as _get_owned_ship_common
 from server.scanning import (
     DETAIL_CLASSIFICATION,
+    DETAIL_CONTACT,
     DETAIL_IDENTIFICATION,
     default_visibility_level,
+    passive_detection_range,
 )
 
 router = APIRouter(tags=["scanning"])
@@ -108,12 +111,21 @@ def _contact_from_dict(d: dict) -> ContactOut:
 # ---------------------------------------------------------------------------
 
 
+_DETECTOR_TYPES = (ModuleType.passive_detector, ModuleType.starter_passive_detector)
+_OBJ_SIGNATURE = 500.0  # fixed signature for celestial objects
+
+
 async def _nearby_logic(
     ship_id: int,
     current_user: User,
     session,
 ) -> list[ContactOut]:
-    """Shared logic for the nearby endpoints."""
+    """Shared logic for the nearby endpoints.
+
+    Visibility comes from two sources (highest detail wins):
+    1. Default visibility (no sensors): 100 m → L3, 1 km → L2
+    2. Active passive detector: detection_range scaled by target signature → L1
+    """
     ship = await _get_owned_ship(ship_id, current_user, session)
 
     all_ships_result = await session.exec(
@@ -123,6 +135,12 @@ async def _nearby_logic(
 
     all_objects_result = await session.exec(select(CelestialObject))
     all_objects = list(all_objects_result.all())
+
+    # Compute the ship's best passive detection base range (0 if no active detector)
+    detector_base_range = 0.0
+    for m in ship.modules:
+        if m.module_type in _DETECTOR_TYPES and m.active and m.detection_range:
+            detector_base_range = max(detector_base_range, m.detection_range)
 
     contacts: list[ContactOut] = []
 
@@ -135,7 +153,18 @@ async def _nearby_logic(
 
         dist = _dist(ship.pos_x, ship.pos_y, ship.pos_z,
                      other.pos_x, other.pos_y, other.pos_z)
+
+        # Best detail from default visibility
         detail = default_visibility_level(dist)
+
+        # Passive detector can extend range at contact level
+        if detail == 0 and detector_base_range > 0:
+            eff_range = passive_detection_range(
+                detector_base_range, other.effective_signature_radius()
+            )
+            if dist <= eff_range:
+                detail = DETAIL_CONTACT
+
         if detail == 0:
             continue
 
@@ -159,11 +188,20 @@ async def _nearby_logic(
 
         contacts.append(contact)
 
-    # Celestial objects (always visible within 1 km default)
+    # Celestial objects
     for obj in all_objects:
         dist = _dist(ship.pos_x, ship.pos_y, ship.pos_z,
                      obj.pos_x, obj.pos_y, obj.pos_z)
+
         detail = default_visibility_level(dist)
+
+        if detail == 0 and detector_base_range > 0:
+            eff_range = passive_detection_range(
+                detector_base_range, _OBJ_SIGNATURE
+            )
+            if dist <= eff_range:
+                detail = DETAIL_CONTACT
+
         if detail == 0:
             continue
 

@@ -34,8 +34,8 @@ class TestRegister:
         assert resp.status_code == 409
         assert "taken" in resp.json()["detail"].lower()
 
-    async def test_register_spawns_starter_ship(self, client: AsyncClient):
-        """After registration the player should have at least one ship."""
+    async def test_register_no_starter_ship(self, client: AsyncClient):
+        """After registration the player should have no ships."""
         auth = await register_user(client, "charlie")
         token = auth["token"]
         resp = await client.get(
@@ -44,20 +44,7 @@ class TestRegister:
         )
         assert resp.status_code == 200
         ships = resp.json()
-        assert len(ships) >= 1
-        assert ships[0]["ship_class"] == "mothership"
-
-    async def test_register_starter_ship_has_correct_capacitor(self, client: AsyncClient):
-        """Starter mothership should have 525,000 max capacitor (base 25,000 + 500,000 reactor)."""
-        auth = await register_user(client, "diana")
-        token = auth["token"]
-        resp = await client.get(
-            "/api/ships",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        ships = resp.json()
-        starter = ships[0]
-        assert starter["max_capacitor"] == pytest.approx(525_000.0)
+        assert len(ships) == 0
 
 
 # ---------------------------------------------------------------------------

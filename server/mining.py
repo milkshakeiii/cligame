@@ -69,7 +69,7 @@ def tick_mining_laser(
         "no_asteroid": False,
     }
 
-    if module.module_type not in (ModuleType.mining_laser, ModuleType.strip_miner):
+    if module.module_type not in (ModuleType.mining_laser, ModuleType.strip_miner, ModuleType.starter_mining_laser):
         return result
 
     if asteroid is None:

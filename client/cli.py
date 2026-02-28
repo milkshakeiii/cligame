@@ -596,7 +596,8 @@ def mine_start(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     modules = _handle(client.list_modules, resolved)
-    lasers = [m for m in modules if m["module_type"] == "mining_laser"]
+    mining_types = {"mining_laser", "starter_mining_laser", "strip_miner"}
+    lasers = [m for m in modules if m["module_type"] in mining_types]
     if not lasers:
         display.print_error("Ship has no mining laser modules installed.")
         raise typer.Exit(code=1)
@@ -623,7 +624,8 @@ def mine_stop(
     client = _client()
     resolved = _resolve_ship(client, ship_id)
     modules = _handle(client.list_modules, resolved)
-    lasers = [m for m in modules if m["module_type"] == "mining_laser"]
+    mining_types = {"mining_laser", "starter_mining_laser", "strip_miner"}
+    lasers = [m for m in modules if m["module_type"] in mining_types]
     if not lasers:
         display.print_error("Ship has no mining laser modules installed.")
         raise typer.Exit(code=1)
@@ -1012,14 +1014,25 @@ def loadout_hulls(
 
 @loadout_app.command("claim")
 def loadout_claim(
-    hull_id: int = typer.Argument(..., help="ID of the unclaimed hull to claim."),
+    hull_id: Optional[int] = typer.Argument(None, help="ID of the unclaimed hull to claim (omit when using --ship-class)."),
     modules: str = typer.Option(
         "", "--modules", "-m",
         help="Comma-separated module specs: 'engine:30,starter_turret,starter_mining_laser'",
     ),
+    ship_class: Optional[str] = typer.Option(
+        None, "--ship-class", "-c",
+        help="Auto-create a free hull class instead of claiming an existing hull (e.g. 'strike_craft').",
+    ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
-    """Claim an unclaimed hull and fit modules."""
+    """Claim an unclaimed hull and fit modules.
+
+    Either provide a hull_id for an existing unclaimed hull, or use --ship-class
+    to auto-create a free hull (e.g. strike_craft) docked in your team's mothership.
+    """
+    if hull_id is None and ship_class is None:
+        display.print_error("Provide either a hull_id or --ship-class / -c.")
+        raise typer.Exit(code=1)
     client = _client()
     # Parse module string
     module_list = []
@@ -1031,7 +1044,7 @@ def loadout_claim(
                 module_list.append({"module_type": mt.strip(), "volume": int(vol.strip())})
             else:
                 module_list.append({"module_type": part, "volume": 0})
-    data = _handle(client.claim_ship, hull_id, module_list)
+    data = _handle(client.claim_ship, ship_id=hull_id, modules=module_list, ship_class=ship_class)
     _show_queued(data, json, "Claiming ship.")
 
 

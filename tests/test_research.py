@@ -136,11 +136,11 @@ class TestPrerequisites:
 
 
 async def _get_ship_id(client: AsyncClient, token: str) -> int:
-    """Get the first ship ID for a user."""
-    resp = await client.get(
-        "/api/ships", headers={"Authorization": f"Bearer {token}"}
-    )
-    return resp.json()[0]["id"]
+    """Create a test mothership and return its ID."""
+    from tests.conftest import spawn_test_mothership
+    headers = {"Authorization": f"Bearer {token}"}
+    ship = await spawn_test_mothership(client, headers)
+    return ship["id"]
 
 
 class TestResearchAPIRead:

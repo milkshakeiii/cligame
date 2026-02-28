@@ -129,7 +129,7 @@ def tick_passive_detector(
     """
     result = DetectionResult()
 
-    if detector_module.module_type != ModuleType.passive_detector:
+    if detector_module.module_type not in (ModuleType.passive_detector, ModuleType.starter_passive_detector):
         return result
     if not detector_module.active:
         return result
@@ -321,7 +321,7 @@ def get_ships_that_detect_scan(
             continue
         # Check if the ship has an active passive detector
         has_detector = any(
-            m.module_type == ModuleType.passive_detector and m.active
+            m.module_type in (ModuleType.passive_detector, ModuleType.starter_passive_detector) and m.active
             for m in ship.modules
         )
         if has_detector:

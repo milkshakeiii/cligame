@@ -12,9 +12,11 @@ from server.models import (
     MODULE_FIXED_VOLUMES,
     MODULE_POINT_COSTS,
     ModuleType,
+    ShipClass,
     ShipModule,
     Spaceship,
     User,
+    create_default_ship,
     make_module,
     recalculate_max_armor,
     recalculate_max_capacitor,
@@ -29,30 +31,90 @@ from server.research import get_completed_tech_ids, is_module_unlocked, Research
 async def handle_claim_ship(ctx: TickContext, cmd: Command) -> None:
     """Claim an unclaimed docked hull, fit modules, spend points, launch."""
     payload = get_payload(cmd)
-    ship_id = payload.get("ship_id")
     modules_list = payload.get("modules", [])
 
-    if ship_id is None:
-        raise CommandRejected("ship_id is required")
-
-    # Find the unclaimed hull
-    hull = ctx.ship_map.get(ship_id)
-    if hull is None:
-        raise CommandRejected(f"Ship #{ship_id} not found")
-    if hull.claimed_by_user_id is not None:
-        raise CommandRejected(f"Ship #{ship_id} is already claimed")
-    if hull.docked_in_id is None:
-        raise CommandRejected(f"Ship #{ship_id} is not docked")
-    if hull.is_destroyed:
-        raise CommandRejected(f"Ship #{ship_id} is destroyed")
-
-    # Verify same team
+    # Fetch user early — needed for both auto-create and existing-hull paths
     user_result = await ctx.session.exec(select(User).where(User.id == cmd.user_id))
     user = user_result.first()
     if user is None:
         raise CommandRejected("User not found")
-    if hull.team_id is not None and user.team_id is not None and hull.team_id != user.team_id:
-        raise CommandRejected("Ship belongs to a different team")
+
+    if cmd.ship_id is None:
+        # --- Auto-create path: ship_class in payload ---
+        ship_class_str = payload.get("ship_class")
+        if not ship_class_str:
+            raise CommandRejected("ship_id or ship_class is required")
+
+        # Validate it's a free hull class
+        hull_cost = HULL_POINT_COSTS.get(ship_class_str)
+        if hull_cost is None:
+            raise CommandRejected(f"Unknown ship class: {ship_class_str}")
+        if hull_cost != 0:
+            raise CommandRejected(
+                f"Only free hull classes can be auto-created ('{ship_class_str}' costs {hull_cost} pts)"
+            )
+
+        # Must be on a team
+        if user.team_id is None:
+            raise CommandRejected("You must be on a team to auto-create a ship")
+
+        # Find team's mothership with a docking bay
+        from sqlalchemy.orm import selectinload
+        ms_result = await ctx.session.exec(
+            select(Spaceship)
+            .where(
+                Spaceship.team_id == user.team_id,
+                Spaceship.ship_class == ShipClass.mothership,
+                Spaceship.is_destroyed == False,  # noqa: E712
+            )
+            .options(selectinload(Spaceship.modules), selectinload(Spaceship.team))
+        )
+        mothership = None
+        for ms in ms_result.all():
+            if any(m.module_type == ModuleType.docking_bay for m in ms.modules):
+                mothership = ms
+                break
+        if mothership is None:
+            raise CommandRejected("No team mothership with docking bay found")
+
+        # Create the hull
+        try:
+            sc = ShipClass(ship_class_str)
+        except ValueError:
+            raise CommandRejected(f"Unknown ship class: {ship_class_str}")
+
+        faction = None
+        if mothership.team is not None:
+            faction = mothership.team.faction
+
+        hull = create_default_ship(
+            name=f"{ship_class_str}",
+            ship_class=sc,
+            user_id=cmd.user_id,
+            pos_x=mothership.pos_x,
+            pos_y=mothership.pos_y,
+            pos_z=mothership.pos_z,
+            team_id=user.team_id,
+            faction=faction,
+        )
+        hull.match_id = mothership.match_id
+        hull.docked_in_id = mothership.id
+        hull.modules = []  # prevent lazy load on relationship
+        ctx.session.add(hull)
+        await ctx.session.flush()
+    else:
+        # --- Existing hull path ---
+        hull = ctx.ship_map.get(cmd.ship_id)
+        if hull is None:
+            raise CommandRejected(f"Ship #{cmd.ship_id} not found")
+        if hull.claimed_by_user_id is not None:
+            raise CommandRejected(f"Ship #{cmd.ship_id} is already claimed")
+        if hull.docked_in_id is None:
+            raise CommandRejected(f"Ship #{cmd.ship_id} is not docked")
+        if hull.is_destroyed:
+            raise CommandRejected(f"Ship #{cmd.ship_id} is destroyed")
+        if hull.team_id is not None and user.team_id is not None and hull.team_id != user.team_id:
+            raise CommandRejected("Ship belongs to a different team")
 
     # Get team research for module unlocking
     completed_techs = set()
@@ -178,13 +240,10 @@ async def handle_claim_ship(ctx: TickContext, cmd: Command) -> None:
 @register_handler("reship")
 async def handle_reship(ctx: TickContext, cmd: Command) -> None:
     """Dock current ship, strip modules, refund 75% of loadout cost."""
-    payload = get_payload(cmd)
-    ship_id = payload.get("ship_id")
-
-    if ship_id is None:
+    if cmd.ship_id is None:
         raise CommandRejected("ship_id is required")
 
-    ship = ctx.find_ship(ship_id, cmd.user_id)
+    ship = ctx.find_ship(cmd.ship_id, cmd.user_id)
 
     if not ship.is_docked():
         raise CommandRejected("Ship must be docked to reship")

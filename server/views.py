@@ -375,11 +375,15 @@ async def compute_player_view(
                 "hull_point_cost": HULL_POINT_COSTS.get(h.ship_class.value, 0),
             })
 
+    # Free hull classes that can be auto-created without building
+    free_hull_classes = [cls for cls, cost in HULL_POINT_COSTS.items() if cost == 0]
+
     return {
         "tick": current_tick,
         "points": user.points,
         "ships": ship_views,
         "available_hulls": available_hulls,
+        "free_hull_classes": free_hull_classes,
         "nearby": nearby,
         "events": events,
         "pending_commands": pending_commands,

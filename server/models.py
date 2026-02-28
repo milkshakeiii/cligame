@@ -630,6 +630,8 @@ MATCH_MOTHERSHIP_LOADOUT: list[tuple[str, int]] = [
     ("mining_laser", 50),
     ("scanner", 100),
     ("passive_detector", 100),
+    ("dropoff", 500),
+    ("research_module", 5_000),
     ("large_turret_kinetic", 0),
     ("large_turret_thermal", 0),
     ("large_armor_plate", 0),

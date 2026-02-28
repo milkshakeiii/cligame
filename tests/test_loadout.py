@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import register_user
+from tests.conftest import register_user, spawn_test_mothership
 
 
 # ---------------------------------------------------------------------------
@@ -107,11 +107,12 @@ async def _create_and_dock_strike_craft(
     client: AsyncClient, headers: dict,
 ) -> tuple[dict, dict]:
     """Create a strike_craft via command, dock it in the mothership, return (craft, mothership)."""
+    mothership = await spawn_test_mothership(client, headers)
+
     await _send_command(client, headers, "create_ship", ship_class="strike_craft")
     await _process(client)
 
     ships = await _get_ships(client, headers)
-    mothership = next(s for s in ships if s["ship_class"] == "mothership")
     craft = next(s for s in ships if s["ship_class"] == "strike_craft")
 
     # Dock the strike_craft in the mothership
@@ -136,10 +137,11 @@ async def _claim_ship(
     hull_id: int,
     modules: list[dict],
 ) -> None:
-    """Send a claim_ship command. ``hull_id`` is placed inside the payload."""
+    """Send a claim_ship command. ``hull_id`` is passed as top-level ship_id."""
     await _send_raw_command(
         client, headers, "claim_ship",
-        payload={"ship_id": hull_id, "modules": modules},
+        payload={"modules": modules},
+        cmd_ship_id=hull_id,
     )
     await _process(client)
 
@@ -149,10 +151,11 @@ async def _reship(
     headers: dict,
     hull_id: int,
 ) -> None:
-    """Send a reship command. ``hull_id`` is placed inside the payload."""
+    """Send a reship command. ``hull_id`` is passed as top-level ship_id."""
     await _send_raw_command(
         client, headers, "reship",
-        payload={"ship_id": hull_id},
+        payload={},
+        cmd_ship_id=hull_id,
     )
     await _process(client)
 
@@ -412,14 +415,16 @@ class TestBuilderKickback:
         resp = await client.post(f"/api/teams/{team_id}/join", headers=headers2)
         assert resp.status_code == 200, resp.text
 
+        # Create mothership for user A
+        mothership1 = await spawn_test_mothership(client, headers1)
+
         # User A creates a strike_craft
         await _send_command(client, headers1, "create_ship", ship_class="strike_craft")
         await _process(client)
 
-        # Find the strike_craft and the mothership
+        # Find the strike_craft
         ships1 = await _get_ships(client, headers1)
         craft = next(s for s in ships1 if s["ship_class"] == "strike_craft")
-        mothership1 = next(s for s in ships1 if s["ship_class"] == "mothership")
 
         # Dock it in user A's mothership
         resp = await client.post(
@@ -450,3 +455,105 @@ class TestBuilderKickback:
 
         view2 = await _get_view(client, headers2)
         assert view2["points"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: auto-create on claim (ship_class instead of ship_id)
+# ---------------------------------------------------------------------------
+
+
+class TestAutoCreateClaim:
+
+    @pytest.mark.anyio
+    async def test_claim_with_ship_class_strike_craft(self, client: AsyncClient):
+        """Auto-create a strike_craft via ship_class (no pre-existing hull)."""
+        headers, data = await _auth(client, "autocreate_user")
+
+        # Create team, join it, and spawn mothership
+        resp = await client.post(
+            "/api/teams", json={"name": "AutoTeam", "faction": "solarion"},
+            headers=headers,
+        )
+        assert resp.status_code in (200, 201), resp.text
+        team_id = resp.json()["id"]
+
+        resp = await client.post(f"/api/teams/{team_id}/join", headers=headers)
+        assert resp.status_code == 200, resp.text
+
+        await spawn_test_mothership(client, headers)
+
+        # Claim with ship_class instead of ship_id
+        await _send_raw_command(
+            client, headers, "claim_ship",
+            payload={"ship_class": "strike_craft", "modules": [
+                {"module_type": "engine", "volume": 30},
+                {"module_type": "starter_turret"},
+            ]},
+        )
+        await _process(client)
+
+        # Verify no rejection
+        rejected = await _get_rejected_commands(client, headers)
+        assert len(rejected) == 0, f"Unexpected rejections: {rejected}"
+
+        # Verify a strike_craft now exists and is undocked
+        ships = await _get_ships(client, headers)
+        crafts = [s for s in ships if s["ship_class"] == "strike_craft"]
+        assert len(crafts) == 1, f"Expected 1 strike_craft, got {len(crafts)}"
+        assert crafts[0]["docked_in_id"] is None, "Ship should be undocked after claim"
+
+        # Verify a ship_claimed event was emitted
+        view = await _get_view(client, headers)
+        assert any("claimed" in (e.get("message") or "").lower() for e in view.get("events", []))
+
+    @pytest.mark.anyio
+    async def test_claim_with_nonfree_ship_class_rejected(self, client: AsyncClient):
+        """Auto-create with a non-free hull class (corvette) should be rejected."""
+        headers, data = await _auth(client, "nonfree_user")
+
+        resp = await client.post(
+            "/api/teams", json={"name": "NonFreeTeam", "faction": "voidborn"},
+            headers=headers,
+        )
+        assert resp.status_code in (200, 201), resp.text
+        team_id = resp.json()["id"]
+
+        resp = await client.post(f"/api/teams/{team_id}/join", headers=headers)
+        assert resp.status_code == 200, resp.text
+
+        await spawn_test_mothership(client, headers)
+
+        await _send_raw_command(
+            client, headers, "claim_ship",
+            payload={"ship_class": "corvette", "modules": []},
+        )
+        await _process(client)
+
+        rejected = await _get_rejected_commands(client, headers)
+        assert len(rejected) == 1
+        reason = (rejected[0].get("rejection_reason") or "").lower()
+        assert "free" in reason or "cost" in reason
+
+    @pytest.mark.anyio
+    async def test_claim_with_ship_class_no_team_rejected(self, client: AsyncClient):
+        """Auto-create when the user has no team should be rejected."""
+        headers = await _auth_header(client, "noteam_user")
+
+        await _send_raw_command(
+            client, headers, "claim_ship",
+            payload={"ship_class": "strike_craft", "modules": []},
+        )
+        await _process(client)
+
+        rejected = await _get_rejected_commands(client, headers)
+        assert len(rejected) == 1
+        reason = (rejected[0].get("rejection_reason") or "").lower()
+        assert "team" in reason
+
+    @pytest.mark.anyio
+    async def test_free_hull_classes_in_view(self, client: AsyncClient):
+        """Verify free_hull_classes appears in the view response."""
+        headers = await _auth_header(client, "viewuser")
+        view = await _get_view(client, headers)
+        assert "free_hull_classes" in view
+        assert "strike_craft" in view["free_hull_classes"]

@@ -637,7 +637,7 @@ def _process_mining(
     cargo_full_emitted = False
 
     for module in ship.modules:
-        if module.module_type not in (ModuleType.mining_laser, ModuleType.strip_miner):
+        if module.module_type not in (ModuleType.mining_laser, ModuleType.strip_miner, ModuleType.starter_mining_laser):
             continue
         if not module.active:
             continue
@@ -1000,7 +1000,7 @@ def _process_detection(
             continue
 
         # Passive detector — fires when its module ID is in fired_module_ids
-        if module.module_type == ModuleType.passive_detector:
+        if module.module_type in (ModuleType.passive_detector, ModuleType.starter_passive_detector):
             if module.id not in fired_module_ids:
                 continue  # not a cycle-fire tick
             result = tick_passive_detector(ship, module, all_ships, all_objects)

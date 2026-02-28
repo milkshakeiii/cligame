@@ -21,7 +21,7 @@ from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from server.models import (
@@ -180,6 +180,64 @@ def _build_test_app(test_session_factory) -> FastAPI:
 
         return {"processed": True, "tick": current_tick, "events": len(pending_events)}
 
+    @test_app.post("/api/_test/spawn_mothership")
+    async def test_spawn_mothership(body: dict, session=Depends(get_session)):
+        """Create a mothership for testing. Body: {user_id, ?pos_x, ?pos_y, ?pos_z}."""
+        from server.models import (
+            ModuleType,
+            ShipClass,
+            create_default_ship,
+            make_module,
+            recalculate_max_capacitor,
+        )
+        user_id = body["user_id"]
+        # Look up user's team so the mothership inherits team_id and faction
+        from server.models import User as UserModel
+        from server.models import Team as TeamModel
+        user_result = await session.exec(select(UserModel).where(UserModel.id == user_id))
+        user_row = user_result.first()
+        team_id = user_row.team_id if user_row else None
+        faction = None
+        if team_id is not None:
+            team_result = await session.exec(select(TeamModel).where(TeamModel.id == team_id))
+            team_row = team_result.first()
+            faction = team_row.faction if team_row else None
+        ship = create_default_ship(
+            name="Mothership",
+            ship_class=ShipClass.mothership,
+            user_id=user_id,
+            pos_x=body.get("pos_x", 0.0),
+            pos_y=body.get("pos_y", 0.0),
+            pos_z=body.get("pos_z", 0.0),
+            team_id=team_id,
+            faction=faction,
+        )
+        session.add(ship)
+        await session.flush()
+
+        modules = [
+            make_module(ModuleType.engine, 200_000),
+            make_module(ModuleType.reactor, 100_000),
+            make_module(ModuleType.cargo_bay, 200_000),
+            make_module(ModuleType.docking_bay, 100_000),
+            make_module(ModuleType.factory, 300_000),
+            make_module(ModuleType.mining_laser, 200),
+            make_module(ModuleType.scanner, 500),
+            make_module(ModuleType.passive_detector, 100),
+            make_module(ModuleType.research_module, 5_000),
+            make_module(ModuleType.dropoff, 500),
+        ]
+        for mod in modules:
+            mod.ship_id = ship.id
+            session.add(mod)
+
+        await session.flush()
+        await session.refresh(ship, attribute_names=["modules", "team"])
+        recalculate_max_capacitor(ship)
+        ship.capacitor = ship.max_capacitor
+        await session.commit()
+        return {"ship_id": ship.id}
+
     @test_app.post("/api/_test/dock_ship")
     async def test_dock_ship(body: dict, session=Depends(get_session)):
         """Directly dock a ship (test-only, bypasses movement phase)."""
@@ -287,3 +345,19 @@ def add_module_to_ship(ship: Spaceship, module_type: ModuleType, volume: int) ->
     mod.ship_id = ship.id
     ship.modules.append(mod)
     return mod
+
+
+async def spawn_test_mothership(client, headers: dict) -> dict:
+    """Create a test mothership via the test-only endpoint. Returns ship dict."""
+    # Extract user_id from token
+    me_resp = await client.get("/api/auth/me", headers=headers)
+    user_id = me_resp.json()["user_id"]
+    resp = await client.post(
+        "/api/_test/spawn_mothership",
+        json={"user_id": user_id},
+    )
+    assert resp.status_code == 200, resp.text
+    ship_id = resp.json()["ship_id"]
+    ship_resp = await client.get(f"/api/ships/{ship_id}", headers=headers)
+    assert ship_resp.status_code == 200, ship_resp.text
+    return ship_resp.json()

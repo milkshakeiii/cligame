@@ -16,7 +16,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from tests.conftest import register_user
+from tests.conftest import register_user, spawn_test_mothership
 
 
 # ---------------------------------------------------------------------------
@@ -87,24 +87,21 @@ class TestViewEndpoint:
 
         resp = await client.get("/api/view", headers=headers)
         data = resp.json()
-        # Registration auto-creates a mothership, so expect at least 2 ships
-        assert len(data["ships"]) >= 2
+        assert len(data["ships"]) >= 1
         ship_ids = [s["id"] for s in data["ships"]]
         assert ship["id"] in ship_ids
-        # The newly created strike_craft should be present
         strike_craft = [s for s in data["ships"] if s["ship_class"] == "strike_craft"]
         assert len(strike_craft) == 1
 
     @pytest.mark.anyio
     async def test_view_ship_has_modules(self, client: AsyncClient):
         headers = await _auth_header(client)
-        await _create_ship(client, headers)
+        await spawn_test_mothership(client, headers)
 
         resp = await client.get("/api/view", headers=headers)
         data = resp.json()
         ship_view = data["ships"][0]
         assert "modules" in ship_view
-        # Default ship has at least an engine module
         assert len(ship_view["modules"]) >= 1
 
     @pytest.mark.anyio
@@ -123,23 +120,21 @@ class TestViewEndpoint:
         assert data["ships"][0]["id"] == ship1["id"]
 
     @pytest.mark.anyio
-    async def test_view_default_mothership(self, client: AsyncClient):
-        """Registration auto-creates a mothership — verify it appears in view."""
+    async def test_view_no_ships_after_register(self, client: AsyncClient):
+        """Registration does not create any ships."""
         headers = await _auth_header(client)
         resp = await client.get("/api/view", headers=headers)
         data = resp.json()
-        # Registration creates a default mothership
-        assert len(data["ships"]) == 1
-        assert data["ships"][0]["ship_class"] == "mothership"
+        assert len(data["ships"]) == 0
 
     @pytest.mark.anyio
     async def test_view_ship_details(self, client: AsyncClient):
         """Verify ship view includes all expected fields."""
         headers = await _auth_header(client)
-        await _create_ship(client, headers)
+        created = await _create_ship(client, headers)
 
         resp = await client.get("/api/view", headers=headers)
-        ship = resp.json()["ships"][0]
+        ship = next(s for s in resp.json()["ships"] if s["id"] == created["id"])
 
         expected_fields = [
             "id", "name", "ship_class",
