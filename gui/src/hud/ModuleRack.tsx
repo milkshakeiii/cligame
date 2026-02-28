@@ -4,58 +4,66 @@ import { COLORS } from "../utils/colors";
 import type { Module } from "../api/types";
 
 // Module grouping: weapons | utility | defense
-// Passive modules (engine, reactor, cargo, etc.) are not shown
-const PASSIVE_TYPES = new Set([
+// Passive modules (engine, reactor, cargo, etc.) are not shown.
+// Uses pattern matching to handle size-prefixed module names from server
+// (e.g. small_shield_booster, medium_armor_repairer).
+
+const PASSIVE_EXACT = new Set([
   "engine",
   "reactor",
   "cargo_bay",
   "docking_bay",
+  "enhanced_docking_bay",
   "factory",
   "dropoff",
+]);
+
+// Substrings that identify passive modules after stripping size prefix
+const PASSIVE_PATTERNS = [
   "armor_plate",
   "shield_extender",
   "armor_membrane",
-  "starter_armor_plate",
-  "starter_shield_extender",
-]);
+];
 
-const WEAPON_TYPES = new Set([
-  "small_turret_kinetic",
-  "small_turret_thermal",
-  "medium_turret_kinetic",
-  "medium_turret_thermal",
-  "large_turret_kinetic",
-  "large_turret_thermal",
+// Substrings that identify weapon modules after stripping size prefix
+const WEAPON_PATTERNS = [
+  "turret",
   "missile_launcher",
-  "heavy_missile_launcher",
   "torpedo_launcher",
   "leech_projector",
   "solar_lance",
-  "bio_swarm_launcher",
-  "point_defense",
-  "starter_turret",
-]);
+  "focused_beam",
+  "bio_repair_swarm",
+];
 
-const DEFENSE_TYPES = new Set([
+// Substrings that identify defense modules after stripping size prefix
+const DEFENSE_PATTERNS = [
   "shield_booster",
-  "shield_hardener_kinetic",
-  "shield_hardener_thermal",
-  "shield_hardener_explosive",
+  "shield_hardener",
   "shield_purge",
   "armor_repairer",
-  "armor_hardener_kinetic",
-  "armor_hardener_thermal",
-  "armor_hardener_explosive",
-  "reactive_armor_hardener",
+  "armor_hardener",
+  "armor_repair_nexus",
+  "reactive_armor",
   "phase_shield",
-  "armor_nexus",
-  "fortress_mode",
-]);
+  "fortress",
+  "stealth_field",
+];
+
+function stripSizePrefix(type: string): string {
+  return type.replace(/^(small|medium|large|light|heavy)_/, "");
+}
+
+function matchesAny(type: string, patterns: string[]): boolean {
+  const stripped = stripSizePrefix(type);
+  return patterns.some((p) => stripped.includes(p));
+}
 
 function moduleGroup(type: string): "weapon" | "utility" | "defense" | "passive" {
-  if (PASSIVE_TYPES.has(type)) return "passive";
-  if (WEAPON_TYPES.has(type)) return "weapon";
-  if (DEFENSE_TYPES.has(type)) return "defense";
+  if (PASSIVE_EXACT.has(type)) return "passive";
+  if (matchesAny(type, PASSIVE_PATTERNS)) return "passive";
+  if (matchesAny(type, WEAPON_PATTERNS)) return "weapon";
+  if (matchesAny(type, DEFENSE_PATTERNS)) return "defense";
   return "utility";
 }
 
@@ -65,8 +73,9 @@ function moduleShortName(type: string): string {
     .replace("small_", "Sm ")
     .replace("medium_", "Md ")
     .replace("large_", "Lg ")
-    .replace("_", " ")
-    .replace("_", " ");
+    .replace("light_", "Lt ")
+    .replace("heavy_", "Hv ")
+    .replaceAll("_", " ");
 }
 
 /**

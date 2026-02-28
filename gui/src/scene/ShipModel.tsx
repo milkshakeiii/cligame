@@ -32,18 +32,20 @@ export default function ShipModel({
     return factionColor(faction);
   }, [isOwn, faction]);
 
+  // Reusable objects for per-frame rotation (avoid GC pressure at 60fps)
+  const targetVec = useRef(new THREE.Vector3());
+  const targetQuat = useRef(new THREE.Quaternion());
+  const upVec = useRef(new THREE.Vector3(0, 1, 0));
+
   // Rotate ship to face velocity direction
   useFrame(() => {
     if (!meshRef.current || !velocity) return;
     const [vx, vy, vz] = velocity;
-    const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
-    if (speed > 0.1) {
-      const target = new THREE.Vector3(vx, vy, vz).normalize();
-      const quat = new THREE.Quaternion().setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        target,
-      );
-      meshRef.current.quaternion.slerp(quat, 0.1);
+    const spd = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    if (spd > 0.1) {
+      targetVec.current.set(vx, vy, vz).normalize();
+      targetQuat.current.setFromUnitVectors(upVec.current, targetVec.current);
+      meshRef.current.quaternion.slerp(targetQuat.current, 0.1);
     }
   });
 

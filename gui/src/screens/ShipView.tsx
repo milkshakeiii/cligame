@@ -1,4 +1,5 @@
 import { usePolling } from "../hooks/usePolling";
+import { useKeyboard } from "../hooks/useKeyboard";
 import { useGameStore } from "../store/gameStore";
 import { useAuthStore } from "../store/authStore";
 import SpaceScene from "../scene/SpaceScene";
@@ -7,6 +8,7 @@ import ModuleRack from "../hud/ModuleRack";
 import Overview from "../hud/Overview";
 import SelectedItem from "../hud/SelectedItem";
 import AlertsFeed from "../hud/AlertsFeed";
+import TargetBar from "../hud/TargetBar";
 
 /**
  * Ship View — primary gameplay screen.
@@ -14,6 +16,7 @@ import AlertsFeed from "../hud/AlertsFeed";
  */
 export default function ShipView() {
   usePolling();
+  useKeyboard();
 
   const connected = useGameStore((s) => s.connected);
   const pollError = useGameStore((s) => s.pollError);
@@ -27,6 +30,9 @@ export default function ShipView() {
 
       {/* HUD Overlay Layer */}
       <div className="absolute inset-0 pointer-events-none">
+        {/* Top center: Target Bar (locked targets) */}
+        <TargetBar />
+
         {/* Connection status */}
         {!connected && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 pointer-events-auto">

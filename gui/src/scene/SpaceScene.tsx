@@ -9,14 +9,8 @@ import AsteroidModel from "./AsteroidModel";
 import Bracket from "./Bracket";
 import OrderIndicators from "./OrderIndicators";
 import { COLORS } from "../utils/colors";
+import { scalePos } from "../utils/scale";
 import type { Ship, NearbyContact } from "../api/types";
-
-// Scene uses 1 unit = 1000 meters
-const SCALE = 1 / 1000;
-
-function scalePos(x: number, y: number, z: number): [number, number, number] {
-  return [x * SCALE, y * SCALE, z * SCALE];
-}
 
 /**
  * Camera controller that follows the active ship.
@@ -149,7 +143,11 @@ function NearbyShips() {
                 faction={null}
                 isOwn={false}
                 isSelected={isSelected}
-                velocity={undefined}
+                velocity={
+                  contact.vel_x != null
+                    ? [contact.vel_x, contact.vel_y!, contact.vel_z!]
+                    : undefined
+                }
               />
             ) : (
               // Unknown contact: small pulsing sphere
@@ -198,6 +196,7 @@ function Celestials() {
         return (
           <group key={`obj-${contact.id}`} position={pos}>
             <AsteroidModel
+              id={contact.id}
               oreRemaining={contact.ore_remaining}
               isSelected={isSelected}
             />

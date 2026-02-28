@@ -12,13 +12,15 @@ export function usePolling() {
   const setPollError = useGameStore((s) => s.setPollError);
   const clearStaleOptimistic = useCommandStore((s) => s.clearStaleOptimistic);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTickRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!token) return;
 
     const poll = async () => {
       try {
-        const view = await api.getView(token);
+        const view = await api.getView(token, undefined, lastTickRef.current);
+        lastTickRef.current = view.tick;
         updateFromView(view);
         clearStaleOptimistic(view.tick);
       } catch (e) {
