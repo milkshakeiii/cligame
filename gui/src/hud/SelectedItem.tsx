@@ -1,4 +1,4 @@
-import { useGameStore } from "../store/gameStore";
+import { useGameStore, useActiveShip } from "../store/gameStore";
 import { useCommand } from "../hooks/useCommand";
 import Panel from "../components/Panel";
 import HPBar from "../components/HPBar";
@@ -15,6 +15,7 @@ export default function SelectedItem() {
   const selectedType = useGameStore((s) => s.selectedTargetType);
   const nearby = useGameStore((s) => s.nearby);
   const ships = useGameStore((s) => s.ships);
+  const activeShip = useActiveShip();
   const send = useCommand();
 
   if (selectedId == null || selectedType == null) return null;
@@ -27,12 +28,12 @@ export default function SelectedItem() {
       <FriendlyShipDetails
         ship={ship}
         onApproach={() =>
-          send("move_approach", { target_ship_id: ship.id })
+          send("move", { order_type: "approach", target_ship_id: ship.id })
         }
         onOrbit={() =>
-          send("move_orbit", { target_ship_id: ship.id, orbit_radius: 5000 })
+          send("move", { order_type: "orbit", target_ship_id: ship.id, orbit_radius: 5000 })
         }
-        onDock={() => send("move_dock", { target_ship_id: ship.id })}
+        onDock={() => send("dock", { target_ship_id: ship.id })}
       />
     );
   }
@@ -47,14 +48,23 @@ export default function SelectedItem() {
       <ObjectDetails
         contact={contact}
         onApproach={() =>
-          send("move_approach", { target_object_id: contact.id })
+          send("move", { order_type: "approach", target_object_id: contact.id })
         }
         onOrbit={() =>
-          send("move_orbit", {
+          send("move", {
+            order_type: "orbit",
             target_object_id: contact.id,
             orbit_radius: 500,
           })
         }
+        onMine={() => {
+          const miner = activeShip?.modules.find(
+            (m) => m.module_type.includes("mining_laser") || m.module_type.includes("strip_miner"),
+          );
+          if (miner && !miner.active) {
+            send("activate_module", { module_id: miner.id });
+          }
+        }}
       />
     );
   }
@@ -63,13 +73,14 @@ export default function SelectedItem() {
     <EnemyShipDetails
       contact={contact}
       onApproach={() =>
-        send("move_approach", { target_ship_id: contact.id })
+        send("move", { order_type: "approach", target_ship_id: contact.id })
       }
       onOrbit={() =>
-        send("move_orbit", { target_ship_id: contact.id, orbit_radius: 5000 })
+        send("move", { order_type: "orbit", target_ship_id: contact.id, orbit_radius: 5000 })
       }
       onKeepRange={() =>
-        send("move_keep_range", {
+        send("move", {
+          order_type: "keep_distance",
           target_ship_id: contact.id,
           desired_distance: 20000,
         })
@@ -196,11 +207,14 @@ function ObjectDetails({
   contact,
   onApproach,
   onOrbit,
+  onMine,
 }: {
   contact: NearbyContact;
   onApproach: () => void;
   onOrbit: () => void;
+  onMine: () => void;
 }) {
+  const isAsteroid = contact.object_type === "asteroid";
   return (
     <Panel title="Selected" className="w-56">
       <div className="text-sm font-bold text-text-primary mb-1">
@@ -217,6 +231,9 @@ function ObjectDetails({
       <div className="flex flex-wrap gap-1">
         <ActionButton label="Approach" onClick={onApproach} />
         <ActionButton label="Orbit 500m" onClick={onOrbit} />
+        {isAsteroid && (
+          <ActionButton label="Mine" onClick={onMine} color={COLORS.moduleActive} />
+        )}
       </div>
     </Panel>
   );

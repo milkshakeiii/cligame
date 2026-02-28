@@ -96,6 +96,9 @@ export interface NearbyContact {
   pos_z: number;
   // Classification+ (detail >= 2)
   ship_class?: string;
+  vel_x?: number;
+  vel_y?: number;
+  vel_z?: number;
   object_type?: string;
   ore_remaining?: number;
   // Identification+ (detail >= 3)

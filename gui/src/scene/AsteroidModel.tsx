@@ -3,8 +3,15 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
 interface AsteroidModelProps {
+  id?: number;
   oreRemaining?: number;
   isSelected: boolean;
+}
+
+// Simple deterministic hash for seeding rotation from id
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed * 9301 + 49297) * 233280;
+  return x - Math.floor(x);
 }
 
 /**
@@ -12,19 +19,23 @@ interface AsteroidModelProps {
  * Size scales with ore remaining. Color dims when depleted.
  */
 export default function AsteroidModel({
+  id,
   oreRemaining,
   isSelected,
 }: AsteroidModelProps) {
   const meshRef = useRef<THREE.Mesh>(null);
 
-  // Random rotation speed (stable per instance via useMemo)
+  // Deterministic rotation speed seeded from id (stable across StrictMode remounts)
   const rotationSpeed = useMemo(
-    () => ({
-      x: (Math.random() - 0.5) * 0.3,
-      y: (Math.random() - 0.5) * 0.3,
-      z: (Math.random() - 0.5) * 0.1,
-    }),
-    [],
+    () => {
+      const seed = id ?? 0;
+      return {
+        x: (seededRandom(seed) - 0.5) * 0.3,
+        y: (seededRandom(seed + 1) - 0.5) * 0.3,
+        z: (seededRandom(seed + 2) - 0.5) * 0.1,
+      };
+    },
+    [id],
   );
 
   useFrame((_, delta) => {

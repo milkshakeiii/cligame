@@ -107,7 +107,7 @@ function orderDescription(
       return "Approaching";
     case "orbit":
       return `Orbiting at ${orbitRadius ? Math.round(orbitRadius / 1000) + "km" : "..."}`;
-    case "keep_at_range":
+    case "keep_distance":
       return `Keep at ${desiredDistance ? Math.round(desiredDistance / 1000) + "km" : "..."}`;
     case "dock":
       return "Docking";

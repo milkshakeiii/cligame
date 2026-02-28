@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import * as THREE from "three";
 import { Line, Ring } from "@react-three/drei";
 import { COLORS } from "../utils/colors";
+import { scalePosTuple, scaleDistance } from "../utils/scale";
 import type { ActiveOrder, Ship, NearbyContact } from "../api/types";
 
 interface OrderIndicatorsProps {
@@ -77,8 +78,8 @@ function OrderVisualization({
 
   if (!targetPos) return null;
 
-  const scaledShip = scalePos(shipPos);
-  const scaledTarget = scalePos(targetPos);
+  const scaledShip = scalePosTuple(shipPos);
+  const scaledTarget = scalePosTuple(targetPos);
 
   switch (order.order_type) {
     case "approach":
@@ -91,7 +92,7 @@ function OrderVisualization({
           from={scaledShip}
         />
       );
-    case "keep_at_range":
+    case "keep_distance":
       return (
         <KeepRangeIndicator
           from={scaledShip}
@@ -104,18 +105,6 @@ function OrderVisualization({
     default:
       return <ApproachIndicator from={scaledShip} to={scaledTarget} />;
   }
-}
-
-// --- Scale helpers ---
-// Game units are in meters; scene uses 1 unit = 1000m for readability
-const SCALE = 1 / 1000;
-
-function scalePos(p: [number, number, number]): [number, number, number] {
-  return [p[0] * SCALE, p[1] * SCALE, p[2] * SCALE];
-}
-
-function scaleDistance(d: number): number {
-  return d * SCALE;
 }
 
 // --- Individual indicator components ---

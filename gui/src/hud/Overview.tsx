@@ -1,11 +1,18 @@
 import { useState, useMemo } from "react";
-import { useGameStore } from "../store/gameStore";
+import { useGameStore, useActiveShip } from "../store/gameStore";
 import Panel from "../components/Panel";
-import { formatDistance, shipClassName } from "../utils/formatting";
+import { formatDistance, shipClassName, speed } from "../utils/formatting";
 import { COLORS } from "../utils/colors";
-import type { NearbyContact } from "../api/types";
+import type { NearbyContact, Ship } from "../api/types";
 
-type Tab = "all" | "ships" | "hostiles" | "celestials";
+type Tab = "all" | "ships" | "hostiles" | "friendlies" | "celestials" | "docked";
+
+function distanceBetween(a: { pos_x: number; pos_y: number; pos_z: number }, b: { pos_x: number; pos_y: number; pos_z: number }): number {
+  const dx = a.pos_x - b.pos_x;
+  const dy = a.pos_y - b.pos_y;
+  const dz = a.pos_z - b.pos_z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
 
 /**
  * Overview panel (right side) — sortable list of nearby objects.
@@ -14,6 +21,7 @@ type Tab = "all" | "ships" | "hostiles" | "celestials";
 export default function Overview() {
   const nearby = useGameStore((s) => s.nearby);
   const ships = useGameStore((s) => s.ships);
+  const activeShip = useActiveShip();
   const selectedTargetId = useGameStore((s) => s.selectedTargetId);
   const selectedTargetType = useGameStore((s) => s.selectedTargetType);
   const selectTarget = useGameStore((s) => s.selectTarget);
@@ -27,30 +35,59 @@ export default function Overview() {
         return nearby.filter((c) => c.type === "ship" && c.detail >= 3);
       case "celestials":
         return nearby.filter((c) => c.type === "object");
+      case "friendlies":
+      case "docked":
+        return []; // friendlies/docked are from own ships, not nearby
       default:
         return nearby;
     }
   }, [nearby, tab]);
 
-  // Also show friendly ships in "all" tab
+  // Show friendly ships in appropriate tabs
   const friendlyEntries = useMemo(() => {
-    if (tab !== "all" && tab !== "ships") return [];
-    return ships
-      .filter((s) => !s.is_destroyed && s.docked_in_id == null)
-      .map((s) => ({
+    if (tab === "hostiles" || tab === "celestials") return [];
+
+    const undocked = ships.filter((s) => !s.is_destroyed && s.docked_in_id == null);
+    const docked = ships.filter((s) => !s.is_destroyed && s.docked_in_id != null);
+
+    if (tab === "docked") {
+      return docked.map((s) => ({
         id: s.id,
         name: s.name,
         type: "friendly" as const,
         ship_class: s.ship_class,
-        distance: 0, // Could calculate from active ship
+        distance: 0,
+        isDocked: true,
       }));
-  }, [ships, tab]);
+    }
+
+    if (tab === "friendlies") {
+      return undocked.map((s) => ({
+        id: s.id,
+        name: s.name,
+        type: "friendly" as const,
+        ship_class: s.ship_class,
+        distance: activeShip && s.id !== activeShip.id ? distanceBetween(s, activeShip) : 0,
+        isDocked: false,
+      }));
+    }
+
+    // "all" and "ships" tabs: show undocked friendlies
+    return undocked.map((s) => ({
+      id: s.id,
+      name: s.name,
+      type: "friendly" as const,
+      ship_class: s.ship_class,
+      distance: activeShip && s.id !== activeShip.id ? distanceBetween(s, activeShip) : 0,
+      isDocked: false,
+    }));
+  }, [ships, tab, activeShip]);
 
   return (
     <Panel title="Overview" className="w-64 max-h-80 flex flex-col">
       {/* Tabs */}
-      <div className="flex gap-1 mb-2">
-        {(["all", "ships", "hostiles", "celestials"] as Tab[]).map((t) => (
+      <div className="flex flex-wrap gap-1 mb-2">
+        {(["all", "ships", "hostiles", "friendlies", "celestials", "docked"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -72,8 +109,8 @@ export default function Overview() {
           <OverviewRow
             key={`f-${entry.id}`}
             name={entry.name}
-            typeLabel={shipClassName(entry.ship_class)}
-            distance={null}
+            typeLabel={entry.isDocked ? "Docked" : shipClassName(entry.ship_class)}
+            distance={entry.distance > 0 ? entry.distance : null}
             color={COLORS.friendly}
             isSelected={
               selectedTargetId === entry.id &&
