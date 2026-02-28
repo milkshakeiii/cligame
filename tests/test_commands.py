@@ -52,7 +52,7 @@ async def _process(client: AsyncClient) -> dict:
     return resp.json()
 
 
-async def _create_ship(client: AsyncClient, headers: dict, ship_class: str = "frigate") -> dict:
+async def _create_ship(client: AsyncClient, headers: dict, ship_class: str = "strike_craft") -> dict:
     """Create a ship via the command system and return its data."""
     await _send_command(client, headers, "create_ship", ship_class=ship_class)
     await _process(client)
@@ -112,7 +112,7 @@ class TestCommandInfrastructure:
     @pytest.mark.anyio
     async def test_enqueue_command(self, client: AsyncClient):
         headers = await _auth_header(client)
-        data = await _send_command(client, headers, "create_ship", payload={"ship_class": "frigate"})
+        data = await _send_command(client, headers, "create_ship", payload={"ship_class": "strike_craft"})
         assert "command_id" in data
         assert data["type"] == "create_ship"
         assert data["status"] == "pending"
@@ -130,8 +130,8 @@ class TestCommandInfrastructure:
     @pytest.mark.anyio
     async def test_list_commands(self, client: AsyncClient):
         headers = await _auth_header(client)
-        await _send_command(client, headers, "create_ship", ship_class="frigate")
-        await _send_command(client, headers, "create_ship", ship_class="frigate")
+        await _send_command(client, headers, "create_ship", ship_class="strike_craft")
+        await _send_command(client, headers, "create_ship", ship_class="strike_craft")
 
         resp = await client.get("/api/commands", headers=headers)
         assert resp.status_code == 200
@@ -141,7 +141,7 @@ class TestCommandInfrastructure:
     @pytest.mark.anyio
     async def test_list_commands_filter_status(self, client: AsyncClient):
         headers = await _auth_header(client)
-        await _send_command(client, headers, "create_ship", ship_class="frigate")
+        await _send_command(client, headers, "create_ship", ship_class="strike_craft")
         await _process(client)
 
         resp = await client.get("/api/commands", params={"status": "processed"}, headers=headers)
@@ -153,7 +153,7 @@ class TestCommandInfrastructure:
     @pytest.mark.anyio
     async def test_process_commands_endpoint(self, client: AsyncClient):
         headers = await _auth_header(client)
-        await _send_command(client, headers, "create_ship", ship_class="frigate")
+        await _send_command(client, headers, "create_ship", ship_class="strike_craft")
         result = await _process(client)
         assert result["processed"] is True
 
@@ -169,20 +169,20 @@ class TestShipCommands:
     @pytest.mark.anyio
     async def test_create_ship(self, client: AsyncClient):
         headers = await _auth_header(client)
-        await _send_command(client, headers, "create_ship", ship_class="frigate")
+        await _send_command(client, headers, "create_ship", ship_class="strike_craft")
         await _process(client)
 
         # Verify ship exists (registration auto-creates a mothership)
         resp = await client.get("/api/ships", headers=headers)
         assert resp.status_code == 200
         ships = resp.json()
-        frigates = [s for s in ships if s["ship_class"] == "frigate"]
+        frigates = [s for s in ships if s["ship_class"] == "strike_craft"]
         assert len(frigates) == 1
 
     @pytest.mark.anyio
     async def test_create_ship_with_name(self, client: AsyncClient):
         headers = await _auth_header(client)
-        await _send_command(client, headers, "create_ship", ship_class="frigate", name="MyShip")
+        await _send_command(client, headers, "create_ship", ship_class="strike_craft", name="MyShip")
         await _process(client)
 
         resp = await client.get("/api/ships", headers=headers)
@@ -220,14 +220,14 @@ class TestShipCommands:
         await _send_command(
             client, headers, "install_module",
             ship_id=ship["id"],
-            module_type="mining_laser",
+            module_type="starter_mining_laser",
         )
         await _process(client)
 
         resp = await client.get(f"/api/ships/{ship['id']}/modules", headers=headers)
         modules = resp.json()
         types = [m["module_type"] for m in modules]
-        assert "mining_laser" in types
+        assert "starter_mining_laser" in types
 
     @pytest.mark.anyio
     async def test_install_module_no_volume(self, client: AsyncClient):
@@ -237,22 +237,22 @@ class TestShipCommands:
         await _send_command(
             client, headers, "install_module",
             ship_id=ship["id"],
-            module_type="scanner",
+            module_type="starter_passive_detector",
         )
         await _process(client)
 
         resp = await client.get(f"/api/ships/{ship['id']}/modules", headers=headers)
         modules = resp.json()
         types = [m["module_type"] for m in modules]
-        assert "scanner" in types
+        assert "starter_passive_detector" in types
 
     @pytest.mark.anyio
     async def test_uninstall_module(self, client: AsyncClient):
         headers = await _auth_header(client)
         ship = await _create_ship(client, headers)
 
-        # Install a scanner via command system
-        scanner = await _install_module(client, headers, ship["id"], "scanner")
+        # Install a starter detector via command system
+        scanner = await _install_module(client, headers, ship["id"], "starter_passive_detector")
 
         await _send_command(
             client, headers, "uninstall_module",
@@ -331,7 +331,7 @@ class TestModuleCommands:
         ship = await _create_ship(client, headers)
 
         # Install scanner via command system
-        scanner = await _install_module(client, headers, ship["id"], "scanner")
+        scanner = await _install_module(client, headers, ship["id"], "starter_passive_detector")
 
         await _send_command(
             client, headers, "activate_module",
@@ -350,7 +350,7 @@ class TestModuleCommands:
         ship = await _create_ship(client, headers)
 
         # Install scanner via command, then activate it
-        scanner = await _install_module(client, headers, ship["id"], "scanner")
+        scanner = await _install_module(client, headers, ship["id"], "starter_passive_detector")
         await _activate_module(client, headers, ship["id"], scanner["id"])
 
         await _send_command(
@@ -471,7 +471,7 @@ class TestDockedShipRestrictions:
         headers = await _auth_header(client)
         # Create a ship, install scanner, then dock it
         frigate = await _create_ship(client, headers)
-        scanner = await _install_module(client, headers, frigate["id"], "scanner")
+        scanner = await _install_module(client, headers, frigate["id"], "starter_passive_detector")
 
         resp = await client.get("/api/ships", headers=headers)
         ships = resp.json()
@@ -506,49 +506,16 @@ class TestDockedShipRestrictions:
         assert len(rejected) >= 1
 
 
-class TestAutopilotGuards:
-    """Autopilot-controlled ships reject manual dock/cancel_order (Fix 5)."""
-
-    @pytest.mark.anyio
-    async def test_dock_while_autopilot(self, client: AsyncClient):
-        headers = await _auth_header(client)
-        ship = await _create_ship(client, headers)
-
-        # Enable autopilot
-        await _send_command(client, headers, "release_to_autopilot", ship_id=ship["id"])
-        await _process(client)
-
-        # Try to dock while on autopilot
-        await _send_command(client, headers, "dock", ship_id=ship["id"], target_ship_id=1)
-        await _process(client)
-
-        rejected = await _get_rejected_commands(client, headers)
-        assert any("autopilot" in (r.get("rejection_reason") or "").lower() for r in rejected)
-
-    @pytest.mark.anyio
-    async def test_cancel_order_while_autopilot(self, client: AsyncClient):
-        headers = await _auth_header(client)
-        ship = await _create_ship(client, headers)
-
-        # Enable autopilot
-        await _send_command(client, headers, "release_to_autopilot", ship_id=ship["id"])
-        await _process(client)
-
-        # Try to cancel order while on autopilot (provide order_id so we pass validation)
-        await _send_command(client, headers, "cancel_order", ship_id=ship["id"], order_id=1)
-        await _process(client)
-
-        rejected = await _get_rejected_commands(client, headers)
-        assert any("autopilot" in (r.get("rejection_reason") or "").lower() for r in rejected)
-
-
 class TestScanTrigger:
     """Scan command sets ticks_until_cycle = 0 so scanning phase picks it up (Fix 6)."""
 
     @pytest.mark.anyio
     async def test_scan_triggers_cycle_reset(self, client: AsyncClient):
         headers = await _auth_header(client)
-        ship = await _create_ship(client, headers)
+        # Use mothership (auto-created at registration) since scanner requires 500 m³
+        resp = await client.get("/api/ships", headers=headers)
+        ships = resp.json()
+        ship = next(s for s in ships if s["ship_class"] == "mothership")
         scanner = await _install_module(client, headers, ship["id"], "scanner")
         await _activate_module(client, headers, ship["id"], scanner["id"])
 
@@ -569,7 +536,7 @@ class TestWeaponCleanup:
         """Uninstalling a weapon module cleans up its WeaponAssignment."""
         headers = await _auth_header(client)
         ship = await _create_ship(client, headers)
-        turret = await _install_module(client, headers, ship["id"], "small_turret_kinetic")
+        turret = await _install_module(client, headers, ship["id"], "starter_turret")
 
         # Activate the turret
         await _activate_module(client, headers, ship["id"], turret["id"])
@@ -591,7 +558,7 @@ class TestWeaponCleanup:
         """Deactivating a weapon clears its weapon assignment."""
         headers = await _auth_header(client)
         ship = await _create_ship(client, headers)
-        turret = await _install_module(client, headers, ship["id"], "small_turret_kinetic")
+        turret = await _install_module(client, headers, ship["id"], "starter_turret")
 
         # Activate, then deactivate
         await _activate_module(client, headers, ship["id"], turret["id"])
@@ -635,7 +602,7 @@ class TestUnexpectedExceptionHandling:
         # Enqueue a create_ship with a missing required field to trigger rejection
         # Then enqueue a valid create_ship command
         await _send_command(client, headers, "create_ship", ship_class="not_a_class")
-        await _send_command(client, headers, "create_ship", ship_class="frigate")
+        await _send_command(client, headers, "create_ship", ship_class="strike_craft")
         await _process(client)
 
         # First should be rejected, second should succeed
@@ -644,5 +611,5 @@ class TestUnexpectedExceptionHandling:
 
         resp = await client.get("/api/ships", headers=headers)
         ships = resp.json()
-        frigates = [s for s in ships if s["ship_class"] == "frigate"]
+        frigates = [s for s in ships if s["ship_class"] == "strike_craft"]
         assert len(frigates) == 1

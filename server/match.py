@@ -121,17 +121,17 @@ async def generate_match_map(session, match, team1, team2, current_tick: int) ->
     Create all CelestialObjects for a match.
 
     Layout (distances in metres, 1 km = 1000 m):
-      - Team 1 home: (-800_000, 0, 0) — 8 medium nearby + 10 scattered
-      - Team 2 home: (+800_000, 0, 0) — mirror
-      - Contested center: 30-40 asteroids within 400 km of origin
-      - Flanking fields: 2 clusters of 8-12 at 400-600 km off-axis
+      - Team 1 home: (-100_000, 0, 0) — 8 medium nearby + 10 scattered
+      - Team 2 home: (+100_000, 0, 0) — mirror
+      - Contested center: 30-40 asteroids within 50 km of origin
+      - Flanking fields: 2 clusters of 8-12 at ~25 km off-axis
     """
     match_id = match.id
     asteroids: list[CelestialObject] = []
     idx = 0
 
     # --- Team home zones ---
-    for label, home_x in [("Alpha", -800_000.0), ("Bravo", 800_000.0)]:
+    for label, home_x in [("Alpha", -100_000.0), ("Bravo", 100_000.0)]:
         # 8 medium asteroids within 5 km of home
         for _ in range(8):
             pos = _random_point_in_sphere(home_x, 0.0, 0.0, 5_000.0)
@@ -143,11 +143,11 @@ async def generate_match_map(session, match, team1, team2, current_tick: int) ->
                 match_id,
             ))
 
-        # 10 scattered in 750-850 km zone (relative to origin along the axis)
+        # 10 scattered in 5-12.5 km zone around the home position
         for _ in range(10):
             size_name, ore = _pick_size([("medium", 0.6), ("large", 0.4)])
             # Scatter in a shell around the home position
-            pos = _random_point_in_shell(home_x, 0.0, 0.0, 5_000.0, 100_000.0)
+            pos = _random_point_in_shell(home_x, 0.0, 0.0, 5_000.0, 12_500.0)
             idx += 1
             asteroids.append(_make_asteroid(
                 f"{label} {size_name.title()} Asteroid {idx}",
@@ -156,7 +156,7 @@ async def generate_match_map(session, match, team1, team2, current_tick: int) ->
                 match_id,
             ))
 
-    # --- Contested center (0-400 km from origin) ---
+    # --- Contested center (0-50 km from origin) ---
     num_center = random.randint(30, 40)
     for _ in range(num_center):
         size_name, ore = _pick_size([
@@ -164,7 +164,7 @@ async def generate_match_map(session, match, team1, team2, current_tick: int) ->
             ("large", 0.4),
             ("huge", 0.2),
         ])
-        pos = _random_point_in_sphere(0.0, 0.0, 0.0, 400_000.0)
+        pos = _random_point_in_sphere(0.0, 0.0, 0.0, 50_000.0)
         idx += 1
         asteroids.append(_make_asteroid(
             f"Center {size_name.title()} Asteroid {idx}",
@@ -173,12 +173,12 @@ async def generate_match_map(session, match, team1, team2, current_tick: int) ->
             match_id,
         ))
 
-    # --- Flanking fields (400-600 km, off-axis) ---
-    for flank_label, offset_y in [("North", 200_000.0), ("South", -200_000.0)]:
+    # --- Flanking fields (off-axis) ---
+    for flank_label, offset_y in [("North", 25_000.0), ("South", -25_000.0)]:
         num_flank = random.randint(8, 12)
         for _ in range(num_flank):
             size_name, ore = _pick_size([("medium", 0.5), ("large", 0.5)])
-            pos = _random_point_in_sphere(0.0, offset_y, 0.0, 200_000.0)
+            pos = _random_point_in_sphere(0.0, offset_y, 0.0, 25_000.0)
             idx += 1
             asteroids.append(_make_asteroid(
                 f"{flank_label} {size_name.title()} Asteroid {idx}",
@@ -232,6 +232,7 @@ async def create_match_mothership(
     )
     ship.match_id = match_id
     ship.ore = 5_000.0
+    ship.claimed_by_user_id = team.users[0].id
 
     session.add(ship)
     await session.flush()  # get ship.id

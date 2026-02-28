@@ -12,6 +12,7 @@ from server.models import (
     EventType,
     ModuleType,
     Spaceship,
+    User,
 )
 
 
@@ -42,6 +43,20 @@ async def handle_transfer_ore(ctx: TickContext, cmd: Command) -> None:
             break
 
     if total_transferred > 0:
+        # Award 0.5 pts per ore transferred
+        transfer_pts = total_transferred * 0.5
+        user_result = await ctx.session.exec(
+            select(User).where(User.id == cmd.user_id)
+        )
+        user = user_result.first()
+        if user and transfer_pts > 0:
+            user.points += transfer_pts
+            ctx.emit(
+                EventType.points_earned,
+                f"+{transfer_pts:.0f} pts (ore transfer)",
+                user_id=cmd.user_id,
+                ship_id=source.id,
+            )
         ctx.emit(
             EventType.transfer_complete,
             f"Transferred {total_transferred:.0f} ore to ship #{target.id} ({target.name})",

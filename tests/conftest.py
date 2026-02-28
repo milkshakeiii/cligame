@@ -84,7 +84,6 @@ def _build_test_app(test_session_factory) -> FastAPI:
     from server.routes.scanning import router as scanning_router
     from server.routes.combat import router as combat_router
     from server.routes.research import router as research_router
-    from server.routes.autopilot import router as autopilot_router
     from server.routes.teams import router as teams_router
     from server.routes.matches import router as matches_router
     from server.routes.commands import router as commands_router
@@ -111,7 +110,6 @@ def _build_test_app(test_session_factory) -> FastAPI:
     test_app.include_router(scanning_router)
     test_app.include_router(combat_router)
     test_app.include_router(research_router)
-    test_app.include_router(autopilot_router)
     test_app.include_router(teams_router)
     test_app.include_router(matches_router)
     test_app.include_router(commands_router)

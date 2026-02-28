@@ -115,6 +115,11 @@ from server.combat import (
     compute_turret_damage,
 )
 from server.research import tick_research
+from server.models import (
+    BUILD_COMPLETE_POINTS,
+    KILL_POINTS,
+    User as UserModel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -247,8 +252,31 @@ async def _run_tick() -> None:
         leech_result = await session.exec(select(LeechDebuff))
         active_leeches: list[LeechDebuff] = list(leech_result.all())
 
+        # Load all users for point tracking
+        users_result = await session.exec(select(UserModel))
+        users_by_id: dict[int, UserModel] = {u.id: u for u in users_result.all()}
+
+        # Damage tracker for kill assists: target_ship_id -> {attacker_user_id: total_damage}
+        damage_dealt_tracker: dict[int, dict[int, float]] = {}
+
         # Collect events to bulk-insert at the end
         pending_events: list[Event] = []
+
+        def _award_pts(user_id: int, amount: float, reason: str, ship_id: int = None) -> None:
+            """Award points to a user and emit a points_earned event."""
+            user = users_by_id.get(user_id)
+            if user is None or amount <= 0:
+                return
+            user.points += amount
+            pending_events.append(
+                Event(
+                    tick=current_tick,
+                    user_id=user_id,
+                    ship_id=ship_id,
+                    event_type=EventType.points_earned,
+                    message=f"+{amount:.0f} pts ({reason})",
+                )
+            )
 
         def emit(
             event_type: EventType,
@@ -316,6 +344,7 @@ async def _run_tick() -> None:
                 current_tick,
                 emit,
                 fired_modules_by_ship.get(ship.id, set()),
+                _award_pts,
             )
 
         # ------------------------------------------------------------------
@@ -325,7 +354,7 @@ async def _run_tick() -> None:
         for ship in ships:
             if ship.is_docked():
                 continue
-            _process_production(ship, current_tick, emit, new_ships)
+            _process_production(ship, current_tick, emit, new_ships, _award_pts)
 
         # Add newly spawned ships to the session
         for new_ship in new_ships:
@@ -335,7 +364,7 @@ async def _run_tick() -> None:
         # Phase 4b: Research
         # ------------------------------------------------------------------
         _ship_map_pre = {s.id: s for s in ships}
-        await tick_research(session, _ship_map_pre, current_tick)
+        await tick_research(session, _ship_map_pre, current_tick, users_by_id=users_by_id)
 
         # ------------------------------------------------------------------
         # Phase 5: Physics
@@ -361,6 +390,13 @@ async def _run_tick() -> None:
             if ship.is_docked() or ship.is_destroyed:
                 continue
             _process_target_locks(ship, _ship_map, current_tick, emit)
+            # Award 2 pts/tick per locked enemy target
+            if ship.user_id is not None:
+                for lock in ship.target_locks:
+                    if lock.status == LockStatus.locked:
+                        target = _ship_map.get(lock.target_ship_id)
+                        if target and target.team_id != ship.team_id:
+                            _award_pts(ship.user_id, 2.0, "target lock", ship.id)
 
         # ------------------------------------------------------------------
         # Phase 6.55: Solar Lance Processing
@@ -391,6 +427,7 @@ async def _run_tick() -> None:
                 fired_modules_by_ship.get(ship.id, set()),
                 current_tick, emit, session, pending_missiles,
                 active_leeches,
+                _award_pts, damage_dealt_tracker,
             )
 
         # ------------------------------------------------------------------
@@ -437,7 +474,7 @@ async def _run_tick() -> None:
                 continue
             _process_bio_repair_swarm(
                 ship, ships, fired_modules_by_ship.get(ship.id, set()),
-                current_tick, emit,
+                current_tick, emit, _award_pts,
             )
 
         # ------------------------------------------------------------------
@@ -450,7 +487,8 @@ async def _run_tick() -> None:
         # ------------------------------------------------------------------
         # Phase 6.9: Destruction
         # ------------------------------------------------------------------
-        _process_destruction(ships, _ship_map, current_tick, emit, session, active_leeches)
+        _process_destruction(ships, _ship_map, current_tick, emit, session, active_leeches,
+                             _award_pts, damage_dealt_tracker)
 
         # ------------------------------------------------------------------
         # Phase 6.9b: Wreck cleanup (expired wrecks despawn)
@@ -477,6 +515,8 @@ async def _run_tick() -> None:
                 current_tick,
                 emit,
                 fired_modules_by_ship.get(ship.id, set()),
+                _award_pts,
+                _ship_map,
             )
 
         # ------------------------------------------------------------------
@@ -586,6 +626,7 @@ def _process_mining(
     current_tick: int,
     emit,
     fired_module_ids: set[int],
+    award_pts=None,
 ) -> None:
     """
     Fire mining laser cycles for all active mining lasers that fired this tick.
@@ -643,6 +684,9 @@ def _process_mining(
                 user_id=ship.user_id,
                 ship_id=ship.id,
             )
+            # Award 1 pt per ore mined
+            if award_pts:
+                award_pts(ship.user_id, result["ore_mined"], "mining", ship.id)
             # MISS-05: successful cycle clears the "out of range" flag so the
             # next out-of-range period will emit a fresh event.
             _mining_out_of_range.get(ship.id, set()).discard(module.id)
@@ -666,6 +710,7 @@ def _process_production(
     current_tick: int,
     emit,
     new_ships: list[Spaceship],
+    award_pts=None,
 ) -> None:
     """
     Advance all active/paused build orders on this ship.
@@ -710,10 +755,15 @@ def _process_production(
             if new_ship is not None:
                 new_ship.user_id = ship.user_id
                 new_ships.append(new_ship)
+                # Award build completion points
+                bp_class = order.blueprint.value
+                build_pts = BUILD_COMPLETE_POINTS.get(bp_class, 0)
+                if award_pts and build_pts > 0:
+                    award_pts(ship.user_id, build_pts, f"built {bp_class}", ship.id)
                 emit(
                     EventType.build_complete,
-                    f"{order.blueprint.value.replace('_', ' ').title()} construction "
-                    f"complete, spawned nearby",
+                    f"{bp_class.replace('_', ' ').title()} construction "
+                    f"complete, docked (+{build_pts} pts)",
                     user_id=ship.user_id,
                     ship_id=ship.id,
                 )
@@ -936,6 +986,8 @@ def _process_detection(
     current_tick: int,
     emit,
     fired_module_ids: set[int],
+    award_pts=None,
+    ship_map: dict[int, Spaceship] | None = None,
 ) -> None:
     """
     Run passive detectors and active scanners for one tick.
@@ -962,6 +1014,7 @@ def _process_detection(
 
             previous_keys = _detection_previous_contacts.get(module.id, set())
 
+            new_enemy_count = 0
             for contact in result.new_contacts:
                 key = f"{contact['type']}:{contact['id']}"
                 if key in previous_keys:
@@ -980,6 +1033,15 @@ def _process_detection(
                         user_id=ship.user_id,
                         ship_id=ship.id,
                     )
+                    # Count new enemy contacts for points
+                    if contact["type"] == "ship" and ship_map:
+                        detected = ship_map.get(contact["id"])
+                        if detected and detected.team_id != ship.team_id:
+                            new_enemy_count += 1
+
+            # Award 10 pts per new enemy contact detected
+            if new_enemy_count > 0 and award_pts and ship.user_id is not None:
+                award_pts(ship.user_id, 10.0 * new_enemy_count, "detection", ship.id)
 
             # Update the previous-contacts registry for next cycle
             _detection_previous_contacts[module.id] = current_keys
@@ -997,6 +1059,16 @@ def _process_detection(
                     user_id=ship.user_id,
                     ship_id=ship.id,
                 )
+                # Award 5 pts per enemy ship revealed by active scan
+                if award_pts and ship_map:
+                    enemy_scan_count = sum(
+                        1 for c in scan_result.contacts
+                        if c["type"] == "ship"
+                        and ship_map.get(c["id"])
+                        and ship_map[c["id"]].team_id != ship.team_id
+                    )
+                    if enemy_scan_count > 0:
+                        award_pts(ship.user_id, 5.0 * enemy_scan_count, "scan", ship.id)
 
             # Notify ships with passive detectors that they were scanned
             detecting_ships = get_ships_that_detect_scan(ship, all_ships)
@@ -1101,6 +1173,8 @@ def _process_weapon_fire(
     session,
     pending_missiles_list: list[PendingMissile],
     active_leeches: list[LeechDebuff],
+    award_pts=None,
+    damage_dealt_tracker: dict = None,
 ) -> None:
     """
     Fire weapons that cycled this tick.
@@ -1207,6 +1281,26 @@ def _process_weapon_fire(
             )
 
             dmg_result = apply_damage(target, applied, module.damage_type or "kinetic")
+
+            # Track damage for kill assists and award points
+            if ship.user_id is not None:
+                shield_dmg = dmg_result.get("shield_damage", 0)
+                armor_dmg = dmg_result.get("armor_damage", 0)
+                dmg_pts = shield_dmg * 0.3 + armor_dmg * 0.5
+                if award_pts and dmg_pts > 0:
+                    award_pts(ship.user_id, dmg_pts, "damage dealt", ship.id)
+                # Track damage for assists
+                if damage_dealt_tracker is not None:
+                    target_dmg = damage_dealt_tracker.setdefault(target.id, {})
+                    target_dmg[ship.user_id] = target_dmg.get(ship.user_id, 0) + shield_dmg + armor_dmg
+                # Update last_damage_by_user_id for kill credit
+                target.last_damage_by_user_id = ship.user_id
+
+            # Award defender points for taking damage
+            if target.user_id is not None and award_pts:
+                total_taken = dmg_result.get("total_applied", 0)
+                if total_taken > 0:
+                    award_pts(target.user_id, total_taken * 0.1, "damage taken", target.id)
 
             if ship.user_id is not None:
                 layer = "shield" if dmg_result["shield_damage"] > 0 else "armor"
@@ -1462,6 +1556,8 @@ def _process_destruction(
     emit,
     session,
     active_leeches: list[LeechDebuff],
+    award_pts=None,
+    damage_dealt_tracker: dict = None,
 ) -> None:
     """Handle ships whose armor has reached 0."""
     for ship in ships:
@@ -1469,6 +1565,24 @@ def _process_destruction(
             continue
         if ship.armor_hp > 0:
             continue  # Not actually destroyed (shouldn't happen, but safe)
+
+        # Award kill points
+        kill_pts = KILL_POINTS.get(ship.ship_class.value, 100)
+        killer_user_id = ship.last_damage_by_user_id
+        if killer_user_id is not None and award_pts:
+            award_pts(killer_user_id, kill_pts, f"kill {ship.ship_class.value}")
+
+        # Award assist points (50% to players who dealt >10% of total HP)
+        if damage_dealt_tracker is not None and award_pts:
+            attackers = damage_dealt_tracker.get(ship.id, {})
+            total_hp = ship.max_shield_hp + ship.max_armor_hp
+            if total_hp > 0:
+                assist_pts = kill_pts * 0.5
+                for attacker_uid, dmg in attackers.items():
+                    if attacker_uid == killer_user_id:
+                        continue  # killer already got full points
+                    if dmg / total_hp >= 0.10:
+                        award_pts(attacker_uid, assist_pts, f"assist {ship.ship_class.value}")
 
         # Emit destruction event to owner
         if ship.user_id is not None:
@@ -1900,6 +2014,7 @@ def _process_bio_repair_swarm(
     fired_module_ids: set[int],
     current_tick: int,
     emit,
+    award_pts=None,
 ) -> None:
     """Process Bio-Repair Swarm: AoE armor repair for friendly ships in range."""
     for module in ship.modules:
@@ -1935,8 +2050,12 @@ def _process_bio_repair_swarm(
             # Repair 2% of max armor
             repair_amount = other.max_armor_hp * repair_percent
             if other.armor_hp < other.max_armor_hp:
+                actual_repair = min(repair_amount, other.max_armor_hp - other.armor_hp)
                 other.armor_hp = min(other.max_armor_hp, other.armor_hp + repair_amount)
                 repaired_count += 1
+                # Award 0.5 pts per armor HP repaired on ally
+                if award_pts and actual_repair > 0 and ship.user_id is not None:
+                    award_pts(ship.user_id, actual_repair * 0.5, "ally repair", ship.id)
 
         if repaired_count > 0 and ship.user_id is not None:
             emit(

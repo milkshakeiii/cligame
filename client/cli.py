@@ -36,7 +36,7 @@ module_app = typer.Typer(help="Module management commands.", no_args_is_help=Tru
 target_app = typer.Typer(help="Target lock commands.", no_args_is_help=True)
 weapon_app = typer.Typer(help="Weapon commands.", no_args_is_help=True)
 research_app = typer.Typer(help="Research / tech tree commands.", no_args_is_help=True)
-command_app = typer.Typer(help="Autopilot / command authority commands.", no_args_is_help=True)
+loadout_app = typer.Typer(help="Ship claiming and loadout.", no_args_is_help=True)
 team_app = typer.Typer(help="Team management commands.", no_args_is_help=True)
 match_app = typer.Typer(help="Match management commands.", no_args_is_help=True)
 
@@ -47,7 +47,7 @@ app.add_typer(module_app, name="module")
 app.add_typer(target_app, name="target")
 app.add_typer(weapon_app, name="weapon")
 app.add_typer(research_app, name="research")
-app.add_typer(command_app, name="command")
+app.add_typer(loadout_app, name="loadout")
 app.add_typer(team_app, name="team")
 app.add_typer(match_app, name="match")
 
@@ -112,16 +112,24 @@ def _name_match(items: list[dict], query: str, name_key: str = "name") -> list[d
 
 def _resolve_ship(client: SpaceGameClient, name: str) -> int:
     """
-    Resolve a ship name to a numeric ship ID.
-    Matches by name (case-insensitive, spaces/underscores ignored).
+    Resolve a ship name or numeric ID to a numeric ship ID.
+    Tries numeric ID first, then name (case-insensitive, spaces/underscores ignored).
     """
     ships = _handle(client.list_ships)
+
+    # Try numeric ID first — accept even if not in own ship list (for targeting enemies)
+    try:
+        ship_id = int(name)
+        return ship_id
+    except ValueError:
+        pass
+
     matches = _name_match(ships, name)
 
     if len(matches) == 1:
         return matches[0]["id"]
     if len(matches) > 1:
-        names = ", ".join(f"{s['name']}" for s in matches)
+        names = ", ".join(f"{s['name']} (id={s['id']})" for s in matches)
         display.print_error(f"Ambiguous ship name '{name}': {names}")
         raise typer.Exit(code=1)
 
@@ -982,52 +990,74 @@ def research_tree(
 
 
 # ---------------------------------------------------------------------------
-# Autopilot / command authority commands
+# Loadout commands
 # ---------------------------------------------------------------------------
 
 
-@command_app.command("assume")
-def command_assume(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+@loadout_app.command("hulls")
+def loadout_hulls(
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
-    """Take manual control of an autopiloted ship."""
+    """Show available unclaimed hulls."""
     client = _client()
-    resolved = _resolve_ship(client, ship_id)
-    data = _handle(client.assume_command, resolved)
-    _show_queued(data, json, "Assuming manual control.")
+    data = _handle(client.get_view)
+    hulls = data.get("available_hulls", [])
+    points = data.get("points", 0)
+    if json:
+        import json as _json
+        typer.echo(_json.dumps({"points": points, "hulls": hulls}, indent=2))
+    else:
+        display.display_available_hulls(hulls, points)
 
 
-@command_app.command("release")
-def command_release(
-    ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p",
-        help="Autopilot profile: mining, scout, combat_aggressive, combat_defensive, escort, patrol.",
+@loadout_app.command("claim")
+def loadout_claim(
+    hull_id: int = typer.Argument(..., help="ID of the unclaimed hull to claim."),
+    modules: str = typer.Option(
+        "", "--modules", "-m",
+        help="Comma-separated module specs: 'engine:30,starter_turret,starter_mining_laser'",
     ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
-    """Release a ship to autopilot control."""
+    """Claim an unclaimed hull and fit modules."""
     client = _client()
-    resolved = _resolve_ship(client, ship_id)
-    data = _handle(client.release_command, resolved, profile)
-    _show_queued(data, json, "Releasing to autopilot.")
+    # Parse module string
+    module_list = []
+    if modules:
+        for part in modules.split(","):
+            part = part.strip()
+            if ":" in part:
+                mt, vol = part.split(":", 1)
+                module_list.append({"module_type": mt.strip(), "volume": int(vol.strip())})
+            else:
+                module_list.append({"module_type": part, "volume": 0})
+    data = _handle(client.claim_ship, hull_id, module_list)
+    _show_queued(data, json, "Claiming ship.")
 
 
-@command_app.command("profile")
-def command_profile(
+@loadout_app.command("reship")
+def loadout_reship(
     ship_id: str = typer.Argument(..., help="Ship ID or name."),
-    profile: str = typer.Argument(
-        ...,
-        help="Autopilot profile: mining, scout, combat_aggressive, combat_defensive, escort, patrol.",
-    ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
-    """Change the autopilot profile for a ship."""
+    """Dock and reship — strip modules, get partial point refund."""
     client = _client()
     resolved = _resolve_ship(client, ship_id)
-    data = _handle(client.set_autopilot_profile, resolved, profile)
-    _show_queued(data, json, f"Setting profile to '{profile}'.")
+    data = _handle(client.reship, resolved)
+    _show_queued(data, json, "Reshipping.")
+
+
+@loadout_app.command("costs")
+def loadout_costs(
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Show module and hull point costs."""
+    client = _client()
+    data = _handle(client.get_loadout_costs)
+    if json:
+        _json_out(data)
+    else:
+        display.display_loadout_costs(data["hull_costs"], data["module_costs"])
 
 
 # ---------------------------------------------------------------------------

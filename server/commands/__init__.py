@@ -74,7 +74,7 @@ class TickContext:
         ship = self.ship_map.get(ship_id)
         if ship is None:
             raise CommandRejected(f"Ship #{ship_id} not found or destroyed")
-        if ship.user_id != user_id:
+        if ship.user_id != user_id and ship.claimed_by_user_id != user_id:
             raise CommandRejected(f"Ship #{ship_id} is not yours")
         return ship
 
@@ -229,6 +229,6 @@ from server.commands import (  # noqa: E402, F401
     production,
     resources,
     research,
-    autopilot,
     matches,
+    loadout,
 )

@@ -27,9 +27,6 @@ async def handle_move(ctx: TickContext, cmd: Command) -> None:
     if ship.is_docked():
         raise CommandRejected("Ship is currently docked")
 
-    if ship.autopilot_mode == "active":
-        raise CommandRejected("Cannot issue manual orders to an autopiloted ship")
-
     order_type_str = payload.get("order_type")
     if not order_type_str:
         raise CommandRejected("order_type is required")
@@ -116,8 +113,6 @@ async def handle_cancel_order(ctx: TickContext, cmd: Command) -> None:
         raise CommandRejected("ship_id is required")
 
     ship = ctx.find_ship(cmd.ship_id, cmd.user_id)
-    if ship.autopilot_mode == "active":
-        raise CommandRejected("Cannot issue manual orders to an autopiloted ship")
 
     if not hasattr(ship, 'movement_orders') or not ship.movement_orders:
         raise CommandRejected("Order not found")
@@ -143,8 +138,6 @@ async def handle_dock(ctx: TickContext, cmd: Command) -> None:
         raise CommandRejected("ship_id is required")
 
     ship = ctx.find_ship(cmd.ship_id, cmd.user_id)
-    if ship.autopilot_mode == "active":
-        raise CommandRejected("Cannot issue manual orders to an autopiloted ship")
 
     if cmd.ship_id == target_ship_id:
         raise CommandRejected("A ship cannot dock with itself")
@@ -196,9 +189,6 @@ async def handle_stop(ctx: TickContext, cmd: Command) -> None:
     if cmd.ship_id is None:
         raise CommandRejected("ship_id is required")
     ship = ctx.find_ship(cmd.ship_id, cmd.user_id)
-
-    if ship.autopilot_mode == "active":
-        raise CommandRejected("Cannot issue manual orders to an autopiloted ship")
 
     # Cancel all active orders
     if hasattr(ship, 'movement_orders') and ship.movement_orders:

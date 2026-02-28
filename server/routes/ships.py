@@ -118,8 +118,6 @@ class ShipOut(BaseModel):
     is_destroyed: bool
     scan_resolution: float
     effective_signature_radius: float
-    autopilot_mode: str = "off"
-    autopilot_profile: Optional[str] = None
     # Phase 7: Faction
     team_id: Optional[int] = None
     faction: Optional[str] = None
@@ -224,8 +222,6 @@ def _ship_to_out(ship: Spaceship) -> ShipOut:
         is_destroyed=ship.is_destroyed,
         scan_resolution=ship.scan_resolution,
         effective_signature_radius=ship.effective_signature_radius(),
-        autopilot_mode=ship.autopilot_mode,
-        autopilot_profile=ship.autopilot_profile,
         team_id=ship.team_id,
         faction=faction,
     )

@@ -45,15 +45,15 @@ class TestGetCompletedTechIds:
 
     def test_single_complete_returned(self):
         rp = ResearchProgress(
-            user_id=1, tech_id="1a_medium_weapons", ship_id=1, module_id=1,
+            user_id=1, tech_id="1a_medium_kinetic_turrets", ship_id=1, module_id=1,
             status="complete", ticks_remaining=0, total_ticks=300, ore_cost=500,
         )
         result = get_completed_tech_ids([rp])
-        assert "1a_medium_weapons" in result
+        assert "1a_medium_kinetic_turrets" in result
 
     def test_researching_not_in_completed(self):
         rp = ResearchProgress(
-            user_id=1, tech_id="1a_medium_weapons", ship_id=1, module_id=1,
+            user_id=1, tech_id="1a_medium_kinetic_turrets", ship_id=1, module_id=1,
             status="researching", ticks_remaining=100, total_ticks=300, ore_cost=500,
         )
         result = get_completed_tech_ids([rp])
@@ -61,7 +61,7 @@ class TestGetCompletedTechIds:
 
     def test_paused_not_in_completed(self):
         rp = ResearchProgress(
-            user_id=1, tech_id="1b_medium_defenses", ship_id=1, module_id=1,
+            user_id=1, tech_id="1d_medium_shield_extenders", ship_id=1, module_id=1,
             status="paused", ticks_remaining=200, total_ticks=300, ore_cost=500,
         )
         result = get_completed_tech_ids([rp])
@@ -69,7 +69,7 @@ class TestGetCompletedTechIds:
 
     def test_cancelled_not_in_completed(self):
         rp = ResearchProgress(
-            user_id=1, tech_id="1c_destroyer_hull", ship_id=1, module_id=1,
+            user_id=1, tech_id="1h_corvette_hull", ship_id=1, module_id=1,
             status="cancelled", ticks_remaining=0, total_ticks=300, ore_cost=500,
         )
         result = get_completed_tech_ids([rp])
@@ -77,33 +77,33 @@ class TestGetCompletedTechIds:
 
     def test_mixed_statuses_only_complete_returned(self):
         rows = [
-            ResearchProgress(user_id=1, tech_id="1a_medium_weapons", ship_id=1,
+            ResearchProgress(user_id=1, tech_id="1a_medium_kinetic_turrets", ship_id=1,
                              module_id=1, status="complete", ticks_remaining=0,
                              total_ticks=300, ore_cost=500),
-            ResearchProgress(user_id=1, tech_id="1b_medium_defenses", ship_id=1,
+            ResearchProgress(user_id=1, tech_id="1d_medium_shield_extenders", ship_id=1,
                              module_id=2, status="researching", ticks_remaining=100,
                              total_ticks=300, ore_cost=500),
-            ResearchProgress(user_id=1, tech_id="1c_destroyer_hull", ship_id=1,
+            ResearchProgress(user_id=1, tech_id="1h_corvette_hull", ship_id=1,
                              module_id=3, status="paused", ticks_remaining=50,
                              total_ticks=300, ore_cost=500),
-            ResearchProgress(user_id=1, tech_id="2a_large_weapons", ship_id=1,
+            ResearchProgress(user_id=1, tech_id="2a_large_kinetic_turrets", ship_id=1,
                              module_id=4, status="cancelled", ticks_remaining=0,
                              total_ticks=900, ore_cost=2000),
         ]
         result = get_completed_tech_ids(rows)
-        assert result == {"1a_medium_weapons"}
+        assert result == {"1a_medium_kinetic_turrets"}
 
     def test_multiple_complete_techs_all_returned(self):
         rows = [
-            ResearchProgress(user_id=1, tech_id="1a_medium_weapons", ship_id=1,
+            ResearchProgress(user_id=1, tech_id="1a_medium_kinetic_turrets", ship_id=1,
                              module_id=1, status="complete", ticks_remaining=0,
                              total_ticks=300, ore_cost=500),
-            ResearchProgress(user_id=1, tech_id="1c_destroyer_hull", ship_id=1,
+            ResearchProgress(user_id=1, tech_id="1h_corvette_hull", ship_id=1,
                              module_id=2, status="complete", ticks_remaining=0,
                              total_ticks=300, ore_cost=500),
         ]
         result = get_completed_tech_ids(rows)
-        assert result == {"1a_medium_weapons", "1c_destroyer_hull"}
+        assert result == {"1a_medium_kinetic_turrets", "1h_corvette_hull"}
 
 
 # ---------------------------------------------------------------------------
@@ -124,33 +124,38 @@ class TestCheckPrerequisitesExtended:
                     f"Tier-1 tech {tech_id} should have no prerequisites"
                 )
 
-    def test_tier2_fails_without_tier1(self):
-        """2d_advanced_mining has no prerequisites → should always be available."""
-        assert check_prerequisites("2d_advanced_mining", set()) is None
-
-    def test_tier3_needs_tier2(self):
-        """3a_advanced_weapons needs 2a_large_weapons."""
-        error = check_prerequisites("3a_advanced_weapons", set())
+    def test_tier2_needs_tier1(self):
+        """2a_large_kinetic_turrets requires 1a_medium_kinetic_turrets."""
+        error = check_prerequisites("2a_large_kinetic_turrets", set())
         assert error is not None
 
-        # With tier1 but not tier2 — still fails
-        error = check_prerequisites("3a_advanced_weapons", {"1a_medium_weapons"})
-        assert error is not None
-
-        # With tier2 — passes
         assert check_prerequisites(
-            "3a_advanced_weapons", {"2a_large_weapons"}
+            "2a_large_kinetic_turrets", {"1a_medium_kinetic_turrets"}
         ) is None
 
-    def test_tier4_requires_chain(self):
-        """4a_superweapons needs 3a_advanced_weapons."""
-        # No prereqs → fail
-        assert check_prerequisites("4a_superweapons", set()) is not None
-        # Only 2a → fail
-        assert check_prerequisites("4a_superweapons", {"2a_large_weapons"}) is not None
-        # Both tier2 and tier3 in chain → pass
+    def test_tier3_hull_needs_tier2_hull(self):
+        """3h_destroyer_hull needs 2h_frigate_hull."""
+        error = check_prerequisites("3h_destroyer_hull", set())
+        assert error is not None
+
+        # With tier1 hull but not tier2 hull — still fails
+        error = check_prerequisites("3h_destroyer_hull", {"1h_corvette_hull"})
+        assert error is not None
+
+        # With tier2 hull — passes
         assert check_prerequisites(
-            "4a_superweapons", {"3a_advanced_weapons"}
+            "3h_destroyer_hull", {"2h_frigate_hull"}
+        ) is None
+
+    def test_tier4_hull_requires_chain(self):
+        """4h_cruiser_hull needs 3h_destroyer_hull."""
+        # No prereqs → fail
+        assert check_prerequisites("4h_cruiser_hull", set()) is not None
+        # Only tier2 hull → fail
+        assert check_prerequisites("4h_cruiser_hull", {"2h_frigate_hull"}) is not None
+        # With tier3 hull → pass
+        assert check_prerequisites(
+            "4h_cruiser_hull", {"3h_destroyer_hull"}
         ) is None
 
 
@@ -173,21 +178,21 @@ class TestIsModuleUnlockedExtended:
         assert not is_module_unlocked("large_turret_kinetic", set())
         assert not is_module_unlocked("large_turret_thermal", set())
 
-    def test_large_turret_unlocked_with_large_weapons(self):
-        assert is_module_unlocked("large_turret_kinetic", {"2a_large_weapons"})
-        assert is_module_unlocked("large_turret_thermal", {"2a_large_weapons"})
+    def test_large_turret_unlocked_with_research(self):
+        assert is_module_unlocked("large_turret_kinetic", {"2a_large_kinetic_turrets"})
+        assert is_module_unlocked("large_turret_thermal", {"2b_large_thermal_turrets"})
 
     def test_torpedo_launcher_locked_without_research(self):
         assert not is_module_unlocked("torpedo_launcher", set())
 
-    def test_torpedo_launcher_unlocked_with_large_weapons(self):
-        assert is_module_unlocked("torpedo_launcher", {"2a_large_weapons"})
+    def test_torpedo_launcher_unlocked_with_torpedoes(self):
+        assert is_module_unlocked("torpedo_launcher", {"2c_torpedoes"})
 
     def test_enhanced_docking_bay_locked_without_research(self):
         assert not is_module_unlocked("enhanced_docking_bay", set())
 
-    def test_enhanced_docking_bay_unlocked_with_capital_systems(self):
-        assert is_module_unlocked("enhanced_docking_bay", {"3c_capital_systems"})
+    def test_enhanced_docking_bay_unlocked_with_enhanced_docking(self):
+        assert is_module_unlocked("enhanced_docking_bay", {"2k_enhanced_docking"})
 
     def test_fortress_locked_without_research(self):
         assert not is_module_unlocked("fortress", set())
@@ -198,8 +203,8 @@ class TestIsModuleUnlockedExtended:
     def test_heavy_missile_launcher_locked_without_research(self):
         assert not is_module_unlocked("heavy_missile_launcher", set())
 
-    def test_heavy_missile_unlocked_with_medium_weapons(self):
-        assert is_module_unlocked("heavy_missile_launcher", {"1a_medium_weapons"})
+    def test_heavy_missile_unlocked_with_heavy_missiles(self):
+        assert is_module_unlocked("heavy_missile_launcher", {"1c_heavy_missiles"})
 
 
 # ---------------------------------------------------------------------------
@@ -208,22 +213,23 @@ class TestIsModuleUnlockedExtended:
 
 
 class TestIsShipUnlockedExtended:
-    def test_corvette_not_gated(self):
-        assert is_ship_unlocked("corvette", set())
+    def test_corvette_gated(self):
+        assert not is_ship_unlocked("corvette", set())
+        assert is_ship_unlocked("corvette", {"1h_corvette_hull"})
 
     def test_mothership_not_gated(self):
         """Mothership is not in RESEARCH_GATED_SHIPS per current spec."""
         assert is_ship_unlocked("mothership", set())
 
     def test_destroyer_gating_chain(self):
-        """Destroyer needs 1c_destroyer_hull."""
+        """Destroyer needs 3h_destroyer_hull."""
         assert not is_ship_unlocked("destroyer", set())
-        assert is_ship_unlocked("destroyer", {"1c_destroyer_hull"})
+        assert is_ship_unlocked("destroyer", {"3h_destroyer_hull"})
 
-    def test_cruiser_needs_2c_not_1c(self):
-        """Cruiser needs 2c_cruiser_hull, not just 1c."""
-        assert not is_ship_unlocked("cruiser", {"1c_destroyer_hull"})
-        assert is_ship_unlocked("cruiser", {"2c_cruiser_hull"})
+    def test_cruiser_needs_4h_not_3h(self):
+        """Cruiser needs 4h_cruiser_hull, not just 3h."""
+        assert not is_ship_unlocked("cruiser", {"3h_destroyer_hull"})
+        assert is_ship_unlocked("cruiser", {"4h_cruiser_hull"})
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +239,7 @@ class TestIsShipUnlockedExtended:
 
 class TestGetTechName:
     def test_known_tech_returns_name(self):
-        assert get_tech_name("1a_medium_weapons") == "Medium Weapons"
+        assert get_tech_name("1a_medium_kinetic_turrets") == "Medium Kinetic Turrets"
 
     def test_unknown_tech_returns_tech_id(self):
         assert get_tech_name("nonexistent") == "nonexistent"
@@ -274,7 +280,7 @@ class TestTickResearchUnit:
 
         rp = ResearchProgress(
             user_id=1,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             ship_id=ship.id,
             module_id=mod.id,
             status="researching",
@@ -318,7 +324,7 @@ class TestTickResearchUnit:
 
         rp = ResearchProgress(
             user_id=2,
-            tech_id="1b_medium_defenses",
+            tech_id="1d_medium_shield_extenders",
             ship_id=ship.id,
             module_id=mod.id,
             status="researching",
@@ -369,7 +375,7 @@ class TestTickResearchUnit:
 
         rp = ResearchProgress(
             user_id=3,
-            tech_id="1c_destroyer_hull",
+            tech_id="1h_corvette_hull",
             ship_id=ship.id,
             module_id=mod.id,
             status="paused",  # Already paused
@@ -417,7 +423,7 @@ class TestTickResearchUnit:
 
         rp = ResearchProgress(
             user_id=4,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             ship_id=ship.id,
             module_id=mod.id,
             status="researching",
@@ -464,7 +470,7 @@ class TestTickResearchUnit:
 
         rp = ResearchProgress(
             user_id=5,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             ship_id=ship.id,
             module_id=mod.id,
             status="researching",
@@ -504,7 +510,7 @@ class TestTickResearchUnit:
 
         rp = ResearchProgress(
             user_id=6,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             ship_id=ship.id,
             module_id=mod.id,
             status="researching",

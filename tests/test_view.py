@@ -50,7 +50,7 @@ async def _process(client: AsyncClient) -> dict:
     return resp.json()
 
 
-async def _create_ship(client: AsyncClient, headers: dict, ship_class: str = "frigate") -> dict:
+async def _create_ship(client: AsyncClient, headers: dict, ship_class: str = "strike_craft") -> dict:
     """Create a ship via the command system and return its data."""
     await _send_command(client, headers, "create_ship", ship_class=ship_class)
     await _process(client)
@@ -91,9 +91,9 @@ class TestViewEndpoint:
         assert len(data["ships"]) >= 2
         ship_ids = [s["id"] for s in data["ships"]]
         assert ship["id"] in ship_ids
-        # The newly created frigate should be present
-        frigates = [s for s in data["ships"] if s["ship_class"] == "frigate"]
-        assert len(frigates) == 1
+        # The newly created strike_craft should be present
+        strike_craft = [s for s in data["ships"] if s["ship_class"] == "strike_craft"]
+        assert len(strike_craft) == 1
 
     @pytest.mark.anyio
     async def test_view_ship_has_modules(self, client: AsyncClient):
@@ -174,7 +174,7 @@ class TestViewEndpoint:
         # Enqueue a command
         resp = await client.post(
             "/api/commands",
-            json={"type": "create_ship", "payload": {"ship_class": "frigate"}},
+            json={"type": "create_ship", "payload": {"ship_class": "strike_craft"}},
             headers=headers,
         )
         assert resp.status_code == 202

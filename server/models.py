@@ -117,6 +117,12 @@ class ModuleType(str, Enum):
     bio_repair_swarm = "bio_repair_swarm"
     # --- Phase 7: Shared ---
     shield_purge = "shield_purge"
+    # --- Phase 9: Starter modules ---
+    starter_turret = "starter_turret"
+    starter_mining_laser = "starter_mining_laser"
+    starter_shield_extender = "starter_shield_extender"
+    starter_armor_plate = "starter_armor_plate"
+    starter_passive_detector = "starter_passive_detector"
 
 
 class OrderType(str, Enum):
@@ -138,21 +144,6 @@ class BuildStatus(str, Enum):
     building = "building"
     paused = "paused"
     completed = "completed"
-
-
-class AutopilotMode(str, Enum):
-    off = "off"
-    active = "active"
-    standby = "standby"
-
-
-class AutopilotProfile(str, Enum):
-    mining = "mining"
-    scout = "scout"
-    combat_aggressive = "combat_aggressive"
-    combat_defensive = "combat_defensive"
-    escort = "escort"
-    patrol = "patrol"
 
 
 class Faction(str, Enum):
@@ -221,6 +212,10 @@ class EventType(str, Enum):
     mothership_critical = "mothership_critical"
     match_ended = "match_ended"
     surrender_vote = "surrender_vote"
+    # --- Phase 9: Points & loadout events ---
+    points_earned = "points_earned"
+    ship_claimed = "ship_claimed"
+    reship_complete = "reship_complete"
     # --- Phase 8.5: Command events ---
     command_processed = "command_processed"
     command_rejected = "command_rejected"
@@ -248,9 +243,8 @@ class CommandType(str, Enum):
     scan = "scan"
     start_research = "start_research"
     cancel_research = "cancel_research"
-    assume_control = "assume_control"
-    release_to_autopilot = "release_to_autopilot"
-    set_autopilot_profile = "set_autopilot_profile"
+    claim_ship = "claim_ship"
+    reship = "reship"
     start_match = "start_match"
     surrender = "surrender"
 
@@ -535,6 +529,87 @@ BUILD_COSTS: Dict[str, dict] = {
 }
 
 # ---------------------------------------------------------------------------
+# Phase 9: Points & Loadout constants
+# ---------------------------------------------------------------------------
+
+HULL_POINT_COSTS: Dict[str, int] = {
+    "strike_craft": 0, "corvette": 500, "frigate": 2_000,
+    "destroyer": 5_000, "cruiser": 10_000,
+}
+
+MODULE_POINT_COSTS: Dict[str, int] = {
+    # Always free
+    "engine": 0, "reactor": 0, "cargo_bay": 0, "docking_bay": 0,
+    "dropoff": 0, "factory": 0, "mining_laser": 0,
+    "starter_turret": 0, "starter_mining_laser": 0,
+    "starter_shield_extender": 0, "starter_armor_plate": 0,
+    "starter_passive_detector": 0,
+    # Small modules
+    "small_turret_kinetic": 50, "small_turret_thermal": 50,
+    "light_missile_launcher": 75,
+    "small_shield_extender": 25,
+    "small_shield_hardener_kinetic": 40, "small_shield_hardener_thermal": 40,
+    "small_shield_hardener_explosive": 40,
+    "small_shield_booster": 50,
+    "small_armor_plate": 25,
+    "small_armor_hardener_kinetic": 40, "small_armor_hardener_thermal": 40,
+    "small_armor_hardener_explosive": 40,
+    "small_armor_repairer": 50,
+    "passive_detector": 50, "scanner": 100, "research_module": 100,
+    # Medium modules
+    "medium_turret_kinetic": 200, "medium_turret_thermal": 200,
+    "heavy_missile_launcher": 300,
+    "medium_shield_extender": 150,
+    "medium_shield_hardener_kinetic": 200, "medium_shield_hardener_thermal": 200,
+    "medium_shield_hardener_explosive": 200,
+    "medium_shield_booster": 250,
+    "medium_armor_plate": 150,
+    "medium_armor_hardener_kinetic": 200, "medium_armor_hardener_thermal": 200,
+    "medium_armor_hardener_explosive": 200,
+    "medium_armor_repairer": 250,
+    "strip_miner": 300,
+    # Large modules
+    "large_turret_kinetic": 800, "large_turret_thermal": 800,
+    "torpedo_launcher": 1_200,
+    "large_shield_extender": 600,
+    "large_shield_hardener_kinetic": 800, "large_shield_hardener_thermal": 800,
+    "large_shield_hardener_explosive": 800,
+    "large_shield_booster": 1_000,
+    "large_armor_plate": 600,
+    "large_armor_hardener_kinetic": 800, "large_armor_hardener_thermal": 800,
+    "large_armor_hardener_explosive": 800,
+    "large_armor_repairer": 1_000,
+    "shield_purge": 400,
+    "enhanced_docking_bay": 500,
+    # Solarion faction
+    "focused_beam_medium": 400, "focused_beam_large": 1_500,
+    "reactive_armor_membrane_medium": 400, "reactive_armor_membrane_large": 1_500,
+    "armor_repair_nexus_medium": 400, "armor_repair_nexus_large": 1_500,
+    "solar_lance": 5_000,
+    # Voidborn faction
+    "light_leech_projector": 150, "heavy_leech_projector": 500,
+    "phase_shield_amplifier_medium": 400, "phase_shield_amplifier_large": 1_500,
+    "small_stealth_field": 200, "medium_stealth_field": 600,
+    "bio_repair_swarm": 3_000,
+    # Shared
+    "fortress": 4_000,
+}
+
+BUILD_COMPLETE_POINTS: Dict[str, int] = {
+    "strike_craft": 50, "corvette": 200, "frigate": 800,
+    "destroyer": 2_000, "cruiser": 5_000,
+}
+
+KILL_POINTS: Dict[str, int] = {
+    "strike_craft": 100, "corvette": 500, "frigate": 2_000,
+    "destroyer": 5_000, "cruiser": 10_000, "mothership": 50_000,
+}
+
+RESEARCH_COMPLETE_POINTS: Dict[int, int] = {
+    1: 200, 2: 500, 3: 1_000, 4: 2_000,
+}
+
+# ---------------------------------------------------------------------------
 # Phase 8: Match system constants
 # ---------------------------------------------------------------------------
 
@@ -549,7 +624,7 @@ ASTEROID_SIZES: Dict[str, float] = {
 MATCH_MOTHERSHIP_LOADOUT: list[tuple[str, int]] = [
     ("reactor", 200),
     ("reactor", 200),
-    ("cargo_bay", 500),
+    ("cargo_bay", 10_000),
     ("docking_bay", 500),
     ("factory", 300_000),
     ("mining_laser", 50),
@@ -575,111 +650,214 @@ RESEARCH_COSTS: Dict[int, dict] = {
 
 # Tech tree: each node has an id, tier, prerequisites, and what it unlocks.
 # "unlocks_modules" lists module_type values, "unlocks_ships" lists ship class values.
+# "duplicable" = True means multiple players can research simultaneously (pooled ticks).
+# "prerequisites_any" = OR prereqs (at least one must be completed).
 TECH_TREE: Dict[str, dict] = {
-    "1a_medium_weapons": {
-        "name": "Medium Weapons",
-        "tier": 1,
-        "prerequisites": [],
-        "unlocks_modules": [
-            "medium_turret_kinetic", "medium_turret_thermal",
-            "heavy_missile_launcher",
-        ],
-        "unlocks_ships": [],
+    # --- Tier 1: Foundation (500 ore, 300 ticks) ---
+    "1a_medium_kinetic_turrets": {
+        "name": "Medium Kinetic Turrets", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["medium_turret_kinetic"], "unlocks_ships": [],
     },
-    "1b_medium_defenses": {
-        "name": "Medium Defenses",
-        "tier": 1,
-        "prerequisites": [],
+    "1b_medium_thermal_turrets": {
+        "name": "Medium Thermal Turrets", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["medium_turret_thermal"], "unlocks_ships": [],
+    },
+    "1c_heavy_missiles": {
+        "name": "Heavy Missiles", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["heavy_missile_launcher"], "unlocks_ships": [],
+    },
+    "1d_medium_shield_extenders": {
+        "name": "Medium Shield Systems", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["medium_shield_extender"], "unlocks_ships": [],
+    },
+    "1e_medium_shield_hardeners": {
+        "name": "Medium Shield Hardeners", "tier": 1,
+        "prerequisites": [], "duplicable": False,
         "unlocks_modules": [
-            "medium_shield_extender",
             "medium_shield_hardener_kinetic", "medium_shield_hardener_thermal",
-            "medium_shield_hardener_explosive", "medium_shield_booster",
-            "medium_armor_plate",
+            "medium_shield_hardener_explosive",
+        ],
+        "unlocks_ships": [],
+    },
+    "1f_medium_shield_boosters": {
+        "name": "Medium Shield Boosters", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["medium_shield_booster"], "unlocks_ships": [],
+    },
+    "1g_medium_armor_plates": {
+        "name": "Medium Armor Plating", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["medium_armor_plate"], "unlocks_ships": [],
+    },
+    "1h_medium_armor_hardeners": {
+        "name": "Medium Armor Hardeners", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": [
             "medium_armor_hardener_kinetic", "medium_armor_hardener_thermal",
-            "medium_armor_hardener_explosive", "medium_armor_repairer",
+            "medium_armor_hardener_explosive",
         ],
         "unlocks_ships": [],
     },
-    "1c_destroyer_hull": {
-        "name": "Destroyer Hull",
-        "tier": 1,
-        "prerequisites": [],
-        "unlocks_modules": [],
-        "unlocks_ships": ["destroyer"],
+    "1i_medium_armor_repairers": {
+        "name": "Medium Armor Repairers", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["medium_armor_repairer"], "unlocks_ships": [],
     },
-    "2a_large_weapons": {
-        "name": "Large Weapons",
-        "tier": 2,
-        "prerequisites": ["1a_medium_weapons"],
-        "unlocks_modules": [
-            "large_turret_kinetic", "large_turret_thermal",
-            "torpedo_launcher",
-        ],
-        "unlocks_ships": [],
+    "1j_advanced_mining": {
+        "name": "Advanced Mining", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["strip_miner"], "unlocks_ships": [],
     },
-    "2b_large_defenses": {
-        "name": "Large Defenses",
-        "tier": 2,
-        "prerequisites": ["1b_medium_defenses"],
+    "1h_corvette_hull": {
+        "name": "Corvette Hull", "tier": 1,
+        "prerequisites": [], "duplicable": True,
+        "unlocks_modules": [], "unlocks_ships": ["corvette"],
+    },
+    # --- Tier 2: Escalation (2000 ore, 900 ticks) ---
+    "2a_large_kinetic_turrets": {
+        "name": "Large Kinetic Turrets", "tier": 2,
+        "prerequisites": ["1a_medium_kinetic_turrets"], "duplicable": False,
+        "unlocks_modules": ["large_turret_kinetic"], "unlocks_ships": [],
+    },
+    "2b_large_thermal_turrets": {
+        "name": "Large Thermal Turrets", "tier": 2,
+        "prerequisites": ["1b_medium_thermal_turrets"], "duplicable": False,
+        "unlocks_modules": ["large_turret_thermal"], "unlocks_ships": [],
+    },
+    "2c_torpedoes": {
+        "name": "Torpedoes", "tier": 2,
+        "prerequisites": ["1c_heavy_missiles"], "duplicable": False,
+        "unlocks_modules": ["torpedo_launcher"], "unlocks_ships": [],
+    },
+    "2d_large_shield_extenders": {
+        "name": "Large Shield Systems", "tier": 2,
+        "prerequisites": ["1d_medium_shield_extenders"], "duplicable": False,
+        "unlocks_modules": ["large_shield_extender"], "unlocks_ships": [],
+    },
+    "2e_large_shield_hardeners": {
+        "name": "Large Shield Hardeners", "tier": 2,
+        "prerequisites": ["1e_medium_shield_hardeners"], "duplicable": False,
         "unlocks_modules": [
-            "large_shield_extender",
             "large_shield_hardener_kinetic", "large_shield_hardener_thermal",
-            "large_shield_hardener_explosive", "large_shield_booster",
-            "large_armor_plate",
-            "large_armor_hardener_kinetic", "large_armor_hardener_thermal",
-            "large_armor_hardener_explosive", "large_armor_repairer",
-            "shield_purge",
+            "large_shield_hardener_explosive",
         ],
         "unlocks_ships": [],
     },
-    "2c_cruiser_hull": {
-        "name": "Cruiser Hull",
-        "tier": 2,
-        "prerequisites": ["1c_destroyer_hull"],
-        "unlocks_modules": [],
-        "unlocks_ships": ["cruiser"],
+    "2f_large_shield_boosters": {
+        "name": "Large Shield Boosters", "tier": 2,
+        "prerequisites": ["1f_medium_shield_boosters"], "duplicable": False,
+        "unlocks_modules": ["large_shield_booster"], "unlocks_ships": [],
     },
-    "2d_advanced_mining": {
-        "name": "Advanced Mining",
-        "tier": 2,
-        "prerequisites": [],
-        "unlocks_modules": ["strip_miner"],
+    "2g_large_armor_plates": {
+        "name": "Large Armor Plating", "tier": 2,
+        "prerequisites": ["1g_medium_armor_plates"], "duplicable": False,
+        "unlocks_modules": ["large_armor_plate"], "unlocks_ships": [],
+    },
+    "2h_large_armor_hardeners": {
+        "name": "Large Armor Hardeners", "tier": 2,
+        "prerequisites": ["1h_medium_armor_hardeners"], "duplicable": False,
+        "unlocks_modules": [
+            "large_armor_hardener_kinetic", "large_armor_hardener_thermal",
+            "large_armor_hardener_explosive",
+        ],
         "unlocks_ships": [],
     },
-    "3a_advanced_weapons": {
-        "name": "Advanced Weapons",
-        "tier": 3,
-        "prerequisites": ["2a_large_weapons"],
-        "unlocks_modules": [],
-        "unlocks_ships": [],
+    "2i_large_armor_repairers": {
+        "name": "Large Armor Repairers", "tier": 2,
+        "prerequisites": ["1i_medium_armor_repairers"], "duplicable": False,
+        "unlocks_modules": ["large_armor_repairer"], "unlocks_ships": [],
     },
-    "3b_advanced_defenses": {
-        "name": "Advanced Defenses",
-        "tier": 3,
-        "prerequisites": ["2b_large_defenses"],
-        "unlocks_modules": [],
-        "unlocks_ships": [],
+    "2j_shield_purge": {
+        "name": "Shield Purge", "tier": 2,
+        "prerequisites": [], "duplicable": False,
+        "prerequisites_any": ["1e_medium_shield_hardeners", "1h_medium_armor_hardeners"],
+        "unlocks_modules": ["shield_purge"], "unlocks_ships": [],
     },
-    "3c_capital_systems": {
-        "name": "Capital Systems",
-        "tier": 3,
-        "prerequisites": ["2c_cruiser_hull"],
-        "unlocks_modules": ["enhanced_docking_bay"],
-        "unlocks_ships": [],
+    "2k_enhanced_docking": {
+        "name": "Enhanced Docking", "tier": 2,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["enhanced_docking_bay"], "unlocks_ships": [],
     },
-    "4a_superweapons": {
-        "name": "Superweapons",
-        "tier": 4,
-        "prerequisites": ["3a_advanced_weapons"],
-        "unlocks_modules": [],
-        "unlocks_ships": [],
+    "2h_frigate_hull": {
+        "name": "Frigate Hull", "tier": 2,
+        "prerequisites": ["1h_corvette_hull"], "duplicable": True,
+        "unlocks_modules": [], "unlocks_ships": ["frigate"],
+    },
+    # --- Tier 3: Specialization (8000 ore, 1800 ticks, faction-specific) ---
+    # Solarion tier 3 (overridden per faction)
+    "3a_focused_beams": {
+        "name": "Focused Beam Weapons", "tier": 3,
+        "prerequisites": [], "duplicable": False,
+        "prerequisites_any": ["2a_large_kinetic_turrets", "2b_large_thermal_turrets"],
+        "unlocks_modules": ["focused_beam_medium", "focused_beam_large"],
+        "unlocks_ships": [], "faction": "solarion",
+    },
+    "3b_reactive_armor": {
+        "name": "Reactive Armor Membranes", "tier": 3,
+        "prerequisites": [], "duplicable": False,
+        "prerequisites_any": ["2g_large_armor_plates", "2h_large_armor_hardeners"],
+        "unlocks_modules": ["reactive_armor_membrane_medium", "reactive_armor_membrane_large"],
+        "unlocks_ships": [], "faction": "solarion",
+    },
+    "3c_armor_nexus": {
+        "name": "Armor Repair Nexus", "tier": 3,
+        "prerequisites": ["2i_large_armor_repairers"], "duplicable": False,
+        "unlocks_modules": ["armor_repair_nexus_medium", "armor_repair_nexus_large"],
+        "unlocks_ships": [], "faction": "solarion",
+    },
+    # Voidborn tier 3
+    "3a_leech_projectors": {
+        "name": "Leech Projectors", "tier": 3,
+        "prerequisites": [], "duplicable": False,
+        "prerequisites_any": ["2a_large_kinetic_turrets", "2b_large_thermal_turrets"],
+        "unlocks_modules": ["light_leech_projector", "heavy_leech_projector"],
+        "unlocks_ships": [], "faction": "voidborn",
+    },
+    "3b_phase_shields": {
+        "name": "Phase Shield Amplifiers", "tier": 3,
+        "prerequisites": [], "duplicable": False,
+        "prerequisites_any": ["2d_large_shield_extenders", "2f_large_shield_boosters"],
+        "unlocks_modules": ["phase_shield_amplifier_medium", "phase_shield_amplifier_large"],
+        "unlocks_ships": [], "faction": "voidborn",
+    },
+    "3c_stealth_fields": {
+        "name": "Stealth Field Generators", "tier": 3,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["small_stealth_field", "medium_stealth_field"],
+        "unlocks_ships": [], "faction": "voidborn",
+    },
+    # Hull (shared)
+    "3h_destroyer_hull": {
+        "name": "Destroyer Hull", "tier": 3,
+        "prerequisites": ["2h_frigate_hull"], "duplicable": True,
+        "unlocks_modules": [], "unlocks_ships": ["destroyer"],
+    },
+    # --- Tier 4: Endgame (25000 ore, 3600 ticks) ---
+    "4a_solar_lance": {
+        "name": "Solar Lance", "tier": 4,
+        "prerequisites": ["3a_focused_beams"], "duplicable": False,
+        "unlocks_modules": ["solar_lance"], "unlocks_ships": [],
+        "faction": "solarion",
+    },
+    "4a_bio_repair_swarm": {
+        "name": "Bio-Repair Swarm", "tier": 4,
+        "prerequisites": ["3a_leech_projectors"], "duplicable": False,
+        "unlocks_modules": ["bio_repair_swarm"], "unlocks_ships": [],
+        "faction": "voidborn",
     },
     "4b_fortress": {
-        "name": "Fortress",
-        "tier": 4,
-        "prerequisites": ["3b_advanced_defenses", "3c_capital_systems"],
-        "unlocks_modules": ["fortress"],
-        "unlocks_ships": [],
+        "name": "Fortress Systems", "tier": 4,
+        "prerequisites": ["2k_enhanced_docking"], "duplicable": False,
+        "unlocks_modules": ["fortress"], "unlocks_ships": [],
+    },
+    "4h_cruiser_hull": {
+        "name": "Cruiser Hull", "tier": 4,
+        "prerequisites": ["3h_destroyer_hull"], "duplicable": True,
+        "unlocks_modules": [], "unlocks_ships": ["cruiser"],
     },
 }
 
@@ -699,63 +877,6 @@ for _tech_id, _node in TECH_TREE.items():
     for _ship in _node["unlocks_ships"]:
         SHIP_REQUIRED_TECH[_ship] = _tech_id
 
-# Faction-specific tech tree overrides for tier 3+
-SOLARION_TECH_TREE_OVERRIDES: Dict[str, dict] = {
-    "3a_advanced_weapons": {
-        "name": "Solarion Advanced Weapons", "tier": 3,
-        "prerequisites": ["2a_large_weapons"],
-        "unlocks_modules": ["focused_beam_medium", "focused_beam_large"],
-        "unlocks_ships": [],
-    },
-    "3b_advanced_defenses": {
-        "name": "Solarion Advanced Defenses", "tier": 3,
-        "prerequisites": ["2b_large_defenses"],
-        "unlocks_modules": [
-            "reactive_armor_membrane_medium", "reactive_armor_membrane_large",
-            "armor_repair_nexus_medium", "armor_repair_nexus_large",
-        ],
-        "unlocks_ships": [],
-    },
-    "4a_superweapons": {
-        "name": "Solar Lance", "tier": 4,
-        "prerequisites": ["3a_advanced_weapons"],
-        "unlocks_modules": ["solar_lance"],
-        "unlocks_ships": [],
-    },
-}
-
-VOIDBORN_TECH_TREE_OVERRIDES: Dict[str, dict] = {
-    "3a_advanced_weapons": {
-        "name": "Voidborn Advanced Weapons", "tier": 3,
-        "prerequisites": ["2a_large_weapons"],
-        "unlocks_modules": ["light_leech_projector", "heavy_leech_projector"],
-        "unlocks_ships": [],
-    },
-    "3b_advanced_defenses": {
-        "name": "Voidborn Advanced Defenses", "tier": 3,
-        "prerequisites": ["2b_large_defenses"],
-        "unlocks_modules": [
-            "phase_shield_amplifier_medium", "phase_shield_amplifier_large",
-            "small_stealth_field", "medium_stealth_field",
-        ],
-        "unlocks_ships": [],
-    },
-    "4a_superweapons": {
-        "name": "Bio-Repair Swarm", "tier": 4,
-        "prerequisites": ["3a_advanced_weapons"],
-        "unlocks_modules": ["bio_repair_swarm"],
-        "unlocks_ships": [],
-    },
-}
-
-# Also include faction tech tree overrides in gating sets
-for _override_tree in (SOLARION_TECH_TREE_OVERRIDES, VOIDBORN_TECH_TREE_OVERRIDES):
-    for _tech_id, _node in _override_tree.items():
-        RESEARCH_GATED_MODULES.update(_node["unlocks_modules"])
-        for _mod in _node["unlocks_modules"]:
-            MODULE_REQUIRED_TECH[_mod] = _tech_id
-
-
 # Class ordering used for docking eligibility checks (smaller index = smaller class)
 CLASS_ORDER: list[str] = [
     "strike_craft",
@@ -769,16 +890,6 @@ CLASS_ORDER: list[str] = [
 # Reference engine fraction for max-speed calculations
 REFERENCE_ENGINE_FRACTION: float = 0.30
 
-# Default autopilot profile by ship class (used by both production and routes)
-DEFAULT_AUTOPILOT_PROFILES: Dict[str, str] = {
-    "strike_craft": "combat_aggressive",
-    "corvette": "combat_aggressive",
-    "frigate": "mining",
-    "destroyer": "combat_defensive",
-    "cruiser": "combat_defensive",
-    "mothership": "combat_defensive",
-}
-
 # Fixed module volumes (m^3) for modules with a fixed size
 MODULE_FIXED_VOLUMES: dict[str, int] = {
     "dropoff": 500,
@@ -788,6 +899,11 @@ MODULE_FIXED_VOLUMES: dict[str, int] = {
     "research_module": 5_000,
     "strip_miner": 1_000,
     "fortress": 50_000,
+    "starter_turret": 15,
+    "starter_mining_laser": 20,
+    "starter_shield_extender": 15,
+    "starter_armor_plate": 15,
+    "starter_passive_detector": 10,
 }
 
 # Module cycling parameters for non-passive modules
@@ -815,6 +931,17 @@ MODULE_PARAMS: Dict[str, dict] = {
     "research_module": {
         "cycle_time": 1,
         "cap_per_cycle": 50,
+    },
+    "starter_mining_laser": {
+        "cycle_time": 10,
+        "cap_per_cycle": 10,
+        "mining_yield": 2,
+        "range": 500,
+    },
+    "starter_passive_detector": {
+        "cycle_time": 10,
+        "cap_per_cycle": 2,
+        "base_detection_range": 10_000,
     },
     "strip_miner": {
         "cycle_time": 15,
@@ -873,6 +1000,12 @@ TURRET_PARAMS: Dict[str, dict] = {
         "cycle_time": 12, "cap_per_cycle": 150,
         "optimal_range": 40_000, "falloff": 20_000,
         "tracking_speed": 0.008, "sig_resolution": 800,
+    },
+    "starter_turret": {
+        "volume": 15, "damage": 5, "damage_type": "kinetic",
+        "cycle_time": 5, "cap_per_cycle": 3,
+        "optimal_range": 2_000, "falloff": 1_500,
+        "tracking_speed": 0.12, "sig_resolution": 25,
     },
 }
 
@@ -1020,6 +1153,13 @@ DEFENSIVE_MODULE_PARAMS: Dict[str, dict] = {
         "volume": 3_000, "armor_repair": 400,
         "cycle_time": 10, "cap_per_cycle": 400,
     },
+    # Starter defensive modules
+    "starter_shield_extender": {
+        "volume": 15, "shield_bonus": 15, "sig_radius_bonus": 2,
+    },
+    "starter_armor_plate": {
+        "volume": 15, "armor_bonus": 25, "speed_penalty": 0.03,
+    },
 }
 
 # Solarion-exclusive module params
@@ -1125,6 +1265,7 @@ MISSILE_TYPES: set[str] = set(MISSILE_PARAMS.keys())
 WEAPON_TYPES: set[str] = TURRET_TYPES | MISSILE_TYPES | SOLARION_TURRET_TYPES | LEECH_PROJECTOR_TYPES
 SHIELD_EXTENDER_TYPES: set[str] = {
     "small_shield_extender", "medium_shield_extender", "large_shield_extender",
+    "starter_shield_extender",
 }
 SHIELD_HARDENER_TYPES: set[str] = {
     k for k in DEFENSIVE_MODULE_PARAMS
@@ -1135,6 +1276,7 @@ SHIELD_BOOSTER_TYPES: set[str] = {
 } | VOIDBORN_SHIELD_BOOSTER_TYPES
 ARMOR_PLATE_TYPES: set[str] = {
     "small_armor_plate", "medium_armor_plate", "large_armor_plate",
+    "starter_armor_plate",
 }
 ARMOR_HARDENER_TYPES: set[str] = {
     k for k in DEFENSIVE_MODULE_PARAMS
@@ -1209,10 +1351,16 @@ class User(SQLModel, table=True):
     # password_hash stores a hex-encoded SHA-256(salt:password) string
     password_hash: Optional[str] = Field(default=None)
 
+    # Points (Phase 9)
+    points: float = Field(default=0.0)
+
     # Team membership (Phase 7)
     team_id: Optional[int] = Field(default=None, foreign_key="team.id")
 
-    ships: List["Spaceship"] = Relationship(back_populates="owner")
+    ships: List["Spaceship"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"foreign_keys": "Spaceship.user_id"},
+    )
     events: List["Event"] = Relationship(back_populates="user")
     team: Optional["Team"] = Relationship(back_populates="users")
 
@@ -1254,13 +1402,12 @@ class Spaceship(SQLModel, table=True):
     total_volume: int = Field(default=0)
     signature_radius: float = Field(default=0.0)
 
-    # Autopilot (Phase 6)
-    autopilot_mode: str = Field(default="off")  # off, active, standby
-    autopilot_profile: Optional[str] = Field(default=None)  # mining, scout, combat_aggressive, etc.
-    autopilot_priority_target_id: Optional[int] = Field(default=None)
-
-    # Ownership
+    # Ownership & loadout (Phase 9)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    claimed_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    built_by_user_id: Optional[int] = Field(default=None)
+    loadout_points_spent: float = Field(default=0.0)
+    last_damage_by_user_id: Optional[int] = Field(default=None)
 
     # Team membership (Phase 7)
     team_id: Optional[int] = Field(default=None, foreign_key="team.id")
@@ -1269,7 +1416,10 @@ class Spaceship(SQLModel, table=True):
     match_id: Optional[int] = Field(default=None, foreign_key="match.id", index=True)
 
     # Relationships
-    owner: Optional[User] = Relationship(back_populates="ships")
+    owner: Optional[User] = Relationship(
+        back_populates="ships",
+        sa_relationship_kwargs={"foreign_keys": "Spaceship.user_id"},
+    )
     team: Optional["Team"] = Relationship(back_populates="ships")
     modules: List["ShipModule"] = Relationship(back_populates="ship")
     movement_orders: List["MovementOrder"] = Relationship(
@@ -1674,6 +1824,15 @@ class ResearchProgress(SQLModel, table=True):
     team_id: Optional[int] = Field(default=None, foreign_key="team.id", index=True)
 
 
+class ResearchContributor(SQLModel, table=True):
+    """Join table tracking contributors to duplicable (hull) research."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    research_id: int = Field(foreign_key="researchprogress.id", index=True)
+    ship_id: int = Field(foreign_key="spaceship.id")
+    module_id: int = Field(default=0)
+    user_id: int = Field(foreign_key="user.id")
+
+
 class LeechDebuff(SQLModel, table=True):
     """An active leech debuff applied to a ship by a Voidborn leech projector."""
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -1978,35 +2137,27 @@ def spawn_new_ship(
     builder: Spaceship,
     current_tick: int,
     name: Optional[str] = None,
+    built_by_user_id: Optional[int] = None,
 ) -> Spaceship:
     """
-    Spawn a newly built ship adjacent to the builder.
+    Spawn a newly built ship docked in the builder.
 
     Returns an unsaved Spaceship (caller must add to session).
     The ship starts with no modules, full base capacitor, zero ore.
-    Position is 100 m away from the builder in a random direction.
-    Velocity matches the builder.
+    Ship is docked inside the builder and unclaimed.
     """
-    # Random unit vector for offset direction
-    theta = random.uniform(0, 2 * math.pi)
-    phi = random.uniform(0, math.pi)
-    dx = math.sin(phi) * math.cos(theta)
-    dy = math.sin(phi) * math.sin(theta)
-    dz = math.cos(phi)
-    offset = 100.0  # metres
-
     # Derive faction from builder's team
     faction = builder.faction
     consts = get_ship_classes(faction)[blueprint.value]
     ship = Spaceship(
         name=name or f"New {blueprint.value.replace('_', ' ').title()}",
         ship_class=blueprint,
-        pos_x=builder.pos_x + dx * offset,
-        pos_y=builder.pos_y + dy * offset,
-        pos_z=builder.pos_z + dz * offset,
-        vel_x=builder.vel_x,
-        vel_y=builder.vel_y,
-        vel_z=builder.vel_z,
+        pos_x=builder.pos_x,
+        pos_y=builder.pos_y,
+        pos_z=builder.pos_z,
+        vel_x=0.0,
+        vel_y=0.0,
+        vel_z=0.0,
         total_volume=consts["volume"],
         signature_radius=float(consts["signature"]),
         max_capacitor=float(consts["base_cap"]),
@@ -2020,5 +2171,8 @@ def spawn_new_ship(
         user_id=builder.user_id,
         team_id=builder.team_id,
         match_id=builder.match_id,
+        docked_in_id=builder.id,
+        claimed_by_user_id=None,
+        built_by_user_id=built_by_user_id or builder.user_id,
     )
     return ship

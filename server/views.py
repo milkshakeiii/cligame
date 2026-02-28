@@ -21,6 +21,7 @@ from server.models import (
     CommandStatus,
     Event,
     GameState,
+    HULL_POINT_COSTS,
     Match,
     MatchStatus,
     ModuleType,
@@ -176,8 +177,6 @@ async def compute_player_view(
             "is_destroyed": ship.is_destroyed,
             "signature_radius": ship.signature_radius,
             "docked_in_id": ship.docked_in_id,
-            "autopilot_mode": ship.autopilot_mode,
-            "autopilot_profile": ship.autopilot_profile,
             "team_id": ship.team_id,
             "match_id": ship.match_id,
             "faction": faction,
@@ -358,9 +357,29 @@ async def compute_player_view(
                 "winner_team_id": match.winner_team_id,
             }
 
+    # --- Available unclaimed hulls ---
+    available_hulls = []
+    if on_team:
+        hull_query = select(Spaceship).where(
+            Spaceship.team_id == user.team_id,
+            Spaceship.claimed_by_user_id == None,  # noqa: E711
+            Spaceship.docked_in_id != None,  # noqa: E711
+            Spaceship.is_destroyed == False,  # noqa: E712
+        )
+        hull_result = await session.exec(hull_query)
+        for h in hull_result.all():
+            available_hulls.append({
+                "ship_id": h.id,
+                "ship_class": h.ship_class.value,
+                "docked_at_ship_id": h.docked_in_id,
+                "hull_point_cost": HULL_POINT_COSTS.get(h.ship_class.value, 0),
+            })
+
     return {
         "tick": current_tick,
+        "points": user.points,
         "ships": ship_views,
+        "available_hulls": available_hulls,
         "nearby": nearby,
         "events": events,
         "pending_commands": pending_commands,

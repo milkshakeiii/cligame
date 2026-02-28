@@ -262,15 +262,6 @@ def display_ship_info(data: dict, json_mode: bool) -> None:
         f"Sig. Radius: {eff_sig:.0f} m   "
         f"Scan Res: {scan_res:.0f} mm"
     )
-    # Autopilot status
-    autopilot_mode = data.get("autopilot_mode", "off")
-    autopilot_profile = data.get("autopilot_profile")
-    if autopilot_mode and autopilot_mode != "off":
-        header += (
-            f"\n  Autopilot  : [bold magenta]{autopilot_mode}[/bold magenta]"
-            f"  Profile: [cyan]{autopilot_profile or 'none'}[/cyan]"
-        )
-
     console.print(Panel(header, title=f"Ship #{data['id']} Detail", border_style="cyan"))
 
     # Modules
@@ -785,77 +776,46 @@ def display_tech_tree(nodes: list, json_mode: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Autopilot
+# Loadout: available hulls & cost tables
 # ---------------------------------------------------------------------------
 
 
-def display_autopilot_tick(data: dict, json_mode: bool) -> None:
-    if json_mode:
-        _json_out(data)
+def display_available_hulls(hulls: list, points: float) -> None:
+    """Rich table of claimable unclaimed hulls."""
+    console.print(f"  Points: [bold yellow]{points:.0f}[/bold yellow]")
+    if not hulls:
+        console.print("  [dim]No unclaimed hulls available.[/dim]")
         return
-
-    ship = data.get("ship", {})
-    ship_name = ship.get("name", f"#{ship.get('id', '?')}")
-    mode = data.get("ship", {}).get("autopilot_mode", "off")
-    profile = data.get("profile") or "none"
-
-    mode_color = "green" if mode == "active" else "yellow" if mode != "off" else "dim"
-    header = (
-        f"Ship       : [bold]{ship_name}[/bold]\n"
-        f"Mode       : [{mode_color}]{mode}[/{mode_color}]\n"
-        f"Profile    : [cyan]{profile}[/cyan]"
-    )
-
-    # Show position/velocity if available
-    if "pos_x" in ship:
-        header += (
-            f"\nPosition   : ({ship['pos_x']:.1f}, {ship['pos_y']:.1f}, {ship['pos_z']:.1f}) m"
+    t = Table(box=box.SIMPLE_HEAVY, title="Available Hulls", show_lines=False)
+    t.add_column("Ship ID", justify="right", style="dim")
+    t.add_column("Class", style="bold")
+    t.add_column("Docked At", justify="right")
+    t.add_column("Hull Cost", justify="right")
+    for h in hulls:
+        t.add_row(
+            str(h["ship_id"]),
+            h["ship_class"],
+            str(h["docked_at_ship_id"]),
+            str(h["hull_point_cost"]),
         )
-    if "vel_x" in ship:
-        header += f"\nSpeed      : {_speed_vec(ship['vel_x'], ship['vel_y'], ship['vel_z'])}"
-    if "capacitor" in ship and "max_capacitor" in ship:
-        header += (
-            f"\nCapacitor  : {_cap_bar(ship['capacitor'], ship['max_capacitor'])}  "
-            f"({ship['capacitor']:.0f}/{ship['max_capacitor']:.0f} GJ)"
-        )
-    if "ore" in ship and "cargo_capacity" in ship:
-        header += f"\nOre        : {ship['ore']:.0f} / {ship['cargo_capacity']:.0f} m\u00b3"
+    console.print(t)
 
-    # Shield/armor
-    if "shield_hp" in ship and "max_shield_hp" in ship:
-        header += (
-            f"\nShield     : {_hp_bar(ship['shield_hp'], ship['max_shield_hp'], 'blue')}  "
-            f"({ship['shield_hp']:.0f}/{ship['max_shield_hp']:.0f} HP)"
-        )
-    if "armor_hp" in ship and "max_armor_hp" in ship:
-        header += (
-            f"\nArmor      : {_hp_bar(ship['armor_hp'], ship['max_armor_hp'], 'yellow')}  "
-            f"({ship['armor_hp']:.0f}/{ship['max_armor_hp']:.0f} HP)"
-        )
 
-    console.print(Panel(header, title="Autopilot State", border_style="magenta"))
+def display_loadout_costs(hull_costs: dict, module_costs: dict) -> None:
+    """Rich tables showing hull and module point costs."""
+    ht = Table(box=box.SIMPLE_HEAVY, title="Hull Point Costs", show_lines=False)
+    ht.add_column("Ship Class", style="bold")
+    ht.add_column("Cost", justify="right")
+    for cls, cost in sorted(hull_costs.items(), key=lambda x: x[1]):
+        ht.add_row(cls, str(cost))
+    console.print(ht)
 
-    # Nearby contacts
-    contacts = data.get("nearby", [])
-    if contacts:
-        _display_contacts_table(contacts)
-
-    # Active orders
-    orders = data.get("active_orders", [])
-    if orders:
-        _display_orders(orders)
-
-    # Target locks
-    locks = data.get("locks", [])
-    if locks:
-        display_locks(locks, json_mode=False)
-
-    # Recent events
-    events = data.get("events_since_last_tick", [])
-    if events:
-        console.print(f"\n[bold]Recent Events ({len(events)}):[/bold]")
-        for e in events:
-            _print_event_line(e)
+    mt = Table(box=box.SIMPLE_HEAVY, title="Module Point Costs", show_lines=False)
+    mt.add_column("Module Type", style="bold")
+    mt.add_column("Cost", justify="right")
+    for mod, cost in sorted(module_costs.items(), key=lambda x: (x[1], x[0])):
+        mt.add_row(mod, str(cost))
+    console.print(mt)
 
 
 # ---------------------------------------------------------------------------
@@ -1169,7 +1129,11 @@ def display_view(data: dict, json_mode: bool, events_only: bool = False) -> None
         return
 
     tick = data.get("tick", 0)
-    console.print(Panel(f"Tick: [bold cyan]{tick}[/bold cyan]", title="World View", border_style="blue"))
+    points = data.get("points", 0)
+    console.print(Panel(
+        f"Tick: [bold cyan]{tick}[/bold cyan]   Points: [bold yellow]{points:.0f}[/bold yellow]",
+        title="World View", border_style="blue",
+    ))
 
     # Team info
     team = data.get("team")
@@ -1222,6 +1186,21 @@ def display_view(data: dict, json_mode: bool, events_only: bool = False) -> None
                     f"{cap_pct:.0f}%",
                 )
             console.print(t)
+
+        # Available hulls
+        hulls = data.get("available_hulls", [])
+        if hulls:
+            ht = Table(box=box.SIMPLE_HEAVY, title="Available Hulls", show_lines=False)
+            ht.add_column("Ship ID", justify="right", style="dim")
+            ht.add_column("Class", style="bold")
+            ht.add_column("Docked At", justify="right")
+            ht.add_column("Hull Cost", justify="right")
+            for h in hulls:
+                ht.add_row(
+                    str(h["ship_id"]), h["ship_class"],
+                    str(h["docked_at_ship_id"]), str(h["hull_point_cost"]),
+                )
+            console.print(ht)
 
         # Nearby contacts
         nearby = data.get("nearby", [])

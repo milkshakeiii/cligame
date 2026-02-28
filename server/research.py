@@ -18,17 +18,18 @@ from sqlmodel import select
 from server.models import (
     MODULE_REQUIRED_TECH,
     RESEARCH_COSTS,
+    RESEARCH_COMPLETE_POINTS,
     RESEARCH_GATED_MODULES,
     RESEARCH_GATED_SHIPS,
     SHIP_REQUIRED_TECH,
-    SOLARION_TECH_TREE_OVERRIDES,
     TECH_TREE,
-    VOIDBORN_TECH_TREE_OVERRIDES,
     Event,
     EventType,
+    ResearchContributor,
     ResearchProgress,
     ShipModule,
     Spaceship,
+    User,
 )
 
 
@@ -38,12 +39,16 @@ from server.models import (
 
 
 def get_effective_tech_tree(faction: Optional[str] = None) -> Dict[str, dict]:
-    """Return the tech tree with faction-specific overrides applied."""
-    tree = dict(TECH_TREE)  # shallow copy
-    if faction == "solarion":
-        tree.update(SOLARION_TECH_TREE_OVERRIDES)
-    elif faction == "voidborn":
-        tree.update(VOIDBORN_TECH_TREE_OVERRIDES)
+    """Return the tech tree filtered to nodes available for a faction.
+
+    Faction-specific nodes have a "faction" key. Non-faction nodes are always
+    included. Faction nodes are only included when they match the given faction.
+    """
+    tree: Dict[str, dict] = {}
+    for tech_id, node in TECH_TREE.items():
+        node_faction = node.get("faction")
+        if node_faction is None or node_faction == faction:
+            tree[tech_id] = node
     return tree
 
 
@@ -88,16 +93,28 @@ def check_prerequisites(
 
     Uses the faction-effective tech tree when ``faction`` is provided,
     allowing faction-specific techs to be validated.
+
+    Supports both "prerequisites" (all required) and "prerequisites_any"
+    (at least one required).
     """
     tree = get_effective_tech_tree(faction)
     node = tree.get(tech_id)
     if node is None:
         return f"Unknown tech: {tech_id}"
+    # All prerequisites must be met
     for prereq in node["prerequisites"]:
         if prereq not in completed_techs:
             prereq_node = tree.get(prereq)
             prereq_name = prereq_node["name"] if prereq_node else prereq
             return f"Prerequisite not met: {prereq_name} ({prereq})"
+    # At least one of prerequisites_any must be met (if present)
+    any_prereqs = node.get("prerequisites_any", [])
+    if any_prereqs and not any(p in completed_techs for p in any_prereqs):
+        names = []
+        for p in any_prereqs:
+            pn = tree.get(p)
+            names.append(pn["name"] if pn else p)
+        return f"Prerequisite not met: need at least one of {', '.join(names)}"
     return None
 
 
@@ -155,13 +172,57 @@ async def start_research(
     if tech_id in completed:
         raise ValueError(f"Already researched: {node['name']}")
 
+    is_duplicable = node.get("duplicable", False)
+
     # Already in progress?
     in_progress = [
         r for r in all_research
         if r.tech_id == tech_id and r.status == "researching"
     ]
     if in_progress:
-        raise ValueError(f"Already researching: {node['name']}")
+        if is_duplicable:
+            # For duplicable techs, add as a contributor instead
+            rp = in_progress[0]
+            # Check research module type
+            if module.module_type.value != "research_module":
+                raise ValueError("Module is not a research module")
+            # Check module not already researching
+            existing = await session.exec(
+                select(ResearchProgress).where(
+                    ResearchProgress.module_id == module.id,
+                    ResearchProgress.status == "researching",
+                )
+            )
+            if existing.first() is not None:
+                raise ValueError("This research module is already busy")
+            # Check not already contributing
+            existing_contrib = await session.exec(
+                select(ResearchContributor).where(
+                    ResearchContributor.research_id == rp.id,
+                    ResearchContributor.module_id == module.id,
+                )
+            )
+            if existing_contrib.first() is not None:
+                raise ValueError("This module is already contributing to this research")
+            # Deduct ore
+            tier = node["tier"]
+            costs = RESEARCH_COSTS[tier]
+            if ship.ore < costs["ore"]:
+                raise ValueError(
+                    f"Insufficient ore: need {costs['ore']}, have {ship.ore:.0f}"
+                )
+            ship.ore -= costs["ore"]
+            module.active = True
+            contrib = ResearchContributor(
+                research_id=rp.id,
+                ship_id=ship.id,
+                module_id=module.id,
+                user_id=user_id,
+            )
+            session.add(contrib)
+            return rp
+        else:
+            raise ValueError(f"Already researching: {node['name']}")
 
     # Check prerequisites
     prereq_error = check_prerequisites(tech_id, completed, faction=faction)
@@ -209,6 +270,18 @@ async def start_research(
         ore_cost=costs["ore"],
     )
     session.add(rp)
+    await session.flush()
+
+    # For duplicable techs, the initiator is also a contributor
+    if is_duplicable:
+        contrib = ResearchContributor(
+            research_id=rp.id,
+            ship_id=ship.id,
+            module_id=module.id,
+            user_id=user_id,
+        )
+        session.add(contrib)
+
     return rp
 
 
@@ -217,68 +290,136 @@ async def start_research(
 # ---------------------------------------------------------------------------
 
 
-async def tick_research(session, ships_by_id: Dict[int, Spaceship], current_tick: int) -> None:
+async def tick_research(
+    session,
+    ships_by_id: Dict[int, Spaceship],
+    current_tick: int,
+    users_by_id: Optional[Dict[int, "User"]] = None,
+) -> None:
     """
     Advance all active research by one tick.
     - Drains 50 capacitor per tick per active research module.
     - Pauses if insufficient capacitor.
     - Completes when ticks_remaining reaches 0.
+    - For duplicable techs, counts active contributors and decrements
+      ticks_remaining by the contributor count.
     """
     result = await session.exec(
         select(ResearchProgress).where(ResearchProgress.status == "researching")
     )
     active_research = result.all()
 
-    for rp in active_research:
-        ship = ships_by_id.get(rp.ship_id)
-        if ship is None or ship.is_destroyed:
-            rp.status = "cancelled"
-            continue
-
-        # Find the research module
-        module = next(
-            (m for m in ship.modules if m.id == rp.module_id),
-            None,
+    # Preload all contributors for active duplicable research
+    active_rp_ids = [rp.id for rp in active_research]
+    contributors_by_rp: Dict[int, list] = {}
+    if active_rp_ids:
+        contrib_result = await session.exec(
+            select(ResearchContributor).where(
+                ResearchContributor.research_id.in_(active_rp_ids)
+            )
         )
-        if module is None:
-            rp.status = "cancelled"
-            continue
+        for c in contrib_result.all():
+            contributors_by_rp.setdefault(c.research_id, []).append(c)
 
-        # Check capacitor (research module drains 50 cap/tick)
-        cap_cost = 50.0
-        if ship.capacitor < cap_cost:
-            if rp.status != "paused":
-                rp.status = "paused"
-                module.active = False
-                session.add(Event(
-                    tick=current_tick,
-                    event_type=EventType.research_paused,
-                    ship_id=ship.id,
-                    user_id=ship.user_id,
-                    message=f"Research paused ({get_tech_name(rp.tech_id)}): insufficient capacitor",
-                ))
-            continue
+    for rp in active_research:
+        tree = get_effective_tech_tree()
+        node = tree.get(rp.tech_id)
+        is_duplicable = node.get("duplicable", False) if node else False
 
-        # If was paused and now has cap, resume
-        if rp.status == "paused":
-            rp.status = "researching"
-            module.active = True
+        if is_duplicable:
+            # Process each contributor's ship for cap drain
+            contribs = contributors_by_rp.get(rp.id, [])
+            active_count = 0
+            for contrib in contribs:
+                cship = ships_by_id.get(contrib.ship_id)
+                if cship is None or cship.is_destroyed:
+                    continue
+                cmodule = next(
+                    (m for m in cship.modules if m.id == contrib.module_id), None
+                )
+                if cmodule is None:
+                    continue
+                cap_cost = 50.0
+                if cship.capacitor < cap_cost:
+                    cmodule.active = False
+                    continue
+                cship.capacitor -= cap_cost
+                cmodule.active = True
+                active_count += 1
+                # Award 1 pt/tick per contributor for duplicable research
+                if users_by_id and contrib.user_id in users_by_id:
+                    users_by_id[contrib.user_id].points += 1.0
 
-        # Drain capacitor
-        ship.capacitor -= cap_cost
+            if active_count == 0:
+                continue  # no progress this tick
 
-        # Advance research
-        rp.ticks_remaining -= 1
+            rp.ticks_remaining -= active_count
+        else:
+            # Non-duplicable: original single-researcher logic
+            ship = ships_by_id.get(rp.ship_id)
+            if ship is None or ship.is_destroyed:
+                rp.status = "cancelled"
+                continue
+
+            module = next(
+                (m for m in ship.modules if m.id == rp.module_id), None
+            )
+            if module is None:
+                rp.status = "cancelled"
+                continue
+
+            cap_cost = 50.0
+            if ship.capacitor < cap_cost:
+                if rp.status != "paused":
+                    rp.status = "paused"
+                    module.active = False
+                    session.add(Event(
+                        tick=current_tick,
+                        event_type=EventType.research_paused,
+                        ship_id=ship.id,
+                        user_id=ship.user_id,
+                        message=f"Research paused ({get_tech_name(rp.tech_id)}): insufficient capacitor",
+                    ))
+                continue
+
+            if rp.status == "paused":
+                rp.status = "researching"
+                module.active = True
+
+            ship.capacitor -= cap_cost
+            rp.ticks_remaining -= 1
 
         if rp.ticks_remaining <= 0:
             rp.status = "complete"
             rp.ticks_remaining = 0
-            module.active = False
 
+            # Deactivate all contributor modules for duplicable, or just the module for non-duplicable
+            if is_duplicable:
+                for contrib in contributors_by_rp.get(rp.id, []):
+                    cship = ships_by_id.get(contrib.ship_id)
+                    if cship:
+                        cmod = next((m for m in cship.modules if m.id == contrib.module_id), None)
+                        if cmod:
+                            cmod.active = False
+            else:
+                ship = ships_by_id.get(rp.ship_id)
+                if ship:
+                    module = next((m for m in ship.modules if m.id == rp.module_id), None)
+                    if module:
+                        module.active = False
+
+            # Award research completion points
+            tier = node["tier"] if node else 1
+            rp_points = RESEARCH_COMPLETE_POINTS.get(tier, 200)
+            if users_by_id and rp.user_id in users_by_id:
+                users_by_id[rp.user_id].points += rp_points
+
+            # Emit event for the primary researcher's ship
+            rp_ship = ships_by_id.get(rp.ship_id)
             session.add(Event(
                 tick=current_tick,
                 event_type=EventType.research_complete,
-                ship_id=ship.id,
-                user_id=ship.user_id,
-                message=f"Research complete: {get_tech_name(rp.tech_id)}",
+                ship_id=rp.ship_id if rp_ship else None,
+                user_id=rp.user_id,
+                message=f"Research complete: {get_tech_name(rp.tech_id)} (+{rp_points} pts)",
             ))

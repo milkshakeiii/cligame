@@ -1484,9 +1484,9 @@ async def test_map_asteroid_zone_distribution(db_session: AsyncSession):
     asteroids = result.all()
 
     # Check that some asteroids are near each home base
-    near_alpha = [a for a in asteroids if abs(a.pos_x - (-800_000)) < 200_000]
-    near_bravo = [a for a in asteroids if abs(a.pos_x - 800_000) < 200_000]
-    near_center = [a for a in asteroids if abs(a.pos_x) < 400_000]
+    near_alpha = [a for a in asteroids if abs(a.pos_x - (-100_000)) < 25_000]
+    near_bravo = [a for a in asteroids if abs(a.pos_x - 100_000) < 25_000]
+    near_center = [a for a in asteroids if abs(a.pos_x) < 50_000]
 
     assert len(near_alpha) >= 8, f"Expected >=8 asteroids near Alpha home, got {len(near_alpha)}"
     assert len(near_bravo) >= 8, f"Expected >=8 asteroids near Bravo home, got {len(near_bravo)}"
@@ -1816,7 +1816,7 @@ async def test_full_match_lifecycle_creation_to_victory(client: AsyncClient):
     assert ship1_resp.status_code == 200
     ship1 = ship1_resp.json()
     assert ship1["ship_class"] == "mothership"
-    assert abs(ship1["pos_x"] - (-800_000.0)) < 1.0
+    assert abs(ship1["pos_x"] - (-100_000.0)) < 1.0
     assert abs(ship1["pos_y"]) < 1.0
     assert abs(ship1["pos_z"]) < 1.0
 
@@ -1827,7 +1827,7 @@ async def test_full_match_lifecycle_creation_to_victory(client: AsyncClient):
     assert ship2_resp.status_code == 200
     ship2 = ship2_resp.json()
     assert ship2["ship_class"] == "mothership"
-    assert abs(ship2["pos_x"] - 800_000.0) < 1.0
+    assert abs(ship2["pos_x"] - 100_000.0) < 1.0
     assert abs(ship2["pos_y"]) < 1.0
     assert abs(ship2["pos_z"]) < 1.0
 

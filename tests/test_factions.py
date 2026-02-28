@@ -30,10 +30,8 @@ from server.models import (
     FACTION_TRAITS,
     RESEARCH_COSTS,
     SHIELD_BASE_RESISTS,
-    SOLARION_TECH_TREE_OVERRIDES,
     SHIP_CLASSES,
     TECH_TREE,
-    VOIDBORN_TECH_TREE_OVERRIDES,
     GameState,
     ModuleType,
     ResearchProgress,
@@ -419,20 +417,20 @@ class TestPerTeamResearch:
         """get_completed_tech_ids should return only 'complete' status techs."""
         research_list = [
             ResearchProgress(
-                user_id=1, tech_id="1a_medium_weapons", status="complete",
+                user_id=1, tech_id="1a_medium_kinetic_turrets", status="complete",
                 ship_id=1, module_id=1, ticks_remaining=0, total_ticks=300, ore_cost=500,
             ),
             ResearchProgress(
-                user_id=1, tech_id="1b_medium_defenses", status="researching",
+                user_id=1, tech_id="1d_medium_shield_extenders", status="researching",
                 ship_id=1, module_id=1, ticks_remaining=100, total_ticks=300, ore_cost=500,
             ),
             ResearchProgress(
-                user_id=1, tech_id="1c_destroyer_hull", status="cancelled",
+                user_id=1, tech_id="1h_corvette_hull", status="cancelled",
                 ship_id=1, module_id=1, ticks_remaining=200, total_ticks=300, ore_cost=500,
             ),
         ]
         completed = get_completed_tech_ids(research_list)
-        assert completed == {"1a_medium_weapons"}
+        assert completed == {"1a_medium_kinetic_turrets"}
 
     def test_get_completed_tech_ids_empty_list(self):
         completed = get_completed_tech_ids([])
@@ -442,12 +440,12 @@ class TestPerTeamResearch:
         """Research with team_id set should still be counted."""
         research_list = [
             ResearchProgress(
-                user_id=1, team_id=5, tech_id="1a_medium_weapons", status="complete",
+                user_id=1, team_id=5, tech_id="1a_medium_kinetic_turrets", status="complete",
                 ship_id=1, module_id=1, ticks_remaining=0, total_ticks=300, ore_cost=500,
             ),
         ]
         completed = get_completed_tech_ids(research_list)
-        assert "1a_medium_weapons" in completed
+        assert "1a_medium_kinetic_turrets" in completed
 
 
 class TestResearchPrerequisites:
@@ -455,52 +453,51 @@ class TestResearchPrerequisites:
 
     def test_tier1_no_prerequisites_passes(self):
         """Tier 1 techs have no prerequisites."""
-        result = check_prerequisites("1a_medium_weapons", set())
+        result = check_prerequisites("1a_medium_kinetic_turrets", set())
         assert result is None
 
     def test_tier2_missing_prerequisite_fails(self):
         """Tier 2 tech should fail if prerequisite not completed."""
-        result = check_prerequisites("2a_large_weapons", set())
+        result = check_prerequisites("2a_large_kinetic_turrets", set())
         assert result is not None
         assert "prerequisite" in result.lower()
 
     def test_tier2_with_prerequisite_passes(self):
         """Tier 2 tech should pass with prerequisite completed."""
-        result = check_prerequisites("2a_large_weapons", {"1a_medium_weapons"})
+        result = check_prerequisites("2a_large_kinetic_turrets", {"1a_medium_kinetic_turrets"})
         assert result is None
 
     def test_solarion_faction_tech_valid_with_prereqs(self):
-        """Solarion 3a_advanced_weapons should be valid with its prereq met."""
+        """Solarion 3a_focused_beams uses prerequisites_any, met by either prereq."""
         result = check_prerequisites(
-            "3a_advanced_weapons", {"2a_large_weapons"}, faction="solarion"
+            "3a_focused_beams", {"2a_large_kinetic_turrets"}, faction="solarion"
         )
         assert result is None
 
     def test_solarion_tier3_needs_prerequisites(self):
         """Solarion tier 3 tech needs its prerequisites."""
         result = check_prerequisites(
-            "3a_advanced_weapons", set(), faction="solarion"
+            "3a_focused_beams", set(), faction="solarion"
         )
         assert result is not None
-        assert "prerequisite" in result.lower()
 
     def test_solarion_superweapon_with_prerequisites_passes(self):
-        completed = {"2a_large_weapons", "3a_advanced_weapons"}
+        completed = {"2a_large_kinetic_turrets", "3a_focused_beams"}
         result = check_prerequisites(
-            "4a_superweapons", completed, faction="solarion"
+            "4a_solar_lance", completed, faction="solarion"
         )
         assert result is None
 
     def test_voidborn_faction_tech_valid_with_prereqs(self):
         result = check_prerequisites(
-            "3b_advanced_defenses", {"2b_large_defenses"}, faction="voidborn"
+            "3a_leech_projectors", {"2a_large_kinetic_turrets"}, faction="voidborn"
         )
         assert result is None
 
     def test_voidborn_superweapon_with_prerequisites_passes(self):
-        completed = {"2a_large_weapons", "3a_advanced_weapons"}
+        completed = {"2a_large_kinetic_turrets", "3a_leech_projectors"}
         result = check_prerequisites(
-            "4a_superweapons", completed, faction="voidborn"
+            "4a_bio_repair_swarm", completed, faction="voidborn"
         )
         assert result is None
 
@@ -509,10 +506,9 @@ class TestResearchPrerequisites:
         assert result is not None
         assert "unknown" in result.lower()
 
-    def test_base_tree_has_generic_tier3(self):
-        """Base tree (no faction) should have generic tier 3 techs."""
-        result = check_prerequisites("3a_advanced_weapons", {"2a_large_weapons"})
-        # Should work since 3a exists in base tree too
+    def test_hull_tech_in_base_tree(self):
+        """Duplicable hull techs are in the base tree (no faction needed)."""
+        result = check_prerequisites("3h_destroyer_hull", {"2h_frigate_hull"})
         assert result is None
 
 
@@ -522,70 +518,65 @@ class TestResearchPrerequisites:
 
 
 class TestFactionTechTree:
-    """Test get_effective_tech_tree with faction overrides."""
+    """Test get_effective_tech_tree with faction filtering."""
 
     def test_base_tech_tree_without_faction(self):
         tree = get_effective_tech_tree(faction=None)
-        assert "1a_medium_weapons" in tree
-        assert "1b_medium_defenses" in tree
-        # Base tree should have generic tier 3-4 (not faction-overridden)
-        assert "3a_advanced_weapons" in tree
-        assert "4a_superweapons" in tree
+        assert "1a_medium_kinetic_turrets" in tree
+        assert "1b_medium_thermal_turrets" in tree
+        # Without faction, all faction nodes are excluded
+        assert "3a_focused_beams" not in tree
+        assert "3a_leech_projectors" not in tree
 
-    def test_solarion_tree_overrides_base_tier3(self):
+    def test_solarion_tree_includes_solarion_nodes(self):
         tree = get_effective_tech_tree(faction="solarion")
-        assert "1a_medium_weapons" in tree  # base techs still present
-        # Tier 3-4 overrides should use Solarion versions
-        assert "3a_advanced_weapons" in tree
-        assert tree["3a_advanced_weapons"]["name"] == "Solarion Advanced Weapons"
-        assert "focused_beam_medium" in tree["3a_advanced_weapons"]["unlocks_modules"]
-        assert "4a_superweapons" in tree
-        assert tree["4a_superweapons"]["name"] == "Solar Lance"
+        assert "1a_medium_kinetic_turrets" in tree  # base techs present
+        # Solarion-specific nodes
+        assert "3a_focused_beams" in tree
+        assert tree["3a_focused_beams"]["name"] == "Focused Beam Weapons"
+        assert "focused_beam_medium" in tree["3a_focused_beams"]["unlocks_modules"]
+        assert "4a_solar_lance" in tree
+        assert tree["4a_solar_lance"]["name"] == "Solar Lance"
+        # Voidborn nodes excluded
+        assert "3a_leech_projectors" not in tree
+        assert "4a_bio_repair_swarm" not in tree
 
-    def test_voidborn_tree_overrides_base_tier3(self):
+    def test_voidborn_tree_includes_voidborn_nodes(self):
         tree = get_effective_tech_tree(faction="voidborn")
-        assert "1a_medium_weapons" in tree
-        # Tier 3-4 overrides should use Voidborn versions
-        assert "3a_advanced_weapons" in tree
-        assert tree["3a_advanced_weapons"]["name"] == "Voidborn Advanced Weapons"
-        assert "light_leech_projector" in tree["3a_advanced_weapons"]["unlocks_modules"]
-        assert "4a_superweapons" in tree
-        assert tree["4a_superweapons"]["name"] == "Bio-Repair Swarm"
+        assert "1a_medium_kinetic_turrets" in tree
+        # Voidborn-specific nodes
+        assert "3a_leech_projectors" in tree
+        assert tree["3a_leech_projectors"]["name"] == "Leech Projectors"
+        assert "light_leech_projector" in tree["3a_leech_projectors"]["unlocks_modules"]
+        assert "4a_bio_repair_swarm" in tree
+        assert tree["4a_bio_repair_swarm"]["name"] == "Bio-Repair Swarm"
+        # Solarion nodes excluded
+        assert "3a_focused_beams" not in tree
+        assert "4a_solar_lance" not in tree
 
-    def test_solarion_tech_tree_overrides_structure(self):
-        """Solarion overrides should have proper tech tree structure."""
-        for tech_id, node in SOLARION_TECH_TREE_OVERRIDES.items():
-            assert "name" in node
-            assert "tier" in node
-            assert "prerequisites" in node
-            assert "unlocks_modules" in node
-            assert "unlocks_ships" in node
-            assert isinstance(node["prerequisites"], list)
+    def test_faction_tech_tree_structure(self):
+        """All faction-specific nodes should have proper tech tree structure."""
+        for faction in ("solarion", "voidborn"):
+            tree = get_effective_tech_tree(faction=faction)
+            for tech_id, node in tree.items():
+                assert "name" in node
+                assert "tier" in node
+                assert "unlocks_modules" in node
+                assert "unlocks_ships" in node
 
-    def test_voidborn_tech_tree_overrides_structure(self):
-        for tech_id, node in VOIDBORN_TECH_TREE_OVERRIDES.items():
-            assert "name" in node
-            assert "tier" in node
-            assert "prerequisites" in node
-            assert "unlocks_modules" in node
-            assert "unlocks_ships" in node
-
-    def test_solarion_overrides_prerequisites_exist_in_base_or_solarion(self):
-        """All prerequisites in Solarion overrides should exist in the combined tree."""
-        tree = get_effective_tech_tree(faction="solarion")
-        for tech_id, node in SOLARION_TECH_TREE_OVERRIDES.items():
-            for prereq in node["prerequisites"]:
-                assert prereq in tree, (
-                    f"Solarion tech {tech_id} has unknown prerequisite: {prereq}"
-                )
-
-    def test_voidborn_overrides_prerequisites_exist_in_base_or_voidborn(self):
-        tree = get_effective_tech_tree(faction="voidborn")
-        for tech_id, node in VOIDBORN_TECH_TREE_OVERRIDES.items():
-            for prereq in node["prerequisites"]:
-                assert prereq in tree, (
-                    f"Voidborn tech {tech_id} has unknown prerequisite: {prereq}"
-                )
+    def test_faction_prerequisites_exist_in_tree(self):
+        """All prerequisites should exist in the effective tree for each faction."""
+        for faction in ("solarion", "voidborn"):
+            tree = get_effective_tech_tree(faction=faction)
+            for tech_id, node in tree.items():
+                for prereq in node.get("prerequisites", []):
+                    assert prereq in tree, (
+                        f"{faction} tech {tech_id} has unknown prerequisite: {prereq}"
+                    )
+                for prereq in node.get("prerequisites_any", []):
+                    assert prereq in tree, (
+                        f"{faction} tech {tech_id} has unknown prerequisites_any: {prereq}"
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -722,18 +713,16 @@ class TestSpawnNewShipWithFaction:
         )
         assert new_ship.name == "My Custom Ship"
 
-    def test_spawn_position_near_builder(self):
+    def test_spawn_docked_in_builder(self):
         builder = make_test_ship(ShipClass.frigate, pos_x=1000.0, pos_y=2000.0, pos_z=3000.0)
         new_ship = spawn_new_ship(
             blueprint=ShipClass.strike_craft,
             builder=builder,
             current_tick=100,
         )
-        dx = new_ship.pos_x - builder.pos_x
-        dy = new_ship.pos_y - builder.pos_y
-        dz = new_ship.pos_z - builder.pos_z
-        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-        assert dist == pytest.approx(100.0, abs=1.0)
+        # New ships spawn docked inside the builder
+        assert new_ship.docked_in_id == builder.id
+        assert new_ship.claimed_by_user_id is None
 
     def test_spawn_has_correct_stats(self):
         builder = make_test_ship(ShipClass.frigate)
@@ -1016,7 +1005,7 @@ class TestTeamDatabaseIntegration:
         rp = ResearchProgress(
             user_id=user.id,
             team_id=team.id,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             ship_id=ship.id,
             module_id=1,
             status="researching",
@@ -1054,13 +1043,13 @@ class TestTeamDatabaseIntegration:
 
         # User1 researches tech A
         rp1 = ResearchProgress(
-            user_id=user1.id, team_id=team.id, tech_id="1a_medium_weapons",
+            user_id=user1.id, team_id=team.id, tech_id="1a_medium_kinetic_turrets",
             ship_id=ship1.id, module_id=1, status="complete",
             ticks_remaining=0, total_ticks=300, ore_cost=500,
         )
         # User2 researches tech B
         rp2 = ResearchProgress(
-            user_id=user2.id, team_id=team.id, tech_id="1b_medium_defenses",
+            user_id=user2.id, team_id=team.id, tech_id="1d_medium_shield_extenders",
             ship_id=ship2.id, module_id=2, status="complete",
             ticks_remaining=0, total_ticks=300, ore_cost=500,
         )
@@ -1076,8 +1065,8 @@ class TestTeamDatabaseIntegration:
         completed = get_completed_tech_ids(team_research)
 
         # Both techs should be visible to the entire team
-        assert "1a_medium_weapons" in completed
-        assert "1b_medium_defenses" in completed
+        assert "1a_medium_kinetic_turrets" in completed
+        assert "1d_medium_shield_extenders" in completed
 
 
 # ---------------------------------------------------------------------------
@@ -1101,26 +1090,31 @@ class TestGatingHelpers:
     def test_gated_module_unlocked_with_research(self):
         """Gated modules should be unlocked with the right tech completed."""
         assert is_module_unlocked(
-            "medium_turret_kinetic", {"1a_medium_weapons"}
+            "medium_turret_kinetic", {"1a_medium_kinetic_turrets"}
         ) is True
 
     def test_base_ship_always_unlocked(self):
         """Non-gated ship classes are always available."""
         assert is_ship_unlocked("strike_craft", set()) is True
-        assert is_ship_unlocked("corvette", set()) is True
-        assert is_ship_unlocked("frigate", set()) is True
+        assert is_ship_unlocked("mothership", set()) is True
+
+    def test_corvette_locked_without_research(self):
+        assert is_ship_unlocked("corvette", set()) is False
+
+    def test_corvette_unlocked_with_research(self):
+        assert is_ship_unlocked("corvette", {"1h_corvette_hull"}) is True
 
     def test_destroyer_locked_without_research(self):
         assert is_ship_unlocked("destroyer", set()) is False
 
     def test_destroyer_unlocked_with_research(self):
-        assert is_ship_unlocked("destroyer", {"1c_destroyer_hull"}) is True
+        assert is_ship_unlocked("destroyer", {"3h_destroyer_hull"}) is True
 
     def test_cruiser_locked_without_research(self):
         assert is_ship_unlocked("cruiser", set()) is False
 
     def test_cruiser_unlocked_with_research(self):
-        assert is_ship_unlocked("cruiser", {"2c_cruiser_hull"}) is True
+        assert is_ship_unlocked("cruiser", {"4h_cruiser_hull"}) is True
 
 
 # ---------------------------------------------------------------------------
@@ -1281,7 +1275,7 @@ class TestResearchStartWithTeam:
 
         rp = await start_research(
             db_session, ship, module,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             user_id=user.id,
             team_id=team.id,
             faction="solarion",
@@ -1321,7 +1315,7 @@ class TestResearchStartWithTeam:
 
         await start_research(
             db_session, ship, module,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             user_id=user.id,
             team_id=team.id,
         )
@@ -1353,7 +1347,7 @@ class TestResearchStartWithTeam:
 
         await start_research(
             db_session, ship, mod1,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             user_id=user.id,
         )
         await db_session.commit()
@@ -1361,7 +1355,7 @@ class TestResearchStartWithTeam:
         with pytest.raises(ValueError, match="[Aa]lready"):
             await start_research(
                 db_session, ship, mod2,
-                tech_id="1a_medium_weapons",
+                tech_id="1a_medium_kinetic_turrets",
                 user_id=user.id,
             )
 
@@ -1387,7 +1381,7 @@ class TestResearchStartWithTeam:
         with pytest.raises(ValueError, match="[Ii]nsufficient ore"):
             await start_research(
                 db_session, ship, module,
-                tech_id="1a_medium_weapons",
+                tech_id="1a_medium_kinetic_turrets",
                 user_id=user.id,
             )
 
@@ -1418,7 +1412,7 @@ class TestResearchStartWithTeam:
         # First research the prerequisite
         rp1 = await start_research(
             db_session, ship, module,
-            tech_id="1a_medium_weapons",
+            tech_id="1a_medium_kinetic_turrets",
             user_id=user.id,
             team_id=team.id,
             faction="solarion",
@@ -1437,7 +1431,7 @@ class TestResearchStartWithTeam:
         # Now research tier 2 prereq
         rp2 = await start_research(
             db_session, ship, module2,
-            tech_id="2a_large_weapons",
+            tech_id="2a_large_kinetic_turrets",
             user_id=user.id,
             team_id=team.id,
             faction="solarion",
@@ -1453,15 +1447,15 @@ class TestResearchStartWithTeam:
         await db_session.flush()
         await db_session.refresh(ship, attribute_names=["modules"])
 
-        # Now research the solarion-overridden tier 3 tech
+        # Now research the solarion tier 3 tech
         rp3 = await start_research(
             db_session, ship, module3,
-            tech_id="3a_advanced_weapons",
+            tech_id="3a_focused_beams",
             user_id=user.id,
             team_id=team.id,
             faction="solarion",
         )
-        assert rp3.tech_id == "3a_advanced_weapons"
+        assert rp3.tech_id == "3a_focused_beams"
         assert rp3.status == "researching"
 
     @pytest.mark.asyncio
@@ -1486,7 +1480,7 @@ class TestResearchStartWithTeam:
         with pytest.raises(ValueError, match="not a research module"):
             await start_research(
                 db_session, ship, module,
-                tech_id="1a_medium_weapons",
+                tech_id="1a_medium_kinetic_turrets",
                 user_id=user.id,
             )
 

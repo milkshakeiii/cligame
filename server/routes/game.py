@@ -15,7 +15,7 @@ from sqlmodel import select
 
 from server.auth import get_current_user
 from server.database import get_session
-from server.models import Event, EventType, GameState, User
+from server.models import Event, EventType, GameState, HULL_POINT_COSTS, MODULE_POINT_COSTS, User
 
 router = APIRouter(prefix="/api", tags=["game"])
 
@@ -128,3 +128,9 @@ async def get_events(
         )
         for e in events
     ]
+
+
+@router.get("/loadout/costs")
+async def loadout_costs():
+    """Return hull and module point costs (no auth required)."""
+    return {"hull_costs": HULL_POINT_COSTS, "module_costs": MODULE_POINT_COSTS}

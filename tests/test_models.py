@@ -336,23 +336,20 @@ class TestSpaceshipHelpers:
 
 
 class TestSpawnNewShip:
-    def test_spawns_near_builder(self):
+    def test_spawns_docked_in_builder(self):
         builder = make_test_ship(ShipClass.frigate, pos_x=1000.0, pos_y=2000.0, pos_z=3000.0)
         new_ship = spawn_new_ship(ShipClass.strike_craft, builder, current_tick=0)
-        dist = math.sqrt(
-            (new_ship.pos_x - builder.pos_x) ** 2
-            + (new_ship.pos_y - builder.pos_y) ** 2
-            + (new_ship.pos_z - builder.pos_z) ** 2
-        )
-        # Should be exactly 100m away
-        assert dist == pytest.approx(100.0, rel=1e-5)
+        # New ships spawn docked inside the builder
+        assert new_ship.docked_in_id == builder.id
+        assert new_ship.claimed_by_user_id is None
 
-    def test_inherits_builder_velocity(self):
+    def test_docked_ship_has_zero_velocity(self):
         builder = make_test_ship(ShipClass.frigate, vel_x=50.0, vel_y=10.0, vel_z=0.0)
         new_ship = spawn_new_ship(ShipClass.strike_craft, builder, current_tick=0)
-        assert new_ship.vel_x == pytest.approx(50.0)
-        assert new_ship.vel_y == pytest.approx(10.0)
-        assert new_ship.vel_z == pytest.approx(0.0)
+        # Docked ships have zero velocity
+        assert new_ship.vel_x == 0.0
+        assert new_ship.vel_y == 0.0
+        assert new_ship.vel_z == 0.0
 
     def test_new_ship_has_correct_class(self):
         builder = make_test_ship(ShipClass.frigate)

@@ -62,10 +62,10 @@ async def handle_start_match(ctx: TickContext, cmd: Command) -> None:
 
     # Create motherships
     ms1 = await create_match_mothership(
-        ctx.session, team1, (-800_000.0, 0.0, 0.0), match.id, current_tick,
+        ctx.session, team1, (-100_000.0, 0.0, 0.0), match.id, current_tick,
     )
     ms2 = await create_match_mothership(
-        ctx.session, team2, (800_000.0, 0.0, 0.0), match.id, current_tick,
+        ctx.session, team2, (100_000.0, 0.0, 0.0), match.id, current_tick,
     )
 
     match.status = MatchStatus.active.value

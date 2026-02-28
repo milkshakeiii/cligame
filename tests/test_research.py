@@ -83,23 +83,22 @@ class TestGatingHelpers:
         assert not is_module_unlocked("medium_turret_kinetic", set())
 
     def test_gated_module_unlocked_with_research(self):
-        assert is_module_unlocked("medium_turret_kinetic", {"1a_medium_weapons"})
+        assert is_module_unlocked("medium_turret_kinetic", {"1a_medium_kinetic_turrets"})
 
     def test_starter_ship_always_unlocked(self):
-        assert is_ship_unlocked("frigate", set())
         assert is_ship_unlocked("strike_craft", set())
 
     def test_destroyer_locked_without_research(self):
         assert not is_ship_unlocked("destroyer", set())
 
     def test_destroyer_unlocked_with_research(self):
-        assert is_ship_unlocked("destroyer", {"1c_destroyer_hull"})
+        assert is_ship_unlocked("destroyer", {"3h_destroyer_hull"})
 
     def test_cruiser_locked_without_research(self):
         assert not is_ship_unlocked("cruiser", set())
 
     def test_cruiser_unlocked_with_research(self):
-        assert is_ship_unlocked("cruiser", {"2c_cruiser_hull"})
+        assert is_ship_unlocked("cruiser", {"4h_cruiser_hull"})
 
 
 # ---------------------------------------------------------------------------
@@ -109,25 +108,25 @@ class TestGatingHelpers:
 
 class TestPrerequisites:
     def test_tier1_no_prereqs(self):
-        assert check_prerequisites("1a_medium_weapons", set()) is None
+        assert check_prerequisites("1a_medium_kinetic_turrets", set()) is None
 
     def test_tier2_needs_tier1(self):
-        error = check_prerequisites("2a_large_weapons", set())
+        error = check_prerequisites("2a_large_kinetic_turrets", set())
         assert error is not None
-        assert "Medium Weapons" in error
+        assert "Medium Kinetic Turrets" in error
 
     def test_tier2_ok_with_tier1(self):
-        assert check_prerequisites("2a_large_weapons", {"1a_medium_weapons"}) is None
+        assert check_prerequisites("2a_large_kinetic_turrets", {"1a_medium_kinetic_turrets"}) is None
 
-    def test_fortress_needs_two_prereqs(self):
-        """4b_fortress requires both 3b_advanced_defenses and 3c_capital_systems."""
-        error = check_prerequisites("4b_fortress", {"3b_advanced_defenses"})
+    def test_fortress_needs_prereq(self):
+        """4b_fortress requires 2k_enhanced_docking."""
+        error = check_prerequisites("4b_fortress", set())
         assert error is not None
-        assert "Capital Systems" in error
+        assert "Enhanced Docking" in error
 
         assert check_prerequisites(
             "4b_fortress",
-            {"3b_advanced_defenses", "3c_capital_systems"},
+            {"2k_enhanced_docking"},
         ) is None
 
 
@@ -165,7 +164,11 @@ class TestResearchAPIRead:
         )
         assert resp.status_code == 200
         tree = resp.json()
-        assert len(tree) == len(TECH_TREE)
+        # User has no team/faction, so faction-specific nodes are excluded
+        non_faction_count = sum(
+            1 for n in TECH_TREE.values() if "faction" not in n
+        )
+        assert len(tree) == non_faction_count
 
         # All tier 1 nodes should be "available" since they have no prerequisites
         tier1_nodes = [n for n in tree if n["tier"] == 1]

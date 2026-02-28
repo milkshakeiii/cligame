@@ -35,7 +35,14 @@ def save_token(token: str) -> None:
 
 
 def load_token() -> Optional[str]:
-    """Return the stored token, or None if the file doesn't exist."""
+    """Return the stored token, or None if the file doesn't exist.
+
+    Checks the SPACEGAME_TOKEN environment variable first, then falls
+    back to the on-disk token file.
+    """
+    env_token = os.environ.get("SPACEGAME_TOKEN")
+    if env_token:
+        return env_token
     if TOKEN_FILE.exists():
         return TOKEN_FILE.read_text().strip() or None
     return None
@@ -337,23 +344,20 @@ class SpaceGameClient:
         return self._request("GET", "/api/research/tech-tree")
 
     # ------------------------------------------------------------------
-    # Autopilot (Phase 6)
+    # Loadout (claim/reship)
     # ------------------------------------------------------------------
 
-    def assume_command(self, ship_id: int) -> dict:
-        """Assume manual control of a ship (command)."""
-        return self.send_command("assume_control", ship_id=ship_id)
+    def claim_ship(self, ship_id: int, modules: list[dict]) -> dict:
+        """Claim an unclaimed hull with modules (command)."""
+        return self.send_command("claim_ship", ship_id=ship_id, modules=modules)
 
-    def release_command(self, ship_id: int, profile: Optional[str] = None) -> dict:
-        """Release a ship to autopilot (command)."""
-        payload: dict = {}
-        if profile is not None:
-            payload["profile"] = profile
-        return self.send_command("release_to_autopilot", ship_id=ship_id, **payload)
+    def reship(self, ship_id: int) -> dict:
+        """Dock and reship — strip modules, get partial point refund (command)."""
+        return self.send_command("reship", ship_id=ship_id)
 
-    def set_autopilot_profile(self, ship_id: int, profile: str) -> dict:
-        """Set autopilot profile (command)."""
-        return self.send_command("set_autopilot_profile", ship_id=ship_id, profile=profile)
+    def get_loadout_costs(self) -> dict:
+        """GET /api/loadout/costs — hull and module point costs."""
+        return self._request("GET", "/api/loadout/costs")
 
     # ------------------------------------------------------------------
     # Teams (Phase 7)
