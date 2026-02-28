@@ -15,19 +15,25 @@ Login/Register
       |
   Match Lobby -----> Match (in-game)
       |                    |
-      |              [Ship View] <---> [Commander View]
+      |              [Loadout Screen] -----> [Ship View]
+      |                    ^                      |
+      |                    |  (death/reship)       |
+      |                    +----------------------+
+      |                    |
+      |              [Commander View] (accessible from Loadout or Ship View)
       |                    |
       |              Post-Match Summary
       |                    |
       +--------------------+
 ```
 
-There are two top-level modes once in a match:
+There are three key screens once in a match:
 
-1. **Ship View** — First-person piloting of your controlled ship (EVE-style). All commands (fitting, movement, combat, mining) are issued as this ship.
-2. **Commander View** — Top-down tactical overview of the battlefield (Savage/NS-style). Read-only situational awareness plus build/research management for the mothership.
+1. **Loadout Screen** — Choose a hull, fit modules, spend points, launch (Savage/NS spawn screen). Shown on match start, after death, and when reshipping.
+2. **Ship View** — First-person piloting of your ship (EVE-style). All commands (movement, combat, mining, module activation) are issued from here.
+3. **Commander View** — Top-down tactical overview of the battlefield (Savage/NS-style). Team-shared situational awareness plus build/research management.
 
-Players can switch freely between them. Ship View is the default. Commander View is available to any team member for situational awareness, but you can only issue commands as your currently controlled ship. To control a different ship, you must explicitly **Assume Control** of it (which releases autopilot on your previous ship).
+There is **no autopilot**. Every ship in space has a human pilot. A player controls exactly one ship at a time. To switch ships, you must **dock and reship** (which strips your old ship and returns 75% of your points).
 
 ---
 
@@ -96,6 +102,10 @@ Inspired by EVE's circular capacitor display.
 - Small directional arrow showing heading relative to camera
 - Optional: "speedometer needle" arc around the top of the cap ring, with max_speed as the limit
 
+**Points Display:**
+- Small readout near the cap ring or in a corner: `1,240 pts`
+- Inline "+X pts" popups that float up and fade when points are earned ("+10 pts mining", "+100 pts kill")
+
 **Active Order Badge:**
 - Small text label below the HUD: "Approaching Target" / "Orbiting at 5km" / "Mining" / "Docked" / "Stopped"
 
@@ -118,10 +128,13 @@ Horizontal strip of module buttons. Each module the active ship has installed ge
 
 **Grouping:**
 - Modules are grouped visually by role:
-  - Weapons (turrets, missiles, leeches, lance) — left section
-  - Utility (mining laser, scanner, passive detector, stealth field) — center section
+  - Weapons (turrets, missiles, leeches, lance, starter turret) — left section
+  - Utility (mining laser, starter mining laser, scanner, passive detector, starter passive detector, stealth field) — center section
   - Defense (shield booster, armor repairer, hardeners, shield purge) — right section
-  - Passive modules (engine, reactor, cargo, docking bay, factory, dropoff, plates, extenders, membranes) — not shown in rack (they have no activation), but visible in fitting screen
+  - Passive modules (engine, reactor, cargo, docking bay, factory, dropoff, plates, extenders, membranes) — not shown in rack (they have no activation), but visible in the loadout screen
+
+**Starter module visual distinction:**
+- Starter modules (starter turret, starter mining laser, starter shield extender, starter armor plate, starter passive detector) should have a dimmer or desaturated icon style to visually communicate they are weaker free-tier equipment
 
 ### 2.4 Target Bar (Top)
 
@@ -144,7 +157,7 @@ Horizontal row of locked target cards. Max cards = max locks for the ship class.
 
 ### 2.5 Overview (Right Panel)
 
-Scrollable, sortable table of all objects the player can see (subject to fog of war / detection levels).
+Scrollable, sortable table of all objects the player can see. **Visibility is team-shared** — you see everything any teammate's ship can detect (all team ships' passive detectors and scanners contribute to a shared picture).
 
 **Columns:**
 | Column | Description |
@@ -230,8 +243,12 @@ Scrolling event log, similar to EVE's notification area. Shows recent events fro
 - `cap_depleted`: red pulse — "Capacitor depleted! Modules offline"
 - `match_started`: gold — "Match begun!"
 - `mothership_under_attack`: red pulse with klaxon icon — "Mothership under attack!"
+- `points_earned`: small green — "+10 pts (mining)" / "+100 pts (kill: Strike Craft)"
+- `reship_complete`: blue — "Reshipped, refunded 506 pts"
+- `claim_ship`: green — "Claimed Corvette, spent 675 pts"
+- `research_complete`: teal — "Research complete: Medium Kinetic Turrets"
 
-Max visible: ~8 most recent. Click to expand full log.
+Max visible: ~8 most recent. Click to expand full log. Points notifications are smaller/subtler than combat alerts to avoid noise.
 
 ### 2.8 3D Viewport
 
@@ -262,7 +279,7 @@ The main view. Camera is positioned behind and above the active ship, looking fo
 
 ## 3. Commander View (Savage/NS-Style)
 
-Top-down tactical map. Available to all team members. Primarily a **situational awareness** tool — you can see where everything is, manage mothership build/research queues, and choose which ship to assume control of. You cannot issue movement or combat orders from this view to ships you don't control.
+Top-down tactical map. Available to all team members (accessible from Loadout Screen or Ship View via `M` key). Primarily a **situational awareness** tool — you can see where all team ships are, monitor the build queue, manage research, and observe enemy contacts. **Visibility is team-shared**: the map shows everything any teammate's ship can detect. You cannot issue movement or combat orders from this view.
 
 ### 3.1 Layout
 
@@ -284,7 +301,7 @@ Top-down tactical map. Available to all team members. Primarily a **situational 
 |  |   SC "G"   |                                     |             | |
 |  +-------------+                                     +-------------+ |
 |                                                                      |
-|  [Filter: All ▼]  Controlling: Corvette "Herald-3"  [Assume Ctrl ▼]  |
+|  [Filter: All ▼]  Your ship: Corvette "Herald-3"  [Back to Ship ▶]   |
 +----------------------------------------------------------------------+
 ```
 
@@ -301,12 +318,11 @@ Top-down tactical map. Available to all team members. Primarily a **situational 
 - Fog of war: area outside passive detection range is dimmed
 
 **Interaction:**
-- Click ship: select it, show details in side panel
-- Double-click friendly ship: Assume Control of that ship (switches to Ship View)
-- Right-click friendly ship: context menu — "Assume Control", "Show Info"
+- Click ship/asteroid/enemy: select it, show details in side panel
 - Mouse wheel: zoom in/out
 - Middle-click drag: pan
-- Click asteroid/enemy: select for info display only (no orders — you'd need to assume control of a ship and issue orders from Ship View)
+- Double-click your own ship: switch to Ship View (camera snaps to it)
+- All objects are view-only — no orders can be issued from the map
 
 **Map markers (like NS's commander pings):**
 - Ctrl+click: place a ping marker visible to all team members (with text label)
@@ -317,16 +333,17 @@ Top-down tactical map. Available to all team members. Primarily a **situational 
 All ships owned by the team, grouped by status.
 
 **Groups:**
-- **Active** — Ships in space, sorted by class descending (mothership first)
-- **Docked** — Ships inside other ships
+- **Active** — Piloted ships in space, sorted by class descending (mothership first). Shows pilot name.
+- **Unclaimed** — Built hulls sitting docked with no pilot. Available for claiming on the Loadout Screen.
 - **Building** — Ships currently being constructed (with progress bar)
 
 **Per-ship entry:**
 - Name + class icon
-- HP mini-bars (shield/armor)
+- Pilot name (or "Unclaimed" in gray)
+- HP mini-bars (shield/armor) for active ships
 - Status icon: idle ⏸, moving →, mining ⛏, fighting ⚔, docked ⚓
-- Highlight on your currently controlled ship (bold / green border)
-- Double-click: **Assume Control** of that ship — your previous ship is released to autopilot, and you switch to Ship View piloting the new one
+- Highlight on your own ship (bold / green border)
+- Double-click your own ship: switch to Ship View (camera snaps to it)
 
 ### 3.4 Build Panel (Right Panel, Build Tab)
 
@@ -360,90 +377,154 @@ Build Queue:
 
 ### 3.5 Tech Panel (Right Panel, Tech Tab)
 
-Research tree visualization. Inspired by Natural Selection's research menu.
+Research tree visualization. Inspired by Natural Selection's research menu. The tree is **wide** (10+ nodes per tier) to support teams of 5+ players researching in parallel.
 
 ```
-+--Research Tree------------------------------------------+
-|                                                         |
-|  TIER 1                                                 |
-|  [Medium Weapons ✓] ──► [Large Weapons 🔬 67%]         |
-|  [Medium Defense ✓] ──► [Large Defense]                 |
-|  [Destroyer Hull ✓]     [Cruiser Hull] ──────────┐     |
-|                                                   │     |
-|  TIER 3 (Solarion)                               │     |
-|  [Focused Beams] ◄── requires Large Weapons      │     |
-|  [Reactive Membranes] ◄── requires Large Defense  │     |
-|                                                   │     |
-|  TIER 4                                          │     |
-|  [Solar Lance] ◄─────────────────────────────────┘     |
-|                                                         |
-|  Selected: Large Weapons                                |
-|  Cost: 2,000 ore  |  Time: 15:00                        |
-|  Unlocks: Large Kinetic Turret, Large Thermal Turret    |
-|  Prerequisite: Medium Weapons ✓                         |
-|  [Research]                                             |
-+---------------------------------------------------------+
++--Research Tree--------------------------------------------------+
+|  TIER 1 (5 min each, 500 ore)              HULL (pooled)        |
+|  [Med Kinetic ✓] [Med Thermal 🔬 40%]      [Corvette ████░ 72%] |
+|  [Heavy Msls   ] [Med Sh Ext ✓]            (3 researchers)      |
+|  [Med Sh Hard  ] [Med Sh Boost ✓]                               |
+|  [Med Ar Plate ] [Med Ar Hard  ]                                |
+|  [Med Ar Repr  ] [Adv Mining   ]                                |
+|                                                                  |
+|  TIER 2 (15 min, 2000 ore)                 HULL (pooled)        |
+|  [Lrg Kinetic ←1a] [Lrg Thermal ←1b]      [Frigate]            |
+|  [Torpedoes ←1c  ] [Lrg Sh Ext ←1d ]      req: Corvette Hull   |
+|  [Lrg Sh Hard←1e ] [Lrg Sh Boost←1f]                           |
+|  ... (11 nodes total)                                            |
+|                                                                  |
+|  TIER 3 (30 min, 8000 ore, faction)        HULL (pooled)        |
+|  Solarion:            Voidborn:            [Destroyer]           |
+|    [Focused Beams]      [Leech Proj.]      req: Frigate Hull     |
+|    [Reactive Armor]     [Phase Shields]                          |
+|    [Armor Nexus]        [Stealth Fields]                         |
+|                                                                  |
+|  TIER 4 (60 min, 25000 ore)               HULL (pooled)        |
+|    [Solar Lance]        [Bio Swarm]        [Cruiser]            |
+|                   [Fortress]               req: Destroyer Hull   |
+|                                                                  |
+|  Selected: Medium Thermal Turrets  🔬 In Progress               |
+|  Researcher: player_name  |  Progress: 40% (120/300 ticks)      |
+|  Cost: 500 ore  |  Unlocks: medium_turret_thermal               |
+|  Prerequisite: none                                              |
++-----------------------------------------------------------------+
 ```
+
+**Two types of research nodes:**
+
+1. **Module research (non-duplicable):** Only one player can research a given module tech at a time. Shows which player is researching it. Other players must pick a different branch.
+2. **Hull research (duplicable, pooled):** Multiple players can research the same hull tech simultaneously. Their ticks are pooled toward a shared progress bar. Shows researcher count.
 
 **Node states:**
 - Locked (gray, prerequisites not met)
 - Available (white, can be researched)
-- In Progress (animated, percentage bar)
+- In Progress (animated, percentage bar + researcher name/count)
+- Claimed by another player (orange border, shows who — cannot be started by you)
 - Complete (green checkmark)
 
 **Interaction:**
-- Click node to see details
+- Click node to see details (cost, prerequisites, what it unlocks, who is researching)
 - Click "Research" to start (enqueues command, costs ore immediately)
-- Only one research active at a time per team
+- A player needs a **research module** installed on their ship to research
+- Multiple research nodes can be active across the team simultaneously (one per player)
 
 ---
 
-## 4. Fitting Panel (Ship View Overlay)
+## 4. Loadout Screen
 
-Opened via `Alt+F` hotkey or a button in the Ship HUD. This is a **Ship View overlay**, not part of Commander View — it always shows your currently controlled ship's fitting.
+Shown when entering a match, after death, or when reshipping. This is where you pick a hull, fit modules, and spend points. Inspired by Natural Selection's spawn menu — you configure your ship and launch.
 
-Closely modeled on EVE's fitting window.
+### 4.1 Layout
 
 ```
-+--Fitting: Corvette "Herald-3"---------------------------+
-|                                                          |
-|  Volume: 2,000 m^3 total                                |
-|  Used:   1,600 m^3  [████████████████░░░░]  80%         |
-|  Free:     400 m^3                                       |
-|                                                          |
-|  Installed Modules:                                      |
-|  +-----------+--------+-----------+-------+              |
-|  | Type      | Volume | Cap/Cycle | Cycle |              |
-|  +-----------+--------+-----------+-------+              |
-|  | Engine    | 600    | --        | --    |  [Uninstall] |
-|  | Reactor   | 400    | --        | --    |  [Uninstall] |
-|  | Cargo Bay | 300    | --        | --    |  [Uninstall] |
-|  | Mining L. | 200    | 50        | 10s   |  [Uninstall] |
-|  | Pass. Det | 100    | 5         | 5s    |  [Uninstall] |
-|  +-----------+--------+-----------+-------+              |
-|                                                          |
-|  Derived Stats:                                          |
-|  Max Speed: 250 m/s  |  Capacitor: 2,200                |
-|  Cargo Cap: 300 ore  |  Dock Cap: -- m^3                 |
-|  Shield: 360 HP      |  Armor: 510 HP                   |
-|                                                          |
-|  +--Add Module--+                                        |
-|  | Type: [Engine      ▼]                                 |
-|  | Volume: [____] m^3   (min 1, max 400)                 |
-|  |                       [Install]                       |
-|  +------------------+                                    |
-+---------------------------------------------------------+
++--Loadout Screen---------------------------------------------------------+
+|  Your Points: 1,240                                     [Commander View] |
++-------------------------------------------------------------------------+
+|                                                                          |
+|  +--Select Hull---------+  +--Fit Modules---------------------------+   |
+|  |                       |  |                                        |   |
+|  | Available Hulls:      |  |  Corvette "Herald" (2,000 m^3)        |   |
+|  |                       |  |  Hull cost: 500 pts                    |   |
+|  | Strike Craft    0 pts |  |                                        |   |
+|  |   (free, auto-create)|  |  Volume: [████████████░░░░░░] 65%      |   |
+|  | Corvette      500 pts |  |  Used: 1,300 m^3  |  Free: 700 m^3    |   |
+|  |   #14 (unclaimed)    |  |                                        |   |
+|  | Frigate     2,000 pts |  |  Modules:                              |   |
+|  |   (none available)   |  |  + Engine        600 m^3    0 pts  [x] |   |
+|  |                       |  |  + Reactor       400 m^3    0 pts  [x] |   |
+|  | Spawn at:             |  |  + Sm Turret K    50 m^3   50 pts  [x] |   |
+|  | (*) Mothership        |  |  + Sm Turret K    50 m^3   50 pts  [x] |   |
+|  | ( ) Cruiser "Beta"   |  |  + Sm Shield Ext  50 m^3   25 pts  [x] |   |
+|  |                       |  |  + Starter PD     10 m^3    0 pts  [x] |   |
+|  +---+-------------------+  |  + Mining Laser  200 m^3    0 pts  [x] |   |
+|      |                      |                                        |   |
+|      |                      |  [+ Add Module]                        |   |
+|      |                      |                                        |   |
+|      |                      |  Derived Stats:                        |   |
+|      |                      |  Speed: 250 m/s  Cap: 2,200  Cargo: 0  |   |
+|      |                      |  Shield: 45 HP   Armor: 510 HP         |   |
+|      |                      +----------------------------------------+   |
+|                                                                          |
+|  +--Cost Summary--------------------------------------------------------+|
+|  | Hull: 500  +  Modules: 125  =  Total: 625 pts                        ||
+|  | Remaining after launch: 615 pts                                       ||
+|  +----------------------------------------------------------------------+|
+|                                                                          |
+|                    [◀ Launch ▶]                                           |
++-------------------------------------------------------------------------+
 ```
 
-**Features:**
-- Always shows your **controlled ship** — no ship selector
-- Volume bar showing used/free
-- Module list with uninstall buttons
-- Derived stats update live as modules are added/removed
-- Add Module form: dropdown for type, volume input for variable modules
-- Modules gated by research are shown but grayed with "Requires: [tech name]"
-- Faction-exclusive modules only appear for the correct faction
-- To fit a different ship, you must first Assume Control of it
+### 4.2 Hull Selection (Left Panel)
+
+**Sources of hulls:**
+1. **Free hull classes** (strike craft): Can be auto-created on demand. No need to pre-build. Shown with "(free, auto-create)" label. Always available.
+2. **Unclaimed built hulls**: Ships built by the mothership's factory that haven't been claimed by a pilot. Shown by name and ID.
+3. **Hull classes with no available hulls**: Shown grayed out with "(none available)" — tells the player what to ask the builder to produce.
+
+**Hull point costs** are shown next to each option. Hulls the player can't afford are grayed out with the cost in red.
+
+**Spawn location selector**: If multiple team ships have factories (mothership + a cruiser), player chooses which one to spawn at.
+
+### 4.3 Module Fitting (Right Panel)
+
+After selecting a hull, the player fits modules. This is where points are spent (in addition to the hull cost).
+
+**Module list with "Add Module" button:**
+- Dropdown to pick module type, volume input for variable-volume modules
+- Each module shows: type, volume, point cost
+- [x] button to remove a module
+- **Free modules (0 pts)**: engines, reactors, cargo bays, docking bays, dropoff, factory, mining laser, all starter modules. Always available.
+- **Small modules (25-100 pts)**: Available from match start, no research needed.
+- **Medium/Large/Faction modules**: Only shown if unlocked by team research. Locked modules shown grayed with "Requires: [tech name]".
+- **Volume bar** updates live as modules are added/removed.
+- **Derived stats** (speed, cap, shield, armor, cargo) update live.
+
+**Key UX detail**: Points are **not spent until launch**. The player can freely add/remove modules, switch hulls, and experiment. The cost summary updates in real-time. Only clicking "Launch" deducts points.
+
+### 4.4 Cost Summary & Launch
+
+- Shows hull cost + total module cost = total loadout cost
+- Shows remaining points after launch
+- **Launch button**: large, prominent. Deducts points, undocks the ship, switches to Ship View.
+- If the player can't afford the loadout, the Launch button is disabled with "Not enough points (need X more)"
+- Builder kickback: when a player claims a hull built by a teammate, the builder receives 50% of the hull's point cost
+
+### 4.5 Reshipping
+
+From Ship View, a player can dock at any team factory and choose to **reship**:
+1. Ship docks at the factory
+2. "Reship" button appears in the HUD (or a prompt: "Docked at factory. [Reship] [Stay]")
+3. Clicking Reship: old ship is stripped (modules removed, hull becomes unclaimed), player receives **75% refund** of the points they spent on that loadout
+4. Player is returned to the Loadout Screen to pick a new ship
+
+### 4.6 Disconnection
+
+If a player disconnects:
+- **60-second grace period**: Ship continues on last trajectory
+- After grace period: Ship attempts to auto-dock at nearest team factory
+- If docking fails: Ship stops and becomes vulnerable (sitting duck)
+- Reconnecting player resumes control (if ship survived) or goes to Loadout Screen (if destroyed)
 
 ---
 
@@ -501,35 +582,11 @@ Closely modeled on EVE's fitting window.
 +----------------------------------+
 ```
 
-### 5.4 Pre-Match / Spawn Screen
+### 5.4 Match Start
 
-After the match starts, before the player has an active ship, or when all their ships are destroyed, they see a spawn screen (Natural Selection-style):
+When a match begins, all players are sent to the **Loadout Screen** (Section 4). From there they can also open Commander View to observe the battlefield while choosing their loadout.
 
-```
-+--Deploy Ship---------------------------------------------+
-|                                                           |
-|  Your mothership's docking bay contains:                  |
-|                                                           |
-|  [Strike Craft "Alpha-1"]  ← Deploy (undock + assume control) |
-|    Engine 30m^3, Mining Laser, Passive Det.                   |
-|                                                               |
-|  [Corvette "Bravo-2"]     ← Deploy (undock + assume control) |
-|    Engine 600m^3, Reactor 400m^3, Scanner, 2x Turret          |
-|                                                               |
-|  [Strike Craft (empty)]   ← Deploy, then fit via Alt+F       |
-|                                                           |
-|  Or build new:                                            |
-|  [Build Strike Craft — 200 ore, 2:00]                     |
-|  [Build Corvette — 1500 ore, 8:00]                        |
-|                                                           |
-|  ─────────────────────────────                            |
-|  While waiting, you can:                                  |
-|  [Watch Match (Spectator Cam)]                            |
-|  [Open Commander View]                                    |
-+-----------------------------------------------------------+
-```
-
-**Deploy = Undock** from mothership. The selected ship launches from the mothership and the player enters Ship View controlling it.
+New players joining mid-match also land on the Loadout Screen.
 
 ---
 
@@ -555,31 +612,40 @@ After the match starts, before the player has an active ship, or when all their 
 5. Damage appears as HP bar changes on target card
 6. Incoming damage shown via alerts + own HP bars dropping
 7. Player manages cap: toggling hardeners, shield boosters, armor repairers as needed
-8. Ship destroyed -> explosion animation, wreck appears, player goes to spawn screen
+8. Ship destroyed -> explosion animation, wreck appears, player goes to Loadout Screen (points spent on that loadout are lost, unspent points remain)
 
-### 6.3 Build + Deploy Flow (Savage-style)
+### 6.3 Build + Claim Flow (Savage-style)
 
-1. Open Commander View or access Build Panel while controlling the mothership
-2. Click blueprint -> see cost/time -> click "Build"
-3. Build enters queue, mothership's factory drains cap each tick
-4. Build complete -> new ship spawns adjacent to mothership (100m away)
-5. Ship appears in Ship List as "Active" with no modules
-6. **Assume Control** of the new ship (double-click in Ship List, or from Spawn Screen if docked)
-7. Open Fitting Panel (`Alt+F`) — now shows the new ship — install modules
-8. Pilot the ship or release to autopilot and assume control of another ship
+1. Mothership pilot (or anyone controlling a ship with a factory) opens Build Panel
+2. Click blueprint -> see ore cost/time -> click "Build"
+3. Build enters queue, factory drains cap each tick
+4. Build complete -> new hull docked inside the factory ship, marked **unclaimed**
+5. Hull appears in Ship List under "Unclaimed" and on all teammates' Loadout Screens
+6. Any teammate who is dead or wants to reship can **claim** the hull from their Loadout Screen
+7. The claiming player fits modules (spending points), clicks Launch, and undocks
 
-### 6.4 Switching Ships (Assume Control)
+**Free hulls (strike craft)**: Don't need to be pre-built. Any player can auto-create one from the Loadout Screen at no ore cost.
 
-You always have exactly one **controlled ship**. All commands you issue (movement, modules, fitting, combat) act on that ship. To control a different ship:
+### 6.4 Death & Respawn
 
-- From Ship View: click a friendly ship in Overview -> "Assume Control" button in Selected Item panel
-- From Commander View: double-click a friendly ship in Ship List or on the Tactical Map
-- From Spawn Screen: click a docked ship to deploy (undock + assume control)
-- Hotkey: `Ctrl+Tab` cycles through your team's ships, assuming control of each
+1. Ship destroyed -> explosion animation, wreck appears
+2. Points spent on that loadout are **lost** (the ship is gone)
+3. Player's accumulated unspent points are intact
+4. Player is sent to the **Loadout Screen** immediately
+5. Pick a new hull + modules and launch (or open Commander View while deciding)
+6. If no team factories exist, player cannot respawn — remaining pilots fight on alone
 
-When you assume control of a new ship, your **previous ship is released to its autopilot profile** (mining, combat_defensive, etc. depending on class). If the ship has no autopilot profile set, it stops.
+### 6.5 Reshipping (Switching Ships)
 
-### 6.5 Surrender Flow
+There is no "Assume Control" — every ship has exactly one pilot. To switch ships:
+
+1. Dock your current ship at a team factory
+2. Click "Reship" in the docking prompt
+3. Old ship is stripped (modules removed, hull becomes unclaimed, available for teammates)
+4. Player receives **75% refund** of points spent on that loadout
+5. Player goes to Loadout Screen to pick and fit a new ship
+
+### 6.6 Surrender Flow
 
 - Any team member can vote to surrender from the match menu
 - A notification appears to all team members: "Player X voted to surrender (1/3 needed)"
@@ -594,7 +660,6 @@ When you assume control of a new ship, your **previous ship is released to its a
 | `F1-F8` | Activate/deactivate module in slot 1-8 |
 | `Ctrl+F1-F8` | Overload module (future) |
 | `Tab` | Cycle through locked targets |
-| `Ctrl+Tab` | Assume Control of next team ship |
 | `D` | Dock with selected target |
 | `A` | Approach selected target |
 | `W` | Orbit selected target (default radius) |
@@ -607,7 +672,6 @@ When you assume control of a new ship, your **previous ship is released to its a
 | `H` | Hold fire (deactivate all weapons) |
 | `M` | Open Commander View |
 | `Escape` | Back to Ship View / Close panel |
-| `Alt+F` | Open Fitting panel for controlled ship |
 | `Alt+S` | Open Scanner results |
 | `F5` | Force refresh view |
 
@@ -615,7 +679,7 @@ When you assume control of a new ship, your **previous ship is released to its a
 
 ## 8. Information & Fog of War
 
-The GUI must respect the detection/scanning intel system. What the player sees depends entirely on the intel level reported by `GET /api/view`.
+The GUI must respect the detection/scanning intel system. What the player sees depends entirely on the intel level reported by `GET /api/view`. **Visibility is team-shared** — the view endpoint aggregates detections from all team ships, so every teammate sees the same contacts.
 
 | Intel Level | Overview Shows | 3D Viewport Shows | Selected Item Shows |
 |-------------|---------------|-------------------|---------------------|
@@ -777,10 +841,14 @@ The existing `GET /api/view` response maps directly to GUI components:
 
 | View Field | GUI Component |
 |------------|---------------|
-| `ships` (own) | Ship HUD, Module Rack, Fitting Panel |
+| `points` | Ship HUD points display, Loadout Screen budget |
+| `ships` (own) | Ship HUD, Module Rack |
 | `ships` (others, by intel) | Overview, Target Bar, 3D brackets |
+| `available_hulls` | Loadout Screen hull list |
+| `free_hull_classes` | Loadout Screen auto-create options |
 | `celestials` | Overview (Celestials tab), 3D asteroids |
-| `events` | Alerts Feed |
+| `events` | Alerts Feed (including points notifications) |
+| `nearby` (team-shared) | Overview, Commander View tactical map |
 | `team` | Commander View ship list |
 | `match` | Match timer, score, surrender status |
 | `build_orders` | Build Panel queue |
