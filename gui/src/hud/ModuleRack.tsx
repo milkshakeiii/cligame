@@ -79,10 +79,11 @@ function moduleShortName(type: string): string {
 }
 
 /**
- * Module Rack (bottom) — horizontal strip of activatable modules.
- * Passive modules are hidden. Grouped by weapon | utility | defense.
+ * Module Rack — vertical column of activatable modules.
+ * Rendered on left and right sides of the cap ring.
+ * side="left" renders the first half, side="right" the second half.
  */
-export default function ModuleRack() {
+export default function ModuleRack({ side }: { side: "left" | "right" }) {
   const ship = useActiveShip();
   const send = useCommand();
 
@@ -102,22 +103,33 @@ export default function ModuleRack() {
     );
   });
 
+  const mid = Math.ceil(sorted.length / 2);
+  const modules = side === "left" ? sorted.slice(0, mid) : sorted.slice(mid);
+
+  if (modules.length === 0) return null;
+
+  // Hotkey offset: left starts at F1, right starts at F(mid+1)
+  const hotkeyOffset = side === "left" ? 0 : mid;
+
   return (
-    <div className="absolute bottom-36 left-1/2 -translate-x-1/2 flex gap-1 pointer-events-auto">
-      {sorted.map((mod, i) => (
-        <ModuleButton
-          key={mod.id}
-          module={mod}
-          hotkey={i < 8 ? `F${i + 1}` : undefined}
-          onToggle={() => {
-            if (mod.active) {
-              send("deactivate_module", { module_id: mod.id });
-            } else {
-              send("activate_module", { module_id: mod.id });
-            }
-          }}
-        />
-      ))}
+    <div className="flex gap-1 pointer-events-auto">
+      {modules.map((mod, i) => {
+        const globalIdx = hotkeyOffset + i;
+        return (
+          <ModuleButton
+            key={mod.id}
+            module={mod}
+            hotkey={globalIdx < 8 ? `F${globalIdx + 1}` : undefined}
+            onToggle={() => {
+              if (mod.active) {
+                send("deactivate_module", { module_id: mod.id });
+              } else {
+                send("activate_module", { module_id: mod.id });
+              }
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

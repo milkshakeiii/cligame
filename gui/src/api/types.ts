@@ -170,3 +170,23 @@ export interface CommandResponse {
   status: string;
   message: string;
 }
+
+export interface MatchListItem {
+  id: number;
+  name: string;
+  status: string;
+  team1_id: number;
+  team2_id: number | null;
+  winner_team_id: number | null;
+  started_at_tick: number | null;
+  ended_at_tick: number | null;
+  created_at: string;
+}
+
+export interface TeamListItem {
+  id: number;
+  name: string;
+  faction: string;
+  member_count: number;
+  created_at: string;
+}

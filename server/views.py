@@ -253,8 +253,12 @@ async def compute_player_view(
                         contact["armor_hp"] = other.armor_hp
                         contact["max_armor_hp"] = other.max_armor_hp
                     # Avoid duplicates
-                    if not any(c["type"] == "ship" and c["id"] == other.id for c in nearby):
+                    existing = next((c for c in nearby if c["type"] == "ship" and c["id"] == other.id), None)
+                    if existing is None:
                         nearby.append(contact)
+                    elif dist < existing["distance"]:
+                        # Keep the shortest distance (closest team ship to this target)
+                        existing.update(contact)
 
             # Celestial objects
             for obj in all_celestial_objects:
@@ -276,8 +280,11 @@ async def compute_player_view(
                     }
                     if detail >= DETAIL_CLASSIFICATION:
                         contact["ore_remaining"] = obj.ore_remaining
-                    if not any(c["type"] == "object" and c["id"] == obj.id for c in nearby):
+                    existing = next((c for c in nearby if c["type"] == "object" and c["id"] == obj.id), None)
+                    if existing is None:
                         nearby.append(contact)
+                    elif dist < existing["distance"]:
+                        existing.update(contact)
 
     nearby.sort(key=lambda c: c["distance"])
 

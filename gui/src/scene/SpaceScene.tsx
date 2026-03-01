@@ -117,6 +117,7 @@ function FriendlyShips() {
 
 /**
  * Renders nearby contacts (enemy ships, unknown contacts).
+ * Ships > 8km with low detail get no label.
  */
 function NearbyShips() {
   const nearby = useGameStore((s) => s.nearby);
@@ -131,9 +132,13 @@ function NearbyShips() {
         const pos = scalePos(contact.pos_x, contact.pos_y, contact.pos_z);
         const isSelected =
           selectedTargetId === contact.id && selectedTargetType === "ship";
+        const dist = contact.distance ?? Infinity;
 
         // Color based on intel level: hostile red at id+, gray at low detail
         const color = contact.detail >= 3 ? COLORS.hostile : COLORS.textSecondary;
+
+        // Hide labels for far, low-detail contacts
+        const showLabel = isSelected || dist < 8000 || contact.detail >= 3;
 
         return (
           <group key={`contact-${contact.id}`} position={pos}>
@@ -160,15 +165,18 @@ function NearbyShips() {
                 />
               </mesh>
             )}
-            <Bracket
-              name={contact.name ?? null}
-              distance={contact.distance}
-              shipClass={contact.ship_class ?? null}
-              color={color}
-              detail={contact.detail}
-              isSelected={isSelected}
-              onClick={() => selectTarget(contact.id, "ship")}
-            />
+            {showLabel && (
+              <Bracket
+                name={contact.name ?? null}
+                distance={contact.distance}
+                shipClass={contact.ship_class ?? null}
+                color={color}
+                detail={contact.detail}
+                isSelected={isSelected}
+                showDistance={isSelected || dist < 3000}
+                onClick={() => selectTarget(contact.id, "ship")}
+              />
+            )}
           </group>
         );
       })}
@@ -178,6 +186,11 @@ function NearbyShips() {
 
 /**
  * Renders celestial objects (asteroids).
+ * Tiered label visibility based on distance:
+ * - Selected: always full label + distance
+ * - < 2km: full label + distance
+ * - 2-5km: short label (#id), no distance
+ * - > 5km: no label (just mesh)
  */
 function Celestials() {
   const nearby = useGameStore((s) => s.nearby);
@@ -192,27 +205,44 @@ function Celestials() {
         const pos = scalePos(contact.pos_x, contact.pos_y, contact.pos_z);
         const isSelected =
           selectedTargetId === contact.id && selectedTargetType === "object";
+        const dist = contact.distance ?? Infinity;
+
+        // Distance tiers for label visibility
+        const showLabel = isSelected || dist < 5000;
+        const showFullName = isSelected || dist < 2000;
+        const showDist = isSelected || dist < 2000;
 
         return (
-          <group key={`obj-${contact.id}`} position={pos}>
+          <group
+            key={`obj-${contact.id}`}
+            position={pos}
+            onClick={(e) => {
+              e.stopPropagation();
+              selectTarget(contact.id, "object");
+            }}
+          >
             <AsteroidModel
               id={contact.id}
               oreRemaining={contact.ore_remaining}
               isSelected={isSelected}
             />
-            <Bracket
-              name={
-                contact.object_type
-                  ? `${contact.object_type} #${contact.id}`
-                  : null
-              }
-              distance={contact.distance}
-              shipClass={null}
-              color="#c9d1d9"
-              detail={contact.detail}
-              isSelected={isSelected}
-              onClick={() => selectTarget(contact.id, "object")}
-            />
+            {showLabel && (
+              <Bracket
+                name={
+                  showFullName && contact.object_type
+                    ? `${contact.object_type} #${contact.id}`
+                    : `#${contact.id}`
+                }
+                distance={contact.distance}
+                shipClass={null}
+                objectType={contact.object_type ?? null}
+                color="#c9d1d9"
+                detail={contact.detail}
+                isSelected={isSelected}
+                showDistance={showDist}
+                onClick={() => selectTarget(contact.id, "object")}
+              />
+            )}
           </group>
         );
       })}

@@ -3,6 +3,7 @@ Team management routes for Phase 7.
 
 POST   /api/teams                    -- Create a team
 POST   /api/teams/{team_id}/join     -- Join a team
+POST   /api/teams/leave              -- Leave current team
 GET    /api/teams/{team_id}          -- Get team info
 GET    /api/teams                    -- List all teams
 GET    /api/teams/{team_id}/research -- Get team research status
@@ -21,6 +22,8 @@ from server.auth import get_current_user
 from server.database import get_session
 from server.models import (
     Faction,
+    Match,
+    MatchStatus,
     ResearchProgress,
     Spaceship,
     Team,
@@ -144,6 +147,37 @@ async def join_team(
         team_name=team.name,
         faction=team.faction,
     )
+
+
+@router.post("/leave")
+async def leave_team(
+    current_user: User = Depends(get_current_user),
+    session=Depends(get_session),
+):
+    """Leave the current team. Cannot leave if in an active match."""
+    if current_user.team_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Not on a team.",
+        )
+
+    # Check if in an active match
+    match_result = await session.exec(
+        select(Match).where(
+            Match.status == MatchStatus.active.value,
+            (Match.team1_id == current_user.team_id) | (Match.team2_id == current_user.team_id),
+        )
+    )
+    if match_result.first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot leave team while in an active match.",
+        )
+
+    current_user.team_id = None
+    await session.commit()
+
+    return {"message": "Left team successfully."}
 
 
 @router.get("/{team_id}", response_model=TeamOut)

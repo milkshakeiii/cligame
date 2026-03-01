@@ -6,6 +6,14 @@ import { COLORS } from "../utils/colors";
 import { formatDistance, shipClassName } from "../utils/formatting";
 import type { NearbyContact, Ship } from "../api/types";
 
+function distFromActiveShip(contact: NearbyContact, ship: Ship | undefined): number {
+  if (!ship) return contact.distance;
+  const dx = contact.pos_x - ship.pos_x;
+  const dy = contact.pos_y - ship.pos_y;
+  const dz = contact.pos_z - ship.pos_z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 /**
  * Selected Item panel (left side) — details about the selected object
  * with action buttons for movement orders and targeting.
@@ -47,6 +55,7 @@ export default function SelectedItem() {
     return (
       <ObjectDetails
         contact={contact}
+        distance={distFromActiveShip(contact, activeShip)}
         onApproach={() =>
           send("move", { order_type: "approach", target_object_id: contact.id })
         }
@@ -72,6 +81,7 @@ export default function SelectedItem() {
   return (
     <EnemyShipDetails
       contact={contact}
+      distance={distFromActiveShip(contact, activeShip)}
       onApproach={() =>
         send("move", { order_type: "approach", target_ship_id: contact.id })
       }
@@ -147,12 +157,14 @@ function FriendlyShipDetails({
 
 function EnemyShipDetails({
   contact,
+  distance,
   onApproach,
   onOrbit,
   onKeepRange,
   onLock,
 }: {
   contact: NearbyContact;
+  distance: number;
   onApproach: () => void;
   onOrbit: () => void;
   onKeepRange: () => void;
@@ -174,7 +186,7 @@ function EnemyShipDetails({
         </div>
       )}
       <div className="text-[10px] text-text-secondary mb-2">
-        {formatDistance(contact.distance)}
+        {formatDistance(distance)}
       </div>
       {/* HP bars only if locked (server provides HP data) */}
       {contact.max_shield_hp != null && (
@@ -205,11 +217,13 @@ function EnemyShipDetails({
 
 function ObjectDetails({
   contact,
+  distance,
   onApproach,
   onOrbit,
   onMine,
 }: {
   contact: NearbyContact;
+  distance: number;
   onApproach: () => void;
   onOrbit: () => void;
   onMine: () => void;
@@ -221,7 +235,7 @@ function ObjectDetails({
         {contact.object_type ?? "Object"} #{contact.id}
       </div>
       <div className="text-[10px] text-text-secondary mb-1">
-        {formatDistance(contact.distance)}
+        {formatDistance(distance)}
       </div>
       {contact.ore_remaining != null && (
         <div className="text-[10px] text-text-secondary mb-2">

@@ -16,7 +16,7 @@ interface CommandState {
 
   sendCommand: (
     type: string,
-    shipId: number,
+    shipId: number | null,
     payload?: Record<string, unknown>,
     currentTick?: number,
   ) => Promise<number | null>;

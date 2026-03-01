@@ -1,4 +1,4 @@
-import type { AuthResponse, ViewResponse, CommandResponse } from "./types";
+import type { AuthResponse, ViewResponse, CommandResponse, MatchListItem, TeamListItem } from "./types";
 
 const BASE = "";
 
@@ -71,6 +71,51 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ type, ship_id: shipId, payload }),
       },
+      token,
+    );
+  },
+
+  listMatches(token: string, statusFilter?: string) {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set("status_filter", statusFilter);
+    const qs = params.toString();
+    return request<MatchListItem[]>(
+      `/api/matches${qs ? `?${qs}` : ""}`,
+      {},
+      token,
+    );
+  },
+
+  createMatch(token: string, name: string, faction: string) {
+    return request<MatchListItem>(
+      "/api/matches",
+      {
+        method: "POST",
+        body: JSON.stringify({ name, faction }),
+      },
+      token,
+    );
+  },
+
+  joinMatch(token: string, matchId: number, faction: string) {
+    return request<{ message: string; match_id: number; team_id: number; faction: string }>(
+      `/api/matches/${matchId}/join`,
+      {
+        method: "POST",
+        body: JSON.stringify({ faction }),
+      },
+      token,
+    );
+  },
+
+  listTeams(token: string) {
+    return request<TeamListItem[]>("/api/teams", {}, token);
+  },
+
+  leaveTeam(token: string) {
+    return request<{ message: string }>(
+      "/api/teams/leave",
+      { method: "POST" },
       token,
     );
   },
