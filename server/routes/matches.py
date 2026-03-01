@@ -75,7 +75,7 @@ class MatchDetailOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _get_team_info(session, team_id: Optional[int]) -> Optional[dict]:
+async def _get_team_info(session, team_id: Optional[int], include_members: bool = False) -> Optional[dict]:
     """Fetch team info dict for a match response."""
     if team_id is None:
         return None
@@ -87,12 +87,18 @@ async def _get_team_info(session, team_id: Optional[int]) -> Optional[dict]:
         select(func.count()).where(User.team_id == team.id)
     )
     member_count = count_result.one()
-    return {
+    info: dict = {
         "id": team.id,
         "name": team.name,
         "faction": team.faction,
         "member_count": member_count,
     }
+    if include_members:
+        members_result = await session.exec(
+            select(User.username).where(User.team_id == team.id)
+        )
+        info["members"] = list(members_result.all())
+    return info
 
 
 async def _get_mothership_info(session, ship_id: Optional[int]) -> Optional[dict]:
@@ -215,8 +221,8 @@ async def get_match(
     if match is None:
         raise HTTPException(status_code=404, detail="Match not found.")
 
-    team1_info = await _get_team_info(session, match.team1_id)
-    team2_info = await _get_team_info(session, match.team2_id)
+    team1_info = await _get_team_info(session, match.team1_id, include_members=True)
+    team2_info = await _get_team_info(session, match.team2_id, include_members=True)
     ms1_info = await _get_mothership_info(session, match.team1_mothership_id)
     ms2_info = await _get_mothership_info(session, match.team2_mothership_id)
 

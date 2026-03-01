@@ -1,4 +1,4 @@
-import type { AuthResponse, ViewResponse, CommandResponse, MatchListItem, TeamListItem } from "./types";
+import type { AuthResponse, ViewResponse, CommandResponse, MatchListItem, MatchDetail, TeamListItem } from "./types";
 
 const BASE = "";
 
@@ -106,6 +106,10 @@ export const api = {
       },
       token,
     );
+  },
+
+  getMatch(token: string, matchId: number) {
+    return request<MatchDetail>(`/api/matches/${matchId}`, {}, token);
   },
 
   listTeams(token: string) {

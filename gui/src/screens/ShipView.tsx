@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { useKeyboard } from "../hooks/useKeyboard";
 import { useGameStore, useActiveShip } from "../store/gameStore";
@@ -9,7 +11,6 @@ import Overview from "../hud/Overview";
 import SelectedItem from "../hud/SelectedItem";
 import AlertsFeed from "../hud/AlertsFeed";
 import TargetBar from "../hud/TargetBar";
-import OnboardingPanel from "../hud/OnboardingPanel";
 import ActionsPanel from "../hud/ActionsPanel";
 import { formatDistance, shipClassName } from "../utils/formatting";
 import { COLORS } from "../utils/colors";
@@ -82,7 +83,21 @@ export default function ShipView() {
   const connected = useGameStore((s) => s.connected);
   const pollError = useGameStore((s) => s.pollError);
   const ships = useGameStore((s) => s.ships);
-  const logout = useAuthStore((s) => s.logout);
+  const team = useGameStore((s) => s.team);
+  const match = useGameStore((s) => s.match);
+  const navigate = useNavigate();
+
+  // Redirect if player shouldn't be on this screen
+  useEffect(() => {
+    if (!connected) return; // Wait for first poll
+    if (!team) {
+      navigate("/browse", { replace: true });
+    } else if (match && match.status === "pending") {
+      navigate("/lobby", { replace: true });
+    } else if (ships.length === 0) {
+      navigate("/loadout", { replace: true });
+    }
+  }, [connected, team, match, ships, navigate]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
@@ -104,15 +119,15 @@ export default function ShipView() {
           </div>
         )}
 
-        {/* Top-right: Alerts Feed + Logout */}
+        {/* Top-right: Alerts Feed + Menu button */}
         <div className="absolute top-2 right-2 flex flex-col gap-2 pointer-events-auto">
           <div className="flex justify-end">
             <button
-              onClick={logout}
+              onClick={() => navigate("/")}
               className="text-[10px] text-text-secondary hover:text-text-primary
                          bg-space-panel/60 border border-space-border rounded px-2 py-0.5 transition"
             >
-              Logout
+              Menu
             </button>
           </div>
           <AlertsFeed />
@@ -144,13 +159,6 @@ export default function ShipView() {
           {/* Status row: HP bars + order + pts */}
           <ShipStatus />
         </div>
-
-        {/* Onboarding flow when player has no ships */}
-        {connected && ships.length === 0 && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
-            <OnboardingPanel />
-          </div>
-        )}
       </div>
     </div>
   );

@@ -190,3 +190,35 @@ export interface TeamListItem {
   member_count: number;
   created_at: string;
 }
+
+export interface MatchDetailTeam {
+  id: number;
+  name: string;
+  faction: string;
+  member_count: number;
+  members?: string[];
+}
+
+export interface MatchDetailMothership {
+  id: number;
+  name: string;
+  shield_hp: number;
+  max_shield_hp: number;
+  armor_hp: number;
+  max_armor_hp: number;
+  is_destroyed: boolean;
+}
+
+export interface MatchDetail {
+  id: number;
+  name: string;
+  status: string;
+  team1: MatchDetailTeam | null;
+  team2: MatchDetailTeam | null;
+  team1_mothership: MatchDetailMothership | null;
+  team2_mothership: MatchDetailMothership | null;
+  winner_team_id: number | null;
+  started_at_tick: number | null;
+  ended_at_tick: number | null;
+  created_at: string;
+}
