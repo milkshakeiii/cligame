@@ -1,10 +1,39 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
+import { useGameStore } from "../store/gameStore";
+import { api } from "../api/client";
 
 export default function MainMenuScreen() {
   const username = useAuthStore((s) => s.username);
+  const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
+  const team = useGameStore((s) => s.team);
+  const match = useGameStore((s) => s.match);
+  const ships = useGameStore((s) => s.ships);
   const navigate = useNavigate();
+  const [checked, setChecked] = useState(false);
+
+  // Poll once to check if player is mid-game
+  useEffect(() => {
+    if (!token) return;
+    api.getView(token)
+      .then((view) => {
+        useGameStore.getState().updateFromView(view);
+        setChecked(true);
+      })
+      .catch(() => setChecked(true));
+  }, [token]);
+
+  const hasActiveGame = checked && team && match && match.status === "active";
+
+  function handleResume() {
+    if (ships.length > 0) {
+      navigate("/play");
+    } else {
+      navigate("/loadout");
+    }
+  }
 
   return (
     <div className="flex items-center justify-center h-screen bg-space-bg">
@@ -21,13 +50,26 @@ export default function MainMenuScreen() {
         </div>
 
         <div className="space-y-3">
+          {hasActiveGame && (
+            <button
+              onClick={handleResume}
+              className="w-full py-3 bg-friendly/20 border border-friendly text-friendly
+                         rounded text-sm font-bold uppercase tracking-wider
+                         hover:bg-friendly/30 transition"
+            >
+              Resume Game
+            </button>
+          )}
+
           <button
             onClick={() => navigate("/browse")}
-            className="w-full py-3 bg-friendly/20 border border-friendly text-friendly
-                       rounded text-sm font-bold uppercase tracking-wider
-                       hover:bg-friendly/30 transition"
+            className={`w-full py-3 border rounded text-sm font-bold uppercase tracking-wider transition
+              ${hasActiveGame
+                ? "border-space-border text-text-secondary hover:text-text-primary hover:border-friendly/50"
+                : "bg-friendly/20 border-friendly text-friendly hover:bg-friendly/30"
+              }`}
           >
-            Play
+            {hasActiveGame ? "Browse Matches" : "Play"}
           </button>
 
           <button

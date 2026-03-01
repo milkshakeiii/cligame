@@ -33,8 +33,8 @@ export default function MatchBrowserScreen() {
     try {
       const list = await api.listMatches(token);
       setMatches(list.filter((m) => m.status === "pending" || m.status === "active"));
-    } catch {
-      // ignore
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load matches");
     }
   }, [token]);
 
