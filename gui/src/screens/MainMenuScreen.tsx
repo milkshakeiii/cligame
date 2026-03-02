@@ -27,8 +27,10 @@ export default function MainMenuScreen() {
 
   const hasActiveGame = checked && team && match && match.status === "active";
 
+  const hasPersonalShip = ships.some((s) => s.ship_class !== "mothership");
+
   function handleResume() {
-    if (ships.length > 0) {
+    if (hasPersonalShip) {
       navigate("/play");
     } else {
       navigate("/loadout");

@@ -37,9 +37,9 @@ export default function LoadoutScreen() {
     }
   }, [team, match, navigate]);
 
-  // If player already has ships, allow going to play
+  // If player already has a personal (non-mothership) ship, go to play
   useEffect(() => {
-    if (ships.length > 0) {
+    if (ships.some((s) => s.ship_class !== "mothership")) {
       navigate("/play", { replace: true });
     }
   }, [ships, navigate]);
@@ -69,7 +69,7 @@ export default function LoadoutScreen() {
 
   async function handleClaimFree(hullClass: string) {
     setClaiming(true);
-    await sendCommand("claim_free_hull", null, { hull_class: hullClass }, tick);
+    await sendCommand("claim_ship", null, { ship_class: hullClass }, tick);
     setClaiming(false);
   }
 
