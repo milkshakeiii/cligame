@@ -39,6 +39,7 @@ interface GameState {
   selectTarget: (id: number | null, type: "ship" | "object" | "friendly" | null) => void;
   updateFromView: (view: ViewResponse) => void;
   setPollError: (err: string | null) => void;
+  reset: () => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -100,7 +101,33 @@ export const useGameStore = create<GameState>((set) => ({
     }),
 
   setPollError: (err) => set({ pollError: err, connected: err === null }),
+
+  reset: () => set({
+    tick: 0,
+    points: 0,
+    ships: [],
+    nearby: [],
+    events: [],
+    pendingCommands: [],
+    team: null,
+    match: null,
+    availableHulls: [],
+    freeHullClasses: [],
+    boardableShips: [],
+    activeShipId: null,
+    selectedTargetId: null,
+    selectedTargetType: null,
+    pollError: null,
+    connected: false,
+  }),
 }));
+
+// Reset game state when auth token is cleared (logout or 401)
+useAuthStore.subscribe((state) => {
+  if (state.token === null) {
+    useGameStore.getState().reset();
+  }
+});
 
 // --- Derived selectors ---
 

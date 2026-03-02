@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, setOnUnauthorized } from "../api/client";
 
 interface AuthState {
   token: string | null;
@@ -67,3 +67,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token: null, userId: null, username: null });
   },
 }));
+
+// Auto-logout on 401 from any API call
+setOnUnauthorized(() => useAuthStore.getState().logout());

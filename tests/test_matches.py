@@ -153,7 +153,7 @@ async def test_create_match(client: AsyncClient):
     assert data["name"] == "My Match"
     assert data["status"] == "pending"
     assert data["team1_id"] is not None
-    assert data["team2_id"] is None
+    assert data["team2_id"] is not None
 
 
 @pytest.mark.asyncio
@@ -193,8 +193,8 @@ async def test_join_match(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_join_match_same_faction_fails(client: AsyncClient):
-    """Joining with the same faction as team1 fails."""
+async def test_join_match_same_faction(client: AsyncClient):
+    """Joining with the same faction as the creator puts you on their team."""
     user1 = await register_user(client, "player1")
     user2 = await register_user(client, "player2")
 
@@ -205,13 +205,16 @@ async def test_join_match_same_faction_fails(client: AsyncClient):
     )
     assert resp.status_code == 201
     match_id = resp.json()["id"]
+    team1_id = resp.json()["team1_id"]
 
     resp = await client.post(
         f"/api/matches/{match_id}/join",
         json={"faction": "solarion"},
         headers=auth_headers(user2["token"]),
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+    assert resp.json()["team_id"] == team1_id
+    assert resp.json()["faction"] == "solarion"
 
 
 # ---------------------------------------------------------------------------
@@ -291,8 +294,8 @@ async def test_start_match(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_start_match_without_team2_fails(client: AsyncClient):
-    """Starting without team2 fails — command is rejected."""
+async def test_start_match_solo(client: AsyncClient):
+    """Starting a match with only one player succeeds (team2 is empty)."""
     user = await register_user(client, "solo")
     resp = await client.post(
         "/api/matches",
@@ -301,12 +304,10 @@ async def test_start_match_without_team2_fails(client: AsyncClient):
     )
     match_id = resp.json()["id"]
 
-    await _send_command(client, auth_headers(user["token"]), "start_match", match_id=match_id)
-    await _process(client)
-
-    rejected = await _get_rejected_commands(client, auth_headers(user["token"]))
-    assert len(rejected) >= 1
-    assert any("two teams" in (r.get("rejection_reason") or "").lower() for r in rejected)
+    match_data = await _start_match_via_cmd(client, auth_headers(user["token"]), match_id)
+    assert match_data["status"] == "active"
+    assert match_data.get("team1_mothership") is not None
+    assert match_data.get("team2_mothership") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -673,21 +674,21 @@ async def test_surrender_not_in_match_fails(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_join_match_already_has_team2_fails(client: AsyncClient):
-    """Joining a match that already has two teams returns 400."""
+async def test_join_match_third_player(client: AsyncClient):
+    """A third player can join an existing match on either team."""
     user1, user2 = await _setup_two_users(client)
     user3 = await register_user(client, "latecomer")
 
     match_data = await _create_and_join_match(client, user1, user2)
 
-    # user3 tries to join as yet another team — should fail
+    # user3 joins voidborn — should succeed (same team as user2)
     resp = await client.post(
         f"/api/matches/{match_data['id']}/join",
         json={"faction": "voidborn"},
         headers=auth_headers(user3["token"]),
     )
-    assert resp.status_code == 400
-    assert "already has two teams" in resp.json()["detail"].lower()
+    assert resp.status_code == 200
+    assert resp.json()["faction"] == "voidborn"
 
 
 # ---------------------------------------------------------------------------
@@ -1214,7 +1215,7 @@ async def test_join_active_match_as_reinforcement(client: AsyncClient):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["message"] == "Joined active match as reinforcement."
+    assert data["message"] == "Joined match successfully."
     assert data["faction"] == "voidborn"
 
     # Now teams are solarion(1) vs voidborn(2).
@@ -1787,7 +1788,7 @@ async def test_full_match_lifecycle_creation_to_victory(client: AsyncClient):
     assert match_data["name"] == "Grand Battle"
     assert match_data["status"] == "pending"
     assert match_data["team1_id"] is not None
-    assert match_data["team2_id"] is None
+    assert match_data["team2_id"] is not None
 
     # -----------------------------------------------------------------------
     # 3. Player2 joins as voidborn

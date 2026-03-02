@@ -205,16 +205,26 @@ async def compute_player_view(
         other_filter = (
             Spaceship.team_id != user.team_id if on_team else Spaceship.user_id != user.id
         )
-        other_ships_result = await session.exec(
-            select(Spaceship).where(
-                other_filter,
-                Spaceship.is_destroyed == False,
-                Spaceship.docked_in_id == None,
-            )
+        # Scope to player's match so ships from other matches don't bleed through
+        player_match_ids = {s.match_id for s in ships}
+        other_ship_query = select(Spaceship).where(
+            other_filter,
+            Spaceship.is_destroyed == False,
+            Spaceship.docked_in_id == None,
         )
+        if player_match_ids:
+            other_ship_query = other_ship_query.where(
+                Spaceship.match_id.in_(player_match_ids)
+            )
+        other_ships_result = await session.exec(other_ship_query)
         all_other_ships = list(other_ships_result.all())
 
-        objects_result = await session.exec(select(CelestialObject))
+        obj_query = select(CelestialObject)
+        if player_match_ids:
+            obj_query = obj_query.where(
+                CelestialObject.match_id.in_(player_match_ids)
+            )
+        objects_result = await session.exec(obj_query)
         all_celestial_objects = list(objects_result.all())
 
         # Use scanner/detector range for visibility

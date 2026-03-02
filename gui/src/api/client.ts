@@ -2,6 +2,12 @@ import type { AuthResponse, ViewResponse, CommandResponse, MatchListItem, MatchD
 
 const BASE = "";
 
+// Called on 401 to clear stale auth — set by authStore on init
+let onUnauthorized: (() => void) | null = null;
+export function setOnUnauthorized(cb: () => void) {
+  onUnauthorized = cb;
+}
+
 async function request<T>(
   path: string,
   opts: RequestInit = {},
@@ -16,6 +22,9 @@ async function request<T>(
   }
   const res = await fetch(`${BASE}${path}`, { ...opts, headers });
   if (!res.ok) {
+    if (res.status === 401 && onUnauthorized) {
+      onUnauthorized();
+    }
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new ApiError(res.status, body.detail ?? JSON.stringify(body));
   }
@@ -104,6 +113,14 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ faction }),
       },
+      token,
+    );
+  },
+
+  switchTeam(token: string, matchId: number) {
+    return request<{ message: string; match_id: number; team_id: number; faction: string }>(
+      `/api/matches/${matchId}/switch-team`,
+      { method: "POST" },
       token,
     );
   },

@@ -32,7 +32,7 @@ async def handle_start_match(ctx: TickContext, cmd: Command) -> None:
     if match.status != MatchStatus.pending.value:
         raise CommandRejected("Match is not in pending state")
     if match.team1_id is None or match.team2_id is None:
-        raise CommandRejected("Match needs two teams before starting")
+        raise CommandRejected("Match is missing a team")
 
     # Load user to check participation
     user_result = await ctx.session.exec(select(User).where(User.id == cmd.user_id))
@@ -50,10 +50,10 @@ async def handle_start_match(ctx: TickContext, cmd: Command) -> None:
     )
     team2 = t2_result.first()
 
-    if not team1 or not team1.users:
-        raise CommandRejected("Team 1 has no players")
-    if not team2 or not team2.users:
-        raise CommandRejected("Team 2 has no players")
+    if not team1:
+        raise CommandRejected("Team 1 not found")
+    if not team2:
+        raise CommandRejected("Team 2 not found")
 
     current_tick = ctx.current_tick
 
