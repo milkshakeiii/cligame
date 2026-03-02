@@ -4,6 +4,7 @@ import { usePolling } from "../hooks/usePolling";
 import { useKeyboard } from "../hooks/useKeyboard";
 import { useGameStore, useActiveShip } from "../store/gameStore";
 import { useAuthStore } from "../store/authStore";
+import { useTacticalStore } from "../store/tacticalStore";
 import SpaceScene from "../scene/SpaceScene";
 import { CapRing, ShipStatus } from "../hud/ShipHUD";
 import ModuleRack from "../hud/ModuleRack";
@@ -133,6 +134,7 @@ export default function ShipView() {
   const ships = useGameStore((s) => s.ships);
   const team = useGameStore((s) => s.team);
   const match = useGameStore((s) => s.match);
+  const isTactical = useTacticalStore((s) => s.enabled);
   const navigate = useNavigate();
 
   // Redirect if player shouldn't be on this screen
@@ -157,6 +159,15 @@ export default function ShipView() {
         {/* Top center: Target Bar (locked targets) + Selected badge */}
         <TargetBar />
         <SelectedTargetBadge />
+
+        {/* Tactical mode indicator */}
+        {isTactical && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 pointer-events-none z-40">
+            <div className="text-[10px] font-mono tracking-widest px-3 py-1 rounded bg-space-panel/80 border border-friendly/40 text-friendly">
+              TACTICAL VIEW &mdash; press T to exit
+            </div>
+          </div>
+        )}
 
         {/* Connection status */}
         {!connected && (

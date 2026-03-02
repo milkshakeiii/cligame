@@ -14,6 +14,8 @@ export interface Module {
   cycle_time: number | null;
   ticks_until_cycle: number | null;
   capacitor_per_cycle: number | null;
+  detection_range: number | null;
+  scan_range: number | null;
 }
 
 export interface ActiveOrder {

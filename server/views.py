@@ -101,6 +101,8 @@ async def compute_player_view(
                 "cycle_time": m.cycle_time,
                 "ticks_until_cycle": m.ticks_until_cycle,
                 "capacitor_per_cycle": m.capacitor_per_cycle,
+                "detection_range": m.detection_range,
+                "scan_range": m.scan_range,
             }
             for m in ship.modules
         ]

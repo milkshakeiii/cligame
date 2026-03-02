@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useActiveShip, useGameStore } from "../store/gameStore";
+import { useTacticalStore } from "../store/tacticalStore";
 import { useCommand } from "./useCommand";
 
 /**
@@ -45,6 +46,12 @@ export function useKeyboard() {
             }
           }
         }
+      }
+
+      // T: Toggle tactical mode
+      if (e.key === "t" || e.key === "T") {
+        useTacticalStore.getState().toggle();
+        return;
       }
 
       // Tab: Cycle targets in overview
