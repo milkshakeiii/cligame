@@ -1189,30 +1189,52 @@ async def test_surrender_on_completed_match_rejected(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
-# Test: Join an active (started) match fails
+# Test: Join an active match as reinforcement
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_join_active_match_fails(client: AsyncClient):
-    """Cannot join a match that is already active/started."""
+async def test_join_active_match_as_reinforcement(client: AsyncClient):
+    """Players can join an active match as reinforcements with balance check."""
     user1, user2 = await _setup_two_users(client)
     user3 = await register_user(client, "lateplayer")
+    user4 = await register_user(client, "lateplayer2")
 
     match_data = await _create_and_join_match(client, user1, user2)
 
-    # Start the match
+    # Start the match (team1=solarion has user1, team2=voidborn has user2)
     detail = await _start_match_via_cmd(client, auth_headers(user1["token"]), match_data["id"])
     assert detail["status"] == "active"
 
-    # user3 tries to join the now-active match
+    # user3 joins voidborn (1v1 → balanced, allowed: 1-1=0 < 1)
     resp = await client.post(
         f"/api/matches/{match_data['id']}/join",
         json={"faction": "voidborn"},
         headers=auth_headers(user3["token"]),
     )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["message"] == "Joined active match as reinforcement."
+    assert data["faction"] == "voidborn"
+
+    # Now teams are solarion(1) vs voidborn(2).
+    # user4 tries to join voidborn (the larger team): 2-1=1, not < 1 → rejected
+    resp = await client.post(
+        f"/api/matches/{match_data['id']}/join",
+        json={"faction": "voidborn"},
+        headers=auth_headers(user4["token"]),
+    )
     assert resp.status_code == 400
-    assert "not in pending state" in resp.json()["detail"].lower()
+    assert "unbalanced" in resp.json()["detail"].lower()
+
+    # user4 joins solarion (the smaller team): 1 < 2 → always allowed
+    resp = await client.post(
+        f"/api/matches/{match_data['id']}/join",
+        json={"faction": "solarion"},
+        headers=auth_headers(user4["token"]),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["faction"] == "solarion"
 
 
 # ---------------------------------------------------------------------------

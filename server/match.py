@@ -217,13 +217,10 @@ async def create_match_mothership(
     faction = team.faction
     ship_name = f"{team.name} Mothership"
 
-    if not team.users:
-        raise ValueError(f"Team '{team.name}' has no users; cannot create mothership")
-
     ship = create_default_ship(
         name=ship_name,
         ship_class=ShipClass.mothership,
-        user_id=team.users[0].id,
+        user_id=None,
         pos_x=position[0],
         pos_y=position[1],
         pos_z=position[2],
@@ -232,7 +229,7 @@ async def create_match_mothership(
     )
     ship.match_id = match_id
     ship.ore = 5_000.0
-    ship.claimed_by_user_id = team.users[0].id
+    ship.claimed_by_user_id = None
 
     session.add(ship)
     await session.flush()  # get ship.id

@@ -9,7 +9,9 @@ import type {
   TeamInfo,
   MatchInfo,
   AvailableHull,
+  BoardableShip,
 } from "../api/types";
+import { useAuthStore } from "./authStore";
 
 interface GameState {
   // Raw view data
@@ -23,6 +25,7 @@ interface GameState {
   match: MatchInfo | null;
   availableHulls: AvailableHull[];
   freeHullClasses: string[];
+  boardableShips: BoardableShip[];
 
   // UI state
   activeShipId: number | null;
@@ -49,6 +52,7 @@ export const useGameStore = create<GameState>((set) => ({
   match: null,
   availableHulls: [],
   freeHullClasses: [],
+  boardableShips: [],
 
   activeShipId: null,
   selectedTargetId: null,
@@ -63,17 +67,18 @@ export const useGameStore = create<GameState>((set) => ({
 
   updateFromView: (view) =>
     set((state) => {
-      // Auto-select active ship if none selected
+      const userId = useAuthStore.getState().userId;
+      // Auto-select active ship if none selected or current is gone
       let activeShipId = state.activeShipId;
-      if (
-        activeShipId === null &&
-        view.ships.length > 0
-      ) {
-        // Pick the first non-destroyed, non-docked ship
+      const activeStillValid = activeShipId != null &&
+        view.ships.some((s) => s.id === activeShipId && s.claimed_by_user_id === userId && !s.is_destroyed);
+
+      if (!activeStillValid && view.ships.length > 0) {
+        // Pick first ship claimed by this user that's not destroyed/docked
         const candidate = view.ships.find(
-          (s) => !s.is_destroyed && s.docked_in_id == null,
+          (s) => s.claimed_by_user_id === userId && !s.is_destroyed && s.docked_in_id == null,
         );
-        activeShipId = candidate?.id ?? view.ships[0].id;
+        activeShipId = candidate?.id ?? null;
       }
 
       return {
@@ -87,6 +92,7 @@ export const useGameStore = create<GameState>((set) => ({
         match: view.match,
         availableHulls: view.available_hulls,
         freeHullClasses: view.free_hull_classes,
+        boardableShips: view.boardable_ships ?? [],
         activeShipId,
         connected: true,
         pollError: null,

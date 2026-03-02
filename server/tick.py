@@ -46,6 +46,7 @@ from server.models import (
     CelestialType,
     CLASS_ORDER,
     CelestialObject,
+    EJECT_ALLOWED_CLASSES,
     Event,
     EventType,
     GameState,
@@ -889,6 +890,15 @@ def _process_physics(
                 dock_valid = True
                 if target_ship is None:
                     dock_valid = False
+                elif ship.ship_class.value in EJECT_ALLOWED_CLASSES:
+                    dock_valid = False
+                    if ship.user_id is not None:
+                        emit(
+                            EventType.order_complete,
+                            f"Docking failed: {ship.ship_class.value} is too large to dock",
+                            user_id=ship.user_id,
+                            ship_id=ship.id,
+                        )
                 else:
                     # C1: Class check
                     ship_class_idx = CLASS_ORDER.index(ship.ship_class.value)

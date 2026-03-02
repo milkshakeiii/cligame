@@ -19,6 +19,7 @@ from server.models import (
     CelestialObject,
     Command,
     CommandStatus,
+    EJECT_ALLOWED_CLASSES,
     Event,
     GameState,
     HULL_POINT_COSTS,
@@ -177,6 +178,8 @@ async def compute_player_view(
             "is_destroyed": ship.is_destroyed,
             "signature_radius": ship.signature_radius,
             "docked_in_id": ship.docked_in_id,
+            "user_id": ship.user_id,
+            "claimed_by_user_id": ship.claimed_by_user_id,
             "team_id": ship.team_id,
             "match_id": ship.match_id,
             "faction": faction,
@@ -385,12 +388,30 @@ async def compute_player_view(
     # Free hull classes that can be auto-created without building
     free_hull_classes = [cls for cls, cost in HULL_POINT_COSTS.items() if cost == 0]
 
+    # --- Boardable ships (unpiloted eject-allowed ships) ---
+    boardable_ships = []
+    if on_team:
+        boardable_query = select(Spaceship).where(
+            Spaceship.team_id == user.team_id,
+            Spaceship.ship_class.in_([sc for sc in EJECT_ALLOWED_CLASSES]),
+            Spaceship.claimed_by_user_id == None,  # noqa: E711
+            Spaceship.is_destroyed == False,  # noqa: E712
+        )
+        boardable_result = await session.exec(boardable_query)
+        for s in boardable_result.all():
+            boardable_ships.append({
+                "ship_id": s.id,
+                "ship_class": s.ship_class.value,
+                "name": s.name,
+            })
+
     return {
         "tick": current_tick,
         "points": user.points,
         "ships": ship_views,
         "available_hulls": available_hulls,
         "free_hull_classes": free_hull_classes,
+        "boardable_ships": boardable_ships,
         "nearby": nearby,
         "events": events,
         "pending_commands": pending_commands,

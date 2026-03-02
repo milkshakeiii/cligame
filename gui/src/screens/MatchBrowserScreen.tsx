@@ -21,9 +21,13 @@ export default function MatchBrowserScreen() {
   const [faction, setFaction] = useState<"solarion" | "voidborn">("solarion");
   const [creating, setCreating] = useState(false);
 
-  // Join state
+  // Join state (pending matches)
   const [joiningId, setJoiningId] = useState<number | null>(null);
   const [joinFaction, setJoinFaction] = useState<"solarion" | "voidborn">("voidborn");
+
+  // Join state (active matches)
+  const [joiningActiveId, setJoiningActiveId] = useState<number | null>(null);
+  const [activeJoinFaction, setActiveJoinFaction] = useState<"solarion" | "voidborn">("solarion");
 
   // Stale team state
   const [leavingTeam, setLeavingTeam] = useState(false);
@@ -77,6 +81,21 @@ export default function MatchBrowserScreen() {
     }
     setLoading(false);
     setJoiningId(null);
+  }
+
+  async function handleJoinActive(matchId: number) {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.joinMatch(token, matchId, activeJoinFaction);
+      // Active match — skip lobby, go straight to loadout
+      navigate("/loadout", { replace: true });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to join match");
+    }
+    setLoading(false);
+    setJoiningActiveId(null);
   }
 
   async function handleLeaveTeam() {
@@ -191,25 +210,91 @@ export default function MatchBrowserScreen() {
           )}
         </Panel>
 
-        {/* Active Matches (spectate in future, just show for now) */}
+        {/* Active Matches — joinable as reinforcements */}
         {activeMatches.length > 0 && (
           <Panel title="Active Matches">
             <div className="space-y-1">
-              {activeMatches.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between bg-space-bg/50 border border-space-border rounded px-3 py-2"
-                >
-                  <div>
-                    <div className="text-text-primary text-sm font-mono">{m.name}</div>
-                    <div className="text-text-secondary text-[10px]">
-                      #{m.id} &middot; active
-                      {m.started_at_tick != null && ` &middot; tick ${m.started_at_tick}`}
+              {activeMatches.map((m) => {
+                const t1Count = m.team1_member_count ?? 0;
+                const t2Count = m.team2_member_count ?? 0;
+                const t1Faction = m.team1_faction ?? "?";
+                const t2Faction = m.team2_faction ?? "?";
+
+                // Client-side balance hint: can this faction be joined?
+                const canJoin = (faction: string) => {
+                  const myCount = faction === t1Faction ? t1Count : t2Count;
+                  const otherCount = faction === t1Faction ? t2Count : t1Count;
+                  return myCount < otherCount || myCount - otherCount < MAX_TEAM_SIZE_DIFF;
+                };
+
+                return (
+                  <div
+                    key={m.id}
+                    className="bg-space-bg/50 border border-space-border rounded px-3 py-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-text-primary text-sm font-mono">{m.name}</div>
+                        <div className="text-text-secondary text-[10px]">
+                          #{m.id} &middot; active
+                          {m.started_at_tick != null && ` \u00b7 tick ${m.started_at_tick}`}
+                        </div>
+                      </div>
+                      <div className="text-text-secondary text-[10px] text-right">
+                        <span className={t1Faction === "solarion" ? "text-[#d4a843]" : "text-[#9b59b6]"}>
+                          {capitalize(t1Faction)} ({t1Count})
+                        </span>
+                        {" vs "}
+                        <span className={t2Faction === "solarion" ? "text-[#d4a843]" : "text-[#9b59b6]"}>
+                          {capitalize(t2Faction)} ({t2Count})
+                        </span>
+                      </div>
                     </div>
+
+                    {joiningActiveId === m.id ? (
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-space-border/50">
+                        <span className="text-text-secondary text-[10px]">Join as:</span>
+                        <ActiveFactionPicker
+                          t1Faction={t1Faction}
+                          t2Faction={t2Faction}
+                          canJoin={canJoin}
+                          value={activeJoinFaction}
+                          onChange={setActiveJoinFaction}
+                        />
+                        <button
+                          onClick={() => handleJoinActive(m.id)}
+                          disabled={loading || !canJoin(activeJoinFaction)}
+                          className="px-3 py-1 text-xs bg-friendly/20 border border-friendly/50
+                                     text-friendly rounded hover:bg-friendly/30 transition disabled:opacity-50"
+                        >
+                          {loading ? "Joining..." : "Confirm"}
+                        </button>
+                        <button
+                          onClick={() => setJoiningActiveId(null)}
+                          className="text-text-secondary text-xs hover:text-text-primary"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 pt-2 border-t border-space-border/50 flex justify-end">
+                        <button
+                          onClick={() => {
+                            setJoiningActiveId(m.id);
+                            // Pre-select a joinable faction
+                            if (canJoin(t1Faction)) setActiveJoinFaction(t1Faction as "solarion" | "voidborn");
+                            else if (canJoin(t2Faction)) setActiveJoinFaction(t2Faction as "solarion" | "voidborn");
+                          }}
+                          className="px-3 py-1 text-xs bg-friendly/20 border border-friendly/50
+                                     text-friendly rounded hover:bg-friendly/30 transition"
+                        >
+                          Join as Reinforcement
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <span className="text-text-secondary text-[10px]">In progress</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Panel>
         )}
@@ -270,6 +355,58 @@ export default function MatchBrowserScreen() {
           )}
         </Panel>
       </div>
+    </div>
+  );
+}
+
+// Must match server/routes/matches.py MAX_TEAM_SIZE_DIFF
+const MAX_TEAM_SIZE_DIFF = 1;
+
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Faction picker for active match join — shows both factions with balance hints */
+function ActiveFactionPicker({
+  t1Faction,
+  t2Faction,
+  canJoin,
+  value,
+  onChange,
+}: {
+  t1Faction: string;
+  t2Faction: string;
+  canJoin: (faction: string) => boolean;
+  value: string;
+  onChange: (v: "solarion" | "voidborn") => void;
+}) {
+  const factions = [t1Faction, t2Faction] as const;
+  return (
+    <div className="flex gap-1">
+      {factions.map((f) => {
+        const isSolarion = f === "solarion";
+        const selected = value === f;
+        const disabled = !canJoin(f);
+        const color = isSolarion ? "#d4a843" : "#9b59b6";
+        return (
+          <button
+            key={f}
+            onClick={() => !disabled && onChange(f as "solarion" | "voidborn")}
+            disabled={disabled}
+            className={`px-2 py-0.5 text-[10px] rounded font-bold transition border
+              ${selected
+                ? `bg-[${color}]/20 border-[${color}] text-[${color}]`
+                : disabled
+                  ? "border-space-border text-text-secondary/30 cursor-not-allowed"
+                  : "border-space-border text-text-secondary hover:text-text-primary"
+              }`}
+            style={selected ? { backgroundColor: `${color}20`, borderColor: color, color } : undefined}
+            title={disabled ? "Would make teams too unbalanced" : `Join ${capitalize(f)}`}
+          >
+            {capitalize(f)}
+          </button>
+        );
+      })}
     </div>
   );
 }

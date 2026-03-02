@@ -10,6 +10,7 @@ from server.models import (
     CLASS_ORDER,
     CelestialObject,
     Command,
+    EJECT_ALLOWED_CLASSES,
     EventType,
     MovementOrder,
     OrderStatus,
@@ -141,6 +142,10 @@ async def handle_dock(ctx: TickContext, cmd: Command) -> None:
 
     if cmd.ship_id == target_ship_id:
         raise CommandRejected("A ship cannot dock with itself")
+
+    # Mothership / eject-allowed ships are too large to dock
+    if ship.ship_class.value in EJECT_ALLOWED_CLASSES:
+        raise CommandRejected(f"{ship.ship_class.value} is too large to dock")
 
     target = ctx.find_any_ship(target_ship_id)
 

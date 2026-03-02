@@ -7,6 +7,7 @@ import { api } from "../api/client";
 export default function MainMenuScreen() {
   const username = useAuthStore((s) => s.username);
   const token = useAuthStore((s) => s.token);
+  const userId = useAuthStore((s) => s.userId);
   const logout = useAuthStore((s) => s.logout);
   const team = useGameStore((s) => s.team);
   const match = useGameStore((s) => s.match);
@@ -27,10 +28,12 @@ export default function MainMenuScreen() {
 
   const hasActiveGame = checked && team && match && match.status === "active";
 
-  const hasPersonalShip = ships.some((s) => s.ship_class !== "mothership");
+  const isPiloting = ships.some(
+    (s) => s.claimed_by_user_id === userId && !s.is_destroyed,
+  );
 
   function handleResume() {
-    if (hasPersonalShip) {
+    if (isPiloting) {
       navigate("/play");
     } else {
       navigate("/loadout");

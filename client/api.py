@@ -367,6 +367,14 @@ class SpaceGameClient:
         """Dock and reship — strip modules, get partial point refund (command)."""
         return self.send_command("reship", ship_id=ship_id)
 
+    def board_ship(self, ship_id: int) -> dict:
+        """Board an unpiloted eject-allowed ship (command)."""
+        return self.send_command("board_ship", ship_id=ship_id)
+
+    def eject(self, ship_id: int) -> dict:
+        """Eject from an eject-allowed ship (command)."""
+        return self.send_command("eject", ship_id=ship_id)
+
     def get_loadout_costs(self) -> dict:
         """GET /api/loadout/costs — hull and module point costs."""
         return self._request("GET", "/api/loadout/costs")

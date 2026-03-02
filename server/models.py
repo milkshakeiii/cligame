@@ -216,6 +216,8 @@ class EventType(str, Enum):
     points_earned = "points_earned"
     ship_claimed = "ship_claimed"
     reship_complete = "reship_complete"
+    ship_boarded = "ship_boarded"
+    ship_ejected = "ship_ejected"
     # --- Phase 8.5: Command events ---
     command_processed = "command_processed"
     command_rejected = "command_rejected"
@@ -245,6 +247,8 @@ class CommandType(str, Enum):
     cancel_research = "cancel_research"
     claim_ship = "claim_ship"
     reship = "reship"
+    board_ship = "board_ship"
+    eject = "eject"
     start_match = "start_match"
     surrender = "surrender"
 
@@ -531,6 +535,8 @@ BUILD_COSTS: Dict[str, dict] = {
 # ---------------------------------------------------------------------------
 # Phase 9: Points & Loadout constants
 # ---------------------------------------------------------------------------
+
+EJECT_ALLOWED_CLASSES: set[str] = {"mothership"}
 
 HULL_POINT_COSTS: Dict[str, int] = {
     "strike_craft": 0, "corvette": 500, "frigate": 2_000,
@@ -1872,7 +1878,7 @@ class Command(SQLModel, table=True):
 def create_default_ship(
     name: str,
     ship_class: ShipClass,
-    user_id: int,
+    user_id: Optional[int] = None,
     pos_x: float = 0.0,
     pos_y: float = 0.0,
     pos_z: float = 0.0,

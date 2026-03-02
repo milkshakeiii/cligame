@@ -1,4 +1,4 @@
-"""Command handlers for loadout: claim_ship, reship."""
+"""Command handlers for loadout: claim_ship, reship, board_ship, eject."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from sqlmodel import select
 from server.commands import CommandRejected, TickContext, get_payload, register_handler
 from server.models import (
     Command,
+    EJECT_ALLOWED_CLASSES,
     EventType,
     HULL_POINT_COSTS,
     MODULE_FIXED_VOLUMES,
@@ -286,6 +287,66 @@ async def handle_reship(ctx: TickContext, cmd: Command) -> None:
         EventType.reship_complete,
         f"Reshipped from {ship.ship_class.value} #{ship.id}, "
         f"refunded {refund:.0f} pts",
+        user_id=cmd.user_id,
+        ship_id=ship.id,
+    )
+
+
+@register_handler("board_ship")
+async def handle_board_ship(ctx: TickContext, cmd: Command) -> None:
+    """Board an unpiloted eject-allowed ship (e.g. mothership)."""
+    if cmd.ship_id is None:
+        raise CommandRejected("ship_id is required")
+
+    ship = ctx.ship_map.get(cmd.ship_id)
+    if ship is None:
+        raise CommandRejected(f"Ship #{cmd.ship_id} not found")
+    if ship.is_destroyed:
+        raise CommandRejected(f"Ship #{cmd.ship_id} is destroyed")
+    if ship.ship_class.value not in EJECT_ALLOWED_CLASSES:
+        raise CommandRejected(f"Cannot board a {ship.ship_class.value}")
+    if ship.claimed_by_user_id is not None:
+        raise CommandRejected(f"Ship #{cmd.ship_id} is already piloted")
+
+    # Team check
+    user_result = await ctx.session.exec(select(User).where(User.id == cmd.user_id))
+    user = user_result.first()
+    if user is None:
+        raise CommandRejected("User not found")
+    if ship.team_id is not None and user.team_id != ship.team_id:
+        raise CommandRejected("Ship belongs to a different team")
+
+    ship.claimed_by_user_id = cmd.user_id
+    ship.user_id = cmd.user_id
+
+    ctx.emit(
+        EventType.ship_boarded,
+        f"Boarded {ship.ship_class.value} #{ship.id} ({ship.name})",
+        user_id=cmd.user_id,
+        ship_id=ship.id,
+    )
+
+
+@register_handler("eject")
+async def handle_eject(ctx: TickContext, cmd: Command) -> None:
+    """Eject from an eject-allowed ship (e.g. mothership)."""
+    if cmd.ship_id is None:
+        raise CommandRejected("ship_id is required")
+
+    ship = ctx.ship_map.get(cmd.ship_id)
+    if ship is None:
+        raise CommandRejected(f"Ship #{cmd.ship_id} not found")
+    if ship.claimed_by_user_id != cmd.user_id:
+        raise CommandRejected("You are not piloting this ship")
+    if ship.ship_class.value not in EJECT_ALLOWED_CLASSES:
+        raise CommandRejected(f"Cannot eject from a {ship.ship_class.value}")
+
+    ship.claimed_by_user_id = None
+    ship.user_id = None
+
+    ctx.emit(
+        EventType.ship_ejected,
+        f"Ejected from {ship.ship_class.value} #{ship.id} ({ship.name})",
         user_id=cmd.user_id,
         ship_id=ship.id,
     )

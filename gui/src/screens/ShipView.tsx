@@ -94,7 +94,7 @@ export default function ShipView() {
       navigate("/browse", { replace: true });
     } else if (match && match.status === "pending") {
       navigate("/lobby", { replace: true });
-    } else if (!ships.some((s) => s.ship_class !== "mothership")) {
+    } else if (!ships.some((s) => s.claimed_by_user_id === useAuthStore.getState().userId)) {
       navigate("/loadout", { replace: true });
     }
   }, [connected, team, match, ships, navigate]);

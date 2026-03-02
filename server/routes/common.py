@@ -46,7 +46,9 @@ async def get_owned_ship(
 
     if ship is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ship not found")
-    if ship.user_id != user.id:
+    is_owner = ship.user_id == user.id or ship.claimed_by_user_id == user.id
+    is_teammate = ship.team_id is not None and ship.team_id == user.team_id
+    if not is_owner and not is_teammate:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your ship")
 
     return ship

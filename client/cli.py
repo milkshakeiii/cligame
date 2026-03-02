@@ -1060,6 +1060,30 @@ def loadout_reship(
     _show_queued(data, json, "Reshipping.")
 
 
+@loadout_app.command("board")
+def loadout_board(
+    ship_id: str = typer.Argument(..., help="Ship ID or name to board."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Board an unpiloted ship (e.g. mothership)."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.board_ship, resolved)
+    _show_queued(data, json, "Boarding ship.")
+
+
+@loadout_app.command("eject")
+def loadout_eject(
+    ship_id: str = typer.Argument(..., help="Ship ID or name to eject from."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Eject from an eject-allowed ship (e.g. mothership)."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.eject, resolved)
+    _show_queued(data, json, "Ejecting from ship.")
+
+
 @loadout_app.command("costs")
 def loadout_costs(
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),

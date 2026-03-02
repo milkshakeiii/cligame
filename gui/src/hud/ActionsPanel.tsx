@@ -31,15 +31,21 @@ export default function ActionsPanel() {
 
   if (!ship) return null;
 
+  const EJECT_ALLOWED_CLASSES = new Set(["mothership"]);
+
   const hasFactory = ship.modules.some((m) => m.module_type === "factory");
   const isDocked = ship.docked_in_id != null;
   const hasOrders = ship.active_orders.length > 0;
   const hasOre = ship.ore > 0;
+  const canEject = EJECT_ALLOWED_CLASSES.has(ship.ship_class);
 
   return (
     <div className="flex flex-col gap-2 w-56">
       {/* Ship Info */}
       <ShipInfoPanel ship={ship} />
+
+      {/* Eject button (mothership etc.) */}
+      {canEject && <EjectButton />}
 
       {/* Stop button */}
       {hasOrders && <StopButton />}
@@ -101,6 +107,19 @@ function StopButton() {
                  text-hostile rounded hover:bg-hostile/30 transition font-bold"
     >
       Stop Ship
+    </button>
+  );
+}
+
+function EjectButton() {
+  const send = useCommand();
+  return (
+    <button
+      onClick={() => send("eject")}
+      className="w-56 px-3 py-1.5 text-xs bg-[#d4a843]/20 border border-[#d4a843]/50
+                 text-[#d4a843] rounded hover:bg-[#d4a843]/30 transition font-bold"
+    >
+      Eject from Ship
     </button>
   );
 }

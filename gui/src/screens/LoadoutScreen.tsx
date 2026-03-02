@@ -20,6 +20,7 @@ export default function LoadoutScreen() {
   const points = useGameStore((s) => s.points);
   const availableHulls = useGameStore((s) => s.availableHulls);
   const freeHullClasses = useGameStore((s) => s.freeHullClasses);
+  const boardableShips = useGameStore((s) => s.boardableShips);
   const tick = useGameStore((s) => s.tick);
   const connected = useGameStore((s) => s.connected);
   const sendCommand = useCommandStore((s) => s.sendCommand);
@@ -37,12 +38,13 @@ export default function LoadoutScreen() {
     }
   }, [team, match, navigate]);
 
-  // If player already has a personal (non-mothership) ship, go to play
+  // If player is piloting a ship, go to play
+  const userId = useAuthStore((s) => s.userId);
   useEffect(() => {
-    if (ships.some((s) => s.ship_class !== "mothership")) {
+    if (ships.some((s) => s.claimed_by_user_id === userId)) {
       navigate("/play", { replace: true });
     }
-  }, [ships, navigate]);
+  }, [ships, userId, navigate]);
 
   // Poll game view
   useEffect(() => {
@@ -70,6 +72,12 @@ export default function LoadoutScreen() {
   async function handleClaimFree(hullClass: string) {
     setClaiming(true);
     await sendCommand("claim_ship", null, { ship_class: hullClass }, tick);
+    setClaiming(false);
+  }
+
+  async function handleBoard(shipId: number) {
+    setClaiming(true);
+    await sendCommand("board_ship", shipId, {}, tick);
     setClaiming(false);
   }
 
@@ -110,6 +118,40 @@ export default function LoadoutScreen() {
           <div className="text-hostile text-xs bg-hostile/10 border border-hostile/30 rounded px-3 py-2">
             {lastError}
           </div>
+        )}
+
+        {/* Boardable Ships (mothership etc.) */}
+        {boardableShips.length > 0 && (
+          <Panel title="Boardable Ships">
+            <div className="text-text-secondary text-[10px] mb-2">
+              Board an unpiloted ship to take control.
+            </div>
+            <div className="space-y-1">
+              {boardableShips.map((bs) => (
+                <div
+                  key={bs.ship_id}
+                  className="flex items-center justify-between bg-space-bg/50 border border-space-border rounded px-3 py-2"
+                >
+                  <div>
+                    <div className="text-text-primary text-sm font-mono">
+                      {bs.name}
+                    </div>
+                    <div className="text-text-secondary text-[10px] capitalize">
+                      {shipClassName(bs.ship_class)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleBoard(bs.ship_id)}
+                    disabled={claiming}
+                    className="px-4 py-1.5 text-xs bg-[#d4a843]/20 border border-[#d4a843]/50
+                               text-[#d4a843] rounded hover:bg-[#d4a843]/30 transition disabled:opacity-50 font-bold"
+                  >
+                    {claiming ? "Boarding..." : "Board"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </Panel>
         )}
 
         {/* Free Hull Classes */}

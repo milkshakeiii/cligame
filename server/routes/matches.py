@@ -27,6 +27,10 @@ from server.models import (
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
 
+# Max allowed team size difference when joining the larger team in an active match.
+# Joining the smaller team is always allowed (improves balance).
+MAX_TEAM_SIZE_DIFF = 1
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -193,6 +197,21 @@ async def list_matches(
     result = await session.exec(query)
     matches = result.all()
 
+    # Gather all team IDs to batch-fetch info
+    team_ids = set()
+    for m in matches:
+        if m.team1_id is not None:
+            team_ids.add(m.team1_id)
+        if m.team2_id is not None:
+            team_ids.add(m.team2_id)
+
+    # Fetch faction and member count for each team
+    team_info: dict[int, dict] = {}
+    for tid in team_ids:
+        info = await _get_team_info(session, tid)
+        if info:
+            team_info[tid] = info
+
     return [
         {
             "id": m.id,
@@ -200,6 +219,10 @@ async def list_matches(
             "status": m.status,
             "team1_id": m.team1_id,
             "team2_id": m.team2_id,
+            "team1_member_count": team_info[m.team1_id]["member_count"] if m.team1_id and m.team1_id in team_info else None,
+            "team2_member_count": team_info[m.team2_id]["member_count"] if m.team2_id and m.team2_id in team_info else None,
+            "team1_faction": team_info[m.team1_id]["faction"] if m.team1_id and m.team1_id in team_info else None,
+            "team2_faction": team_info[m.team2_id]["faction"] if m.team2_id and m.team2_id in team_info else None,
             "winner_team_id": m.winner_team_id,
             "started_at_tick": m.started_at_tick,
             "ended_at_tick": m.ended_at_tick,
@@ -248,7 +271,7 @@ async def join_match(
     current_user: User = Depends(get_current_user),
     session=Depends(get_session),
 ):
-    """Join a match as team2. Must pick the opposite faction."""
+    """Join a match. Pending matches: creates team2. Active matches: join existing team as reinforcement."""
     if current_user.team_id is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -262,10 +285,8 @@ async def join_match(
     match = result.first()
     if match is None:
         raise HTTPException(status_code=404, detail="Match not found.")
-    if match.status != MatchStatus.pending.value:
-        raise HTTPException(status_code=400, detail="Match is not in pending state.")
-    if match.team2_id is not None:
-        raise HTTPException(status_code=400, detail="Match already has two teams.")
+    if match.status not in (MatchStatus.pending.value, MatchStatus.active.value):
+        raise HTTPException(status_code=400, detail="Match is not joinable (must be pending or active).")
 
     faction_lower = body.faction.lower()
     if faction_lower not in ("solarion", "voidborn"):
@@ -274,37 +295,110 @@ async def join_match(
             detail=f"Invalid faction '{body.faction}'. Must be 'solarion' or 'voidborn'.",
         )
 
-    # Get team1 to check faction
-    t1_result = await session.exec(select(Team).where(Team.id == match.team1_id))
-    team1 = t1_result.first()
-    if team1 and team1.faction == faction_lower:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Must pick the opposite faction. Team 1 is already '{team1.faction}'.",
+    if match.status == MatchStatus.pending.value:
+        # --- Pending match: existing behavior (create team2) ---
+        if match.team2_id is not None:
+            raise HTTPException(status_code=400, detail="Match already has two teams.")
+
+        # Get team1 to check faction
+        t1_result = await session.exec(select(Team).where(Team.id == match.team1_id))
+        team1 = t1_result.first()
+        if team1 and team1.faction == faction_lower:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Must pick the opposite faction. Team 1 is already '{team1.faction}'.",
+            )
+
+        # Create team2
+        team2 = Team(name=f"{match.name} - Team 2", faction=faction_lower)
+        session.add(team2)
+        await session.flush()
+
+        # Assign joiner to team2
+        current_user.team_id = team2.id
+
+        # Assign joiner's existing ships to the team
+        ship_result = await session.exec(
+            select(Spaceship).where(Spaceship.user_id == current_user.id)
         )
+        for ship in ship_result.all():
+            ship.team_id = team2.id
 
-    # Create team2
-    team2 = Team(name=f"{match.name} - Team 2", faction=faction_lower)
-    session.add(team2)
-    await session.flush()
+        match.team2_id = team2.id
+        await session.commit()
+        await session.refresh(match)
 
-    # Assign joiner to team2
-    current_user.team_id = team2.id
+        return {
+            "message": "Joined match successfully.",
+            "match_id": match.id,
+            "team_id": team2.id,
+            "faction": faction_lower,
+        }
 
-    # Assign joiner's existing ships to the team
-    ship_result = await session.exec(
-        select(Spaceship).where(Spaceship.user_id == current_user.id)
-    )
-    for ship in ship_result.all():
-        ship.team_id = team2.id
+    else:
+        # --- Active match: join as reinforcement on an existing team ---
+        # Look up both teams and find the one with the requested faction
+        t1_result = await session.exec(select(Team).where(Team.id == match.team1_id))
+        team1 = t1_result.first()
+        t2_result = await session.exec(select(Team).where(Team.id == match.team2_id))
+        team2 = t2_result.first()
 
-    match.team2_id = team2.id
-    await session.commit()
-    await session.refresh(match)
+        if team1 is None or team2 is None:
+            raise HTTPException(status_code=400, detail="Active match is missing a team.")
 
-    return {
-        "message": "Joined match successfully.",
-        "match_id": match.id,
-        "team_id": team2.id,
-        "faction": faction_lower,
-    }
+        # Find which team matches the requested faction
+        target_team = None
+        other_team = None
+        if team1.faction == faction_lower:
+            target_team = team1
+            other_team = team2
+        elif team2.faction == faction_lower:
+            target_team = team2
+            other_team = team1
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No team in this match has faction '{faction_lower}'.",
+            )
+
+        # Count members on each team
+        my_count_result = await session.exec(
+            select(func.count()).where(User.team_id == target_team.id)
+        )
+        my_count = my_count_result.one()
+        other_count_result = await session.exec(
+            select(func.count()).where(User.team_id == other_team.id)
+        )
+        other_count = other_count_result.one()
+
+        # Balance check:
+        # - Always OK if joining the smaller team (improves balance)
+        # - Otherwise, only OK if the resulting difference stays within MAX_TEAM_SIZE_DIFF
+        if my_count < other_count:
+            pass  # Improves balance — always allowed
+        elif my_count - other_count >= MAX_TEAM_SIZE_DIFF:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot join — would make teams too unbalanced "
+                       f"({my_count + 1} vs {other_count}). "
+                       f"Join the other faction to help balance.",
+            )
+
+        # Add user to existing team
+        current_user.team_id = target_team.id
+
+        # Assign user's existing ships to the team
+        ship_result = await session.exec(
+            select(Spaceship).where(Spaceship.user_id == current_user.id)
+        )
+        for ship in ship_result.all():
+            ship.team_id = target_team.id
+
+        await session.commit()
+
+        return {
+            "message": "Joined active match as reinforcement.",
+            "match_id": match.id,
+            "team_id": target_team.id,
+            "faction": faction_lower,
+        }

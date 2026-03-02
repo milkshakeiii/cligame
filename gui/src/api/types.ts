@@ -53,6 +53,7 @@ export interface BuildOrder {
 
 export interface Ship {
   id: number;
+  user_id: number | null;
   name: string;
   ship_class: string;
   pos_x: number;
@@ -76,6 +77,7 @@ export interface Ship {
   is_destroyed: boolean;
   signature_radius: number;
   docked_in_id: number | null;
+  claimed_by_user_id: number | null;
   team_id: number | null;
   match_id: number | null;
   faction: string | null;
@@ -143,6 +145,12 @@ export interface MatchInfo {
   winner_team_id: number | null;
 }
 
+export interface BoardableShip {
+  ship_id: number;
+  ship_class: string;
+  name: string;
+}
+
 export interface AvailableHull {
   ship_id: number;
   ship_class: string;
@@ -156,6 +164,7 @@ export interface ViewResponse {
   ships: Ship[];
   available_hulls: AvailableHull[];
   free_hull_classes: string[];
+  boardable_ships: BoardableShip[];
   nearby: NearbyContact[];
   events: GameEvent[];
   pending_commands: PendingCommand[];
@@ -177,6 +186,10 @@ export interface MatchListItem {
   status: string;
   team1_id: number;
   team2_id: number | null;
+  team1_member_count?: number;
+  team2_member_count?: number;
+  team1_faction?: string;
+  team2_faction?: string;
   winner_team_id: number | null;
   started_at_tick: number | null;
   ended_at_tick: number | null;
