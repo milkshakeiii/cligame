@@ -592,7 +592,7 @@ def _display_contacts_table(contacts: list) -> None:
         t.add_row(
             c["type"],
             str(c["id"]),
-            _fmt_dist(c["distance"]),
+            _fmt_dist(c["distance"]) if "distance" in c else "—",
             _detail_label(c["detail"]),
             class_col,
             ", ".join(name_parts) or "—",

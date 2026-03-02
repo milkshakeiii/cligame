@@ -7,7 +7,7 @@ import { formatDistance, shipClassName } from "../utils/formatting";
 import type { NearbyContact, Ship } from "../api/types";
 
 function distFromActiveShip(contact: NearbyContact, ship: Ship | undefined): number {
-  if (!ship) return contact.distance;
+  if (!ship) return 0;
   const dx = contact.pos_x - ship.pos_x;
   const dy = contact.pos_y - ship.pos_y;
   const dz = contact.pos_z - ship.pos_z;

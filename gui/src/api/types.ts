@@ -91,7 +91,6 @@ export interface Ship {
 export interface NearbyContact {
   type: "ship" | "object";
   id: number;
-  distance: number;
   detail: number;
   pos_x: number;
   pos_y: number;

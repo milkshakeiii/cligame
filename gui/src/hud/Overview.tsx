@@ -107,7 +107,7 @@ export default function Overview() {
         result.push({
           id: c.id, name: contactName(c), sortType: "hostile", selectType: "ship",
           classLabel: contactType(c),
-          distance: activeShip ? distanceBetween(c, activeShip) : c.distance,
+          distance: activeShip ? distanceBetween(c, activeShip) : null,
           color: contactColor(c),
         });
       } else {
@@ -115,7 +115,7 @@ export default function Overview() {
         result.push({
           id: c.id, name: `#${c.id}`, sortType: "celestial", selectType: "object",
           classLabel: c.object_type ?? "object",
-          distance: activeShip ? distanceBetween(c, activeShip) : c.distance,
+          distance: activeShip ? distanceBetween(c, activeShip) : null,
           color: COLORS.textPrimary,
         });
       }

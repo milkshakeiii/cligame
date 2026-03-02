@@ -335,15 +335,8 @@ async def join_match(
                        f"Join the other faction to help balance.",
             )
 
-    # Add user to team
+    # Add user to team (ships are assigned at loadout, not here)
     current_user.team_id = target_team.id
-
-    # Assign user's existing ships to the team
-    ship_result = await session.exec(
-        select(Spaceship).where(Spaceship.user_id == current_user.id)
-    )
-    for ship in ship_result.all():
-        ship.team_id = target_team.id
 
     await session.commit()
 
@@ -402,15 +395,19 @@ async def switch_team(
                 detail=f"Cannot switch — would make teams too unbalanced ({new_to} vs {new_from}).",
             )
 
-    # Move user
-    current_user.team_id = to_team.id
-
-    # Move user's ships
+    # Unclaim user's ships in this match (they go through loadout on the new team)
     ship_result = await session.exec(
-        select(Spaceship).where(Spaceship.user_id == current_user.id)
+        select(Spaceship).where(
+            Spaceship.user_id == current_user.id,
+            Spaceship.match_id == match_id,
+        )
     )
     for ship in ship_result.all():
-        ship.team_id = to_team.id
+        ship.claimed_by_user_id = None
+        ship.team_id = None
+
+    # Move user
+    current_user.team_id = to_team.id
 
     await session.commit()
 

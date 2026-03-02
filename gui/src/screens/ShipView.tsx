@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { useKeyboard } from "../hooks/useKeyboard";
@@ -14,6 +14,7 @@ import TargetBar from "../hud/TargetBar";
 import ActionsPanel from "../hud/ActionsPanel";
 import { formatDistance, shipClassName } from "../utils/formatting";
 import { COLORS } from "../utils/colors";
+import { api, ApiError } from "../api/client";
 
 function distanceBetween(a: { pos_x: number; pos_y: number; pos_z: number }, b: { pos_x: number; pos_y: number; pos_z: number }): number {
   const dx = a.pos_x - b.pos_x;
@@ -72,6 +73,53 @@ function SelectedTargetBadge() {
   );
 }
 
+function OptionsMenu() {
+  const [open, setOpen] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const token = useAuthStore((s) => s.token);
+  const navigate = useNavigate();
+
+  async function handleLeaveMatch() {
+    if (!token) return;
+    setLeaving(true);
+    try {
+      await api.leaveTeam(token);
+      navigate("/browse", { replace: true });
+    } catch {
+      setLeaving(false);
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-[10px] text-text-secondary hover:text-text-primary
+                   bg-space-panel/60 border border-space-border rounded px-2 py-0.5 transition"
+      >
+        {open ? "✕" : "☰"}
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 bg-space-panel border border-space-border rounded shadow-lg min-w-[120px]">
+          <button
+            onClick={() => { setOpen(false); navigate("/"); }}
+            className="block w-full text-left px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-space-border/30 transition"
+          >
+            Main Menu
+          </button>
+          <button
+            onClick={handleLeaveMatch}
+            disabled={leaving}
+            className="block w-full text-left px-3 py-1.5 text-xs text-hostile/80 hover:text-hostile hover:bg-hostile/10 transition disabled:opacity-50"
+          >
+            {leaving ? "Leaving..." : "Leave Match"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Ship View — primary gameplay screen.
  * Full-screen 3D viewport with HUD panels layered on top.
@@ -119,18 +167,14 @@ export default function ShipView() {
           </div>
         )}
 
-        {/* Top-right: Alerts Feed + Menu button */}
+        {/* Top-right: Alerts Feed */}
         <div className="absolute top-2 right-2 flex flex-col gap-2 pointer-events-auto">
-          <div className="flex justify-end">
-            <button
-              onClick={() => navigate("/")}
-              className="text-[10px] text-text-secondary hover:text-text-primary
-                         bg-space-panel/60 border border-space-border rounded px-2 py-0.5 transition"
-            >
-              Menu
-            </button>
-          </div>
           <AlertsFeed />
+        </div>
+
+        {/* Menu button — just left of the overview panel */}
+        <div className="absolute top-2 right-[17.5rem] pointer-events-auto z-50">
+          <OptionsMenu />
         </div>
 
         {/* Left: Selected Item (fixed top) + Actions (scrollable below) */}

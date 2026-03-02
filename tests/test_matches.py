@@ -2343,3 +2343,129 @@ async def test_win_condition_both_alive_stays_active(db_session: AsyncSession):
 
     ended_events = [e for e in pending_events if e["event_type"] == EventType.match_ended]
     assert len(ended_events) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: Ships don't carry over between matches
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_join_match_does_not_carry_over_ships(client: AsyncClient):
+    """Leaving match A and joining match B should not bring ships from A."""
+    user1 = await register_user(client, "host1")
+    user2 = await register_user(client, "host2")
+    player = await register_user(client, "player")
+    ph = auth_headers(player["token"])
+
+    # Create and start match A
+    resp = await client.post(
+        "/api/matches",
+        json={"name": "Match A", "faction": "solarion"},
+        headers=auth_headers(user1["token"]),
+    )
+    match_a = resp.json()
+    resp = await client.post(
+        f"/api/matches/{match_a['id']}/join",
+        json={"faction": "voidborn"},
+        headers=ph,
+    )
+    assert resp.status_code == 200
+    detail_a = await _start_match_via_cmd(client, auth_headers(user1["token"]), match_a["id"])
+    assert detail_a["status"] == "active"
+
+    # Player claims a ship in match A (auto-create path)
+    await _send_command(client, ph, "claim_ship", ship_class="strike_craft")
+    await _process(client)
+
+    # Verify claim wasn't rejected
+    rejected = await _get_rejected_commands(client, ph)
+    claim_rejects = [r for r in rejected if r["type"] == "claim_ship"]
+    assert len(claim_rejects) == 0, f"claim_ship rejected: {claim_rejects}"
+
+    # Player should have ships visible via /api/view
+    resp = await client.get("/api/view", headers=ph)
+    assert resp.status_code == 200
+    ships_a = resp.json()["ships"]
+    player_ships_a = [s for s in ships_a if s.get("claimed_by_user_id") == player["user_id"]]
+    assert len(player_ships_a) >= 1, "Player should have a claimed ship in match A"
+
+    # Player leaves match A
+    resp = await client.post("/api/teams/leave", headers=ph)
+    assert resp.status_code == 200
+
+    # Create match B
+    resp = await client.post(
+        "/api/matches",
+        json={"name": "Match B", "faction": "solarion"},
+        headers=auth_headers(user2["token"]),
+    )
+    match_b = resp.json()
+
+    # Player joins match B
+    resp = await client.post(
+        f"/api/matches/{match_b['id']}/join",
+        json={"faction": "voidborn"},
+        headers=ph,
+    )
+    assert resp.status_code == 200
+
+    # Verify: /api/view for player should show no ships (match B is pending, no ships yet)
+    resp = await client.get("/api/view", headers=ph)
+    assert resp.status_code == 200
+    ships_b = resp.json()["ships"]
+    player_ships_b = [s for s in ships_b if s.get("claimed_by_user_id") == player["user_id"]]
+    assert len(player_ships_b) == 0, (
+        f"Ships carried over from match A to B: {player_ships_b}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test: Switch team unclaims ships, doesn't move them
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_switch_team_unclaims_ships(client: AsyncClient):
+    """Switching teams should unclaim the player's ships, not move them."""
+    user1, user2 = await _setup_two_users(client)
+
+    match_data = await _create_and_join_match(client, user1, user2)
+    detail = await _start_match_via_cmd(client, auth_headers(user1["token"]), match_data["id"])
+    assert detail["status"] == "active"
+
+    # user2 claims a ship on voidborn (auto-create path)
+    u2h = auth_headers(user2["token"])
+    await _send_command(client, u2h, "claim_ship", ship_class="strike_craft")
+    await _process(client)
+
+    # Verify claim wasn't rejected
+    rejected = await _get_rejected_commands(client, u2h)
+    claim_rejects = [r for r in rejected if r["type"] == "claim_ship"]
+    assert len(claim_rejects) == 0, f"claim_ship rejected: {claim_rejects}"
+
+    # user2 should have a claimed ship in the view
+    resp = await client.get("/api/view", headers=u2h)
+    assert resp.status_code == 200
+    ships_before = resp.json()["ships"]
+    claimed_before = [s for s in ships_before if s.get("claimed_by_user_id") == user2["user_id"]]
+    assert len(claimed_before) >= 1, "user2 should have a claimed ship"
+    old_team_id = detail["team2"]["id"]  # user2 is on voidborn = team2
+
+    # user2 switches from voidborn to solarion
+    resp = await client.post(
+        f"/api/matches/{match_data['id']}/switch-team",
+        headers=u2h,
+    )
+    assert resp.status_code == 200
+    new_team_id = resp.json()["team_id"]
+    assert new_team_id != old_team_id
+
+    # Verify: user2's view should have no claimed ships on the new team
+    resp = await client.get("/api/view", headers=u2h)
+    assert resp.status_code == 200
+    ships_after = resp.json()["ships"]
+    claimed_after = [s for s in ships_after if s.get("claimed_by_user_id") == user2["user_id"]]
+    assert len(claimed_after) == 0, (
+        f"Ship should be unclaimed after team switch, but found: {claimed_after}"
+    )

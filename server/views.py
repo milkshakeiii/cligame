@@ -250,7 +250,6 @@ async def compute_player_view(
                     contact = {
                         "type": "ship",
                         "id": other.id,
-                        "distance": dist,
                         "detail": detail,
                         "pos_x": other.pos_x,
                         "pos_y": other.pos_y,
@@ -265,12 +264,11 @@ async def compute_player_view(
                         contact["max_shield_hp"] = other.max_shield_hp
                         contact["armor_hp"] = other.armor_hp
                         contact["max_armor_hp"] = other.max_armor_hp
-                    # Avoid duplicates
+                    # Avoid duplicates — keep highest detail sighting
                     existing = next((c for c in nearby if c["type"] == "ship" and c["id"] == other.id), None)
                     if existing is None:
                         nearby.append(contact)
-                    elif dist < existing["distance"]:
-                        # Keep the shortest distance (closest team ship to this target)
+                    elif detail > existing["detail"]:
                         existing.update(contact)
 
             # Celestial objects
@@ -284,7 +282,6 @@ async def compute_player_view(
                     contact = {
                         "type": "object",
                         "id": obj.id,
-                        "distance": dist,
                         "detail": detail,
                         "pos_x": obj.pos_x,
                         "pos_y": obj.pos_y,
@@ -293,13 +290,12 @@ async def compute_player_view(
                     }
                     if detail >= DETAIL_CLASSIFICATION:
                         contact["ore_remaining"] = obj.ore_remaining
+                    # Avoid duplicates — keep highest detail sighting
                     existing = next((c for c in nearby if c["type"] == "object" and c["id"] == obj.id), None)
                     if existing is None:
                         nearby.append(contact)
-                    elif dist < existing["distance"]:
+                    elif detail > existing["detail"]:
                         existing.update(contact)
-
-    nearby.sort(key=lambda c: c["distance"])
 
     # --- Recent events (team-shared when on a team) ---
     event_since = since_tick if since_tick is not None else max(0, current_tick - 20)

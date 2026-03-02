@@ -78,32 +78,38 @@ function OrderVisualization({
 
   if (!targetPos) return null;
 
-  const scaledShip = scalePosTuple(shipPos);
-  const scaledTarget = scalePosTuple(targetPos);
+  // This component is rendered inside a <group> positioned at the scaled ship pos,
+  // so "from" is local origin [0,0,0] and target is relative to the ship.
+  const from: [number, number, number] = [0, 0, 0];
+  const to: [number, number, number] = scalePosTuple([
+    targetPos[0] - shipPos[0],
+    targetPos[1] - shipPos[1],
+    targetPos[2] - shipPos[2],
+  ]);
 
   switch (order.order_type) {
     case "approach":
-      return <ApproachIndicator from={scaledShip} to={scaledTarget} />;
+      return <ApproachIndicator from={from} to={to} />;
     case "orbit":
       return (
         <OrbitIndicator
-          center={scaledTarget}
+          center={to}
           radius={scaleDistance(order.orbit_radius ?? 5000)}
-          from={scaledShip}
+          from={from}
         />
       );
     case "keep_distance":
       return (
         <KeepRangeIndicator
-          from={scaledShip}
-          to={scaledTarget}
+          from={from}
+          to={to}
           range={scaleDistance(order.desired_distance ?? 20000)}
         />
       );
     case "dock":
-      return <DockIndicator from={scaledShip} to={scaledTarget} />;
+      return <DockIndicator from={from} to={to} />;
     default:
-      return <ApproachIndicator from={scaledShip} to={scaledTarget} />;
+      return <ApproachIndicator from={from} to={to} />;
   }
 }
 

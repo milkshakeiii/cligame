@@ -161,18 +161,16 @@ async def leave_team(
             detail="Not on a team.",
         )
 
-    # Check if in an active match
-    match_result = await session.exec(
-        select(Match).where(
-            Match.status == MatchStatus.active.value,
-            (Match.team1_id == current_user.team_id) | (Match.team2_id == current_user.team_id),
+    # Unassign user's ships from the team
+    ship_result = await session.exec(
+        select(Spaceship).where(
+            Spaceship.user_id == current_user.id,
+            Spaceship.team_id == current_user.team_id,
         )
     )
-    if match_result.first() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot leave team while in an active match.",
-        )
+    for ship in ship_result.all():
+        ship.team_id = None
+        ship.match_id = None
 
     current_user.team_id = None
     await session.commit()

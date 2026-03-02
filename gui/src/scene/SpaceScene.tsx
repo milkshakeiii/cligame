@@ -12,6 +12,16 @@ import { COLORS } from "../utils/colors";
 import { scalePos } from "../utils/scale";
 import type { Ship, NearbyContact } from "../api/types";
 
+function distFromShip(
+  ship: Ship,
+  contact: { pos_x: number; pos_y: number; pos_z: number },
+): number {
+  const dx = ship.pos_x - contact.pos_x;
+  const dy = ship.pos_y - contact.pos_y;
+  const dz = ship.pos_z - contact.pos_z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 /**
  * Camera controller that follows the active ship.
  * Right-click drag to orbit around the ship, scroll to zoom.
@@ -124,6 +134,7 @@ function NearbyShips() {
   const selectedTargetId = useGameStore((s) => s.selectedTargetId);
   const selectedTargetType = useGameStore((s) => s.selectedTargetType);
   const selectTarget = useGameStore((s) => s.selectTarget);
+  const activeShip = useActiveShip();
 
   return (
     <>
@@ -132,7 +143,7 @@ function NearbyShips() {
         const pos = scalePos(contact.pos_x, contact.pos_y, contact.pos_z);
         const isSelected =
           selectedTargetId === contact.id && selectedTargetType === "ship";
-        const dist = contact.distance ?? Infinity;
+        const dist = activeShip ? distFromShip(activeShip, contact) : Infinity;
 
         // Color based on intel level: hostile red at id+, gray at low detail
         const color = contact.detail >= 3 ? COLORS.hostile : COLORS.textSecondary;
@@ -168,7 +179,7 @@ function NearbyShips() {
             {showLabel && (
               <Bracket
                 name={contact.name ?? null}
-                distance={contact.distance}
+                distance={dist}
                 shipClass={contact.ship_class ?? null}
                 color={color}
                 detail={contact.detail}
@@ -197,6 +208,7 @@ function Celestials() {
   const selectedTargetId = useGameStore((s) => s.selectedTargetId);
   const selectedTargetType = useGameStore((s) => s.selectedTargetType);
   const selectTarget = useGameStore((s) => s.selectTarget);
+  const activeShip = useActiveShip();
 
   return (
     <>
@@ -205,7 +217,7 @@ function Celestials() {
         const pos = scalePos(contact.pos_x, contact.pos_y, contact.pos_z);
         const isSelected =
           selectedTargetId === contact.id && selectedTargetType === "object";
-        const dist = contact.distance ?? Infinity;
+        const dist = activeShip ? distFromShip(activeShip, contact) : Infinity;
 
         // Distance tiers for label visibility
         const showLabel = isSelected || dist < 5000;
@@ -233,7 +245,7 @@ function Celestials() {
                     ? `${contact.object_type} #${contact.id}`
                     : `#${contact.id}`
                 }
-                distance={contact.distance}
+                distance={dist}
                 shipClass={null}
                 objectType={contact.object_type ?? null}
                 color="#c9d1d9"
