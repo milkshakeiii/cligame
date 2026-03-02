@@ -20,11 +20,12 @@ export function getShipDetectionInfo(ship: Ship): ShipDetectionInfo {
   let scanRange = 0;
 
   for (const m of ship.modules) {
-    if (!m.active) continue;
+    // Detection range counts whether active or not (passive capability)
     if (DETECTOR_TYPES.has(m.module_type) && m.detection_range) {
       detectionRange = Math.max(detectionRange, m.detection_range);
     }
-    if (SCANNER_TYPES.has(m.module_type) && m.scan_range) {
+    // Scanners only count when active
+    if (m.active && SCANNER_TYPES.has(m.module_type) && m.scan_range) {
       scanRange = Math.max(scanRange, m.scan_range);
     }
   }

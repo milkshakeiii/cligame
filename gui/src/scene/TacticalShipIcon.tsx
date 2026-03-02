@@ -17,7 +17,9 @@ interface Props {
  */
 export default function TacticalShipIcon({ shipClass, isOwn, isActive, isSelected, detail }: Props) {
   const shape = SHIP_SHAPES[shipClass] ?? SHIP_SHAPES.corvette;
-  const scale = shape.scale * 2;
+  // Clamp icon size so mothership (3.0) doesn't dominate the view
+  const baseScale = Math.min(shape.scale, 1.2);
+  const scale = baseScale * 1.2;
   const segments = shipClass === "mothership" ? 6 : 4;
 
   let color: string;
