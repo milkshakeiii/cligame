@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useActiveShip, useGameStore } from "../store/gameStore";
 import { useCommand } from "../hooks/useCommand";
 import { useCommandStore } from "../store/commandStore";
@@ -56,6 +57,10 @@ export default function ActionsPanel() {
       {/* Transfer ore (when docked and has ore) */}
       {isDocked && hasOre && <TransferOreButton ship={ship} />}
 
+      {/* Refit / Reship (when docked) */}
+      {isDocked && <RefitButton shipId={ship.id} />}
+      {isDocked && <ReshipButton />}
+
       {/* Ship fitting (install/uninstall modules) */}
       <FittingPanel />
 
@@ -88,7 +93,7 @@ function ShipInfoPanel({ ship }: { ship: Ship }) {
           Cargo: <span className="text-text-primary">{ship.cargo_capacity.toLocaleString()}</span>
         </div>
         <div className="text-text-secondary">
-          Speed: <span className="text-text-primary">{ship.max_speed} m/s</span>
+          Speed: <span className="text-text-primary">{Math.round(ship.max_speed)} m/s</span>
         </div>
         <div className="text-text-secondary">
           Cap: <span className="text-text-primary">{Math.round(ship.capacitor)}/{ship.max_capacitor}</span>
@@ -165,6 +170,70 @@ function TransferOreButton({ ship }: { ship: Ship }) {
         {transferring ? "Transferring..." : `Transfer ${Math.round(ship.ore)} Ore`}
       </button>
     </>
+  );
+}
+
+function RefitButton({ shipId }: { shipId: number }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => navigate(`/fitting?mode=refit&shipId=${shipId}`)}
+      className="w-56 px-3 py-1.5 text-xs bg-space-panel/80 border border-space-border
+                 text-text-secondary rounded hover:text-text-primary hover:border-friendly/30 transition font-bold"
+    >
+      Refit Modules
+    </button>
+  );
+}
+
+function ReshipButton() {
+  const send = useCommand();
+  const [confirming, setConfirming] = useState(false);
+  const [reshipping, setReshipping] = useState(false);
+
+  async function handleReship() {
+    setReshipping(true);
+    await send("reship");
+    setReshipping(false);
+    setConfirming(false);
+    // After reship, ship is unclaimed -> ShipView redirects to /loadout
+  }
+
+  if (confirming) {
+    return (
+      <div className="w-56 bg-hostile/10 border border-hostile/30 rounded p-2">
+        <div className="text-hostile text-[10px] mb-1.5">
+          Strip all modules and return to loadout?
+        </div>
+        <div className="flex gap-1">
+          <button
+            onClick={() => setConfirming(false)}
+            className="flex-1 px-2 py-1 text-[10px] border border-space-border
+                       text-text-secondary rounded hover:text-text-primary transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleReship}
+            disabled={reshipping}
+            className="flex-1 px-2 py-1 text-[10px] bg-hostile/20 border border-hostile/50
+                       text-hostile rounded hover:bg-hostile/30 transition disabled:opacity-50"
+          >
+            {reshipping ? "..." : "Confirm"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      className="w-56 px-3 py-1.5 text-xs bg-space-panel/80 border border-space-border
+                 text-text-secondary rounded hover:text-hostile hover:border-hostile/30 transition font-bold"
+    >
+      Reship
+    </button>
   );
 }
 

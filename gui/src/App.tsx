@@ -6,6 +6,7 @@ import MatchBrowserScreen from "./screens/MatchBrowserScreen";
 import LobbyScreen from "./screens/LobbyScreen";
 import LoadoutScreen from "./screens/LoadoutScreen";
 import ShipView from "./screens/ShipView";
+import FittingScreen from "./screens/FittingScreen";
 
 /** Auth guard — redirects to /login if not authenticated */
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -38,6 +39,10 @@ export default function App() {
       <Route
         path="/loadout"
         element={<RequireAuth><LoadoutScreen /></RequireAuth>}
+      />
+      <Route
+        path="/fitting"
+        element={<RequireAuth><FittingScreen /></RequireAuth>}
       />
       <Route
         path="/play"

@@ -8,9 +8,8 @@ import Panel from "../components/Panel";
 import { shipClassName } from "../utils/formatting";
 
 /**
- * LoadoutScreen — spawn/ship selection screen (Phase A).
- * Pick a hull from available ships or free hull classes and launch.
- * Full module fitting (Phase B) will be added later.
+ * LoadoutScreen — spawn/ship selection screen.
+ * Pick a hull then navigate to FittingScreen to configure modules before launching.
  */
 export default function LoadoutScreen() {
   const token = useAuthStore((s) => s.token);
@@ -27,7 +26,7 @@ export default function LoadoutScreen() {
   const lastError = useCommandStore((s) => s.lastError);
   const navigate = useNavigate();
 
-  const [claiming, setClaiming] = useState(false);
+  const [boarding, setBoarding] = useState(false);
 
   // Redirect if no team or match
   useEffect(() => {
@@ -62,23 +61,18 @@ export default function LoadoutScreen() {
     return () => clearInterval(interval);
   }, [token]);
 
-  async function handleClaim(shipId: number) {
-    setClaiming(true);
-    await sendCommand("claim_ship", shipId, {}, tick);
-    setClaiming(false);
-    // On success, ships.length > 0 → useEffect navigates to /play
+  function handleClaim(shipId: number, shipClass: string) {
+    navigate(`/fitting?mode=claim&shipId=${shipId}&hullClass=${shipClass}`);
   }
 
-  async function handleClaimFree(hullClass: string) {
-    setClaiming(true);
-    await sendCommand("claim_ship", null, { ship_class: hullClass }, tick);
-    setClaiming(false);
+  function handleClaimFree(hullClass: string) {
+    navigate(`/fitting?mode=claim&hullClass=${hullClass}`);
   }
 
   async function handleBoard(shipId: number) {
-    setClaiming(true);
+    setBoarding(true);
     await sendCommand("board_ship", shipId, {}, tick);
-    setClaiming(false);
+    setBoarding(false);
   }
 
   if (!team || !match) {
@@ -142,11 +136,11 @@ export default function LoadoutScreen() {
                   </div>
                   <button
                     onClick={() => handleBoard(bs.ship_id)}
-                    disabled={claiming}
+                    disabled={boarding}
                     className="px-4 py-1.5 text-xs bg-[#d4a843]/20 border border-[#d4a843]/50
                                text-[#d4a843] rounded hover:bg-[#d4a843]/30 transition disabled:opacity-50 font-bold"
                   >
-                    {claiming ? "Boarding..." : "Board"}
+                    {boarding ? "Boarding..." : "Board"}
                   </button>
                 </div>
               ))}
@@ -174,11 +168,10 @@ export default function LoadoutScreen() {
                   </div>
                   <button
                     onClick={() => handleClaimFree(cls)}
-                    disabled={claiming}
                     className="px-4 py-1.5 text-xs bg-friendly/20 border border-friendly/50
-                               text-friendly rounded hover:bg-friendly/30 transition disabled:opacity-50 font-bold"
+                               text-friendly rounded hover:bg-friendly/30 transition font-bold"
                   >
-                    {claiming ? "Launching..." : "Launch"}
+                    Fit &amp; Launch
                   </button>
                 </div>
               ))}
@@ -216,13 +209,13 @@ export default function LoadoutScreen() {
                       </div>
                     </div>
                     <button
-                      onClick={() => handleClaim(hull.ship_id)}
-                      disabled={claiming || !canAfford}
+                      onClick={() => handleClaim(hull.ship_id, hull.ship_class)}
+                      disabled={!canAfford}
                       className="px-4 py-1.5 text-xs bg-friendly/20 border border-friendly/50
                                  text-friendly rounded hover:bg-friendly/30 transition
                                  disabled:opacity-50 font-bold"
                     >
-                      {claiming ? "Claiming..." : "Claim"}
+                      Fit &amp; Claim
                     </button>
                   </div>
                 );
