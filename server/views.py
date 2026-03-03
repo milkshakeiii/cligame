@@ -21,6 +21,7 @@ from server.models import (
     CommandStatus,
     EJECT_ALLOWED_CLASSES,
     Event,
+    EventType,
     GameState,
     HULL_POINT_COSTS,
     Match,
@@ -300,10 +301,30 @@ async def compute_player_view(
                         existing.update(contact)
 
     # --- Recent events (team-shared when on a team) ---
+    # Only major events are broadcast team-wide.  Everything else is personal.
+    from sqlalchemy import or_
+    TEAM_BROADCAST_EVENTS = [
+        # Match-level alerts — everyone needs to know
+        EventType.match_started.value,
+        EventType.match_ended.value,
+        EventType.mothership_under_attack.value,
+        EventType.mothership_critical.value,
+        EventType.surrender_vote.value,
+        # Major milestones
+        EventType.build_complete.value,           # new ship ready
+        EventType.research_complete.value,        # tech unlocked for whole team
+        EventType.ship_destroyed.value,           # a ship went down
+        EventType.asteroid_depleted.value,        # resource gone
+    ]
     event_since = since_tick if since_tick is not None else max(0, current_tick - 20)
     team_ship_ids = [s.id for s in ships]
     if on_team and team_ship_ids:
-        event_owner_filter = Event.ship_id.in_(team_ship_ids)
+        event_owner_filter = or_(
+            # Major events on team ships are broadcast to all teammates
+            Event.ship_id.in_(team_ship_ids) & Event.event_type.in_(TEAM_BROADCAST_EVENTS),
+            # Everything else: only visible to the owning user
+            Event.user_id == user.id,
+        )
     else:
         event_owner_filter = Event.user_id == user.id
     events_result = await session.exec(
