@@ -21,6 +21,7 @@ from server.models import (
     SHIELD_EXTENDER_TYPES,
     SHIP_REQUIRED_TECH,
     ShipClass,
+    EJECT_ALLOWED_CLASSES,
     SOLARION_EXCLUSIVE_MODULES,
     Team,
     VOIDBORN_EXCLUSIVE_MODULES,
@@ -309,4 +310,7 @@ async def handle_undock(ctx: TickContext, cmd: Command) -> None:
     ship = ctx.find_ship(cmd.ship_id, cmd.user_id)
     if not ship.is_docked():
         raise CommandRejected("Ship is not currently docked")
+    # Non-ejectable ships must be claimed before undocking
+    if ship.ship_class.value not in EJECT_ALLOWED_CLASSES and ship.claimed_by_user_id is None:
+        raise CommandRejected("Ship must be claimed before undocking")
     ship.docked_in_id = None

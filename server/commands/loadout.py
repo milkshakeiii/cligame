@@ -40,21 +40,6 @@ async def handle_claim_ship(ctx: TickContext, cmd: Command) -> None:
     if user is None:
         raise CommandRejected("User not found")
 
-    # --- One ship per player: reject if user already has a claimed ship in this match ---
-    existing_result = await ctx.session.exec(
-        select(Spaceship).where(
-            Spaceship.claimed_by_user_id == cmd.user_id,
-            Spaceship.is_destroyed == False,  # noqa: E712
-            Spaceship.ship_class != ShipClass.mothership,
-        )
-    )
-    existing_ship = existing_result.first()
-    if existing_ship is not None:
-        raise CommandRejected(
-            f"You have already claimed a ship (#{existing_ship.id} {existing_ship.name}). "
-            "Reship first to claim a new one."
-        )
-
     if cmd.ship_id is None:
         # --- Auto-create path: ship_class in payload ---
         ship_class_str = payload.get("ship_class")
@@ -131,6 +116,22 @@ async def handle_claim_ship(ctx: TickContext, cmd: Command) -> None:
             raise CommandRejected(f"Ship #{cmd.ship_id} is destroyed")
         if hull.team_id is not None and user.team_id is not None and hull.team_id != user.team_id:
             raise CommandRejected("Ship belongs to a different team")
+
+    # --- One ship per player: reject if user already has a claimed ship in this match ---
+    existing_query = select(Spaceship).where(
+        Spaceship.claimed_by_user_id == cmd.user_id,
+        Spaceship.is_destroyed == False,  # noqa: E712
+        Spaceship.ship_class != ShipClass.mothership,
+    )
+    if hull.match_id is not None:
+        existing_query = existing_query.where(Spaceship.match_id == hull.match_id)
+    existing_result = await ctx.session.exec(existing_query)
+    existing_ship = existing_result.first()
+    if existing_ship is not None and existing_ship.id != hull.id:
+        raise CommandRejected(
+            f"You have already claimed a ship (#{existing_ship.id} {existing_ship.name}). "
+            "Reship first to claim a new one."
+        )
 
     # Get team research for module unlocking
     completed_techs = set()

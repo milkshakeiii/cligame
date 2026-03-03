@@ -65,7 +65,7 @@ export default function TacticalFogOfWar() {
                   transparent
                   depthWrite={false}
                   side={THREE.DoubleSide}
-                  blending={THREE.AdditiveBlending}
+                  blending={THREE.NormalBlending}
                 />
               </mesh>
             </Billboard>

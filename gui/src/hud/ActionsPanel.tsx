@@ -28,8 +28,6 @@ const BUILD_COSTS: Record<string, { ore: number; ticks: number }> = {
 export default function ActionsPanel() {
   const ship = useActiveShip();
   const ships = useGameStore((s) => s.ships);
-  const availableHulls = useGameStore((s) => s.availableHulls);
-
   if (!ship) return null;
 
   const EJECT_ALLOWED_CLASSES = new Set(["mothership"]);
@@ -67,8 +65,7 @@ export default function ActionsPanel() {
       {/* Build panel */}
       {hasFactory && <BuildPanel ship={ship} />}
 
-      {/* Available hulls to claim */}
-      {availableHulls.length > 0 && <ClaimPanel />}
+      {/* Available hulls — only on loadout screen, not here */}
 
     </div>
   );

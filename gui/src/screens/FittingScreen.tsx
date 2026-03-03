@@ -89,8 +89,20 @@ function ClaimMode({ hullClass, shipId }: { hullClass: string; shipId: number | 
       payload.ship_class = hullClass;
     }
     await sendCommand("claim_ship", shipId, payload, tick);
+    // Wait for the tick loop to process the claim before navigating.
+    // Poll view until we see a ship claimed by this user.
+    const uid = useAuthStore.getState().userId;
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const view = await api.getView(token!);
+        useGameStore.getState().updateFromView(view);
+        if (view.ships?.some((s: { claimed_by_user_id?: number | null }) => s.claimed_by_user_id === uid)) {
+          break;
+        }
+      } catch { /* ignore */ }
+    }
     setLaunching(false);
-    // After claim, polling will populate ships -> ShipView redirect
     navigate("/play", { replace: true });
   }
 
