@@ -178,23 +178,24 @@ export default function ShipView() {
           </div>
         )}
 
-        {/* Top-right: Alerts Feed */}
-        <div className="absolute top-2 right-2 flex flex-col gap-2 pointer-events-auto">
-          <AlertsFeed />
-        </div>
-
         {/* Menu button — just left of the overview panel */}
         <div className="absolute top-2 right-[17.5rem] pointer-events-auto z-50">
           <OptionsMenu />
         </div>
 
         {/* Left: Selected Item (fixed top) + Actions (scrollable below) */}
-        <div className="absolute left-2 top-2 bottom-36 flex flex-col gap-2 pointer-events-auto">
-          <div className="flex-shrink-0">
-            <SelectedItem />
+        {/* Alerts Feed sits to the right of this column */}
+        <div className="absolute left-2 top-2 bottom-36 flex gap-2 pointer-events-auto">
+          <div className="flex flex-col gap-2 w-56">
+            <div className="flex-shrink-0">
+              <SelectedItem />
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <ActionsPanel />
+            </div>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <ActionsPanel />
+          <div className="flex-shrink-0">
+            <AlertsFeed />
           </div>
         </div>
 

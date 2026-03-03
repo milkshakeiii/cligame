@@ -694,10 +694,17 @@ def _process_mining(
             _mining_out_of_range.get(ship.id, set()).discard(module.id)
 
         # Cargo-full check (emit once per tick per ship)
-        cargo_cap = ship.cargo_capacity()
-        if not cargo_full_emitted and cargo_cap > 0 and ship.ore >= cargo_cap:
+        if not cargo_full_emitted and result["ore_lost"] > 0 and ship.user_id is not None:
             cargo_full_emitted = True
-            if ship.user_id is not None:
+            cargo_cap = ship.cargo_capacity()
+            if cargo_cap <= 0:
+                emit(
+                    EventType.cargo_full,
+                    "No cargo bay installed — mined ore is lost",
+                    user_id=ship.user_id,
+                    ship_id=ship.id,
+                )
+            else:
                 emit(
                     EventType.cargo_full,
                     f"Cargo bay full ({ship.ore:.0f}/{cargo_cap:.0f} ore) — "

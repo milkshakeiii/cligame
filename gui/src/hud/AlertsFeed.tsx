@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useGameStore } from "../store/gameStore";
 import Panel from "../components/Panel";
 import { COLORS } from "../utils/colors";
@@ -18,33 +19,91 @@ const EVENT_COLORS: Record<string, string> = {
   command_rejected: COLORS.alertCrit,
 };
 
+const MAX_ALERTS = 12;
+const FADE_AFTER_MS = 5_000;
+const REMOVE_AFTER_MS = 10_000;
+
+interface StoredAlert {
+  id: number;
+  tick: number;
+  type: string;
+  message: string;
+  receivedAt: number;
+}
+
+let seenIds = new Set<number>();
+
 /**
- * Alerts feed (top-right) — scrolling event log, color-coded by type.
+ * Alerts feed — scrolling event log, color-coded by type.
+ * Accumulates events client-side and fades them out over time.
  */
 export default function AlertsFeed() {
   const events = useGameStore((s) => s.events);
+  const [alerts, setAlerts] = useState<StoredAlert[]>([]);
 
-  // Show most recent 8 events
-  const recent = events.slice(0, 8);
+  // Merge new server events into the buffer
+  useEffect(() => {
+    const now = Date.now();
+    const newAlerts: StoredAlert[] = [];
+    for (const e of events) {
+      if (!seenIds.has(e.id)) {
+        seenIds.add(e.id);
+        newAlerts.push({
+          id: e.id,
+          tick: e.tick,
+          type: e.type,
+          message: e.message,
+          receivedAt: now,
+        });
+      }
+    }
+    if (newAlerts.length > 0) {
+      setAlerts((prev) => [...newAlerts, ...prev].slice(0, MAX_ALERTS));
+      // Keep seenIds bounded
+      if (seenIds.size > 500) {
+        seenIds = new Set<number>();
+      }
+    }
+  }, [events]);
 
-  if (recent.length === 0) return null;
+  // Periodic cleanup of expired alerts + re-render for fade
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setAlerts((prev) => prev.filter((a) => now - a.receivedAt < REMOVE_AFTER_MS));
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (alerts.length === 0) return null;
+
+  const now = Date.now();
 
   return (
     <Panel className="w-72 max-h-48 overflow-hidden">
       <div className="space-y-0.5">
-        {recent.map((event) => (
-          <div
-            key={event.id}
-            className="text-[10px] leading-tight flex gap-2"
-          >
-            <span className="text-text-secondary shrink-0">
-              [{event.tick}]
-            </span>
-            <span style={{ color: EVENT_COLORS[event.type] ?? COLORS.textPrimary }}>
-              {event.message}
-            </span>
-          </div>
-        ))}
+        {alerts.map((alert) => {
+          const age = now - alert.receivedAt;
+          const opacity =
+            age < FADE_AFTER_MS
+              ? 1
+              : 1 - (age - FADE_AFTER_MS) / (REMOVE_AFTER_MS - FADE_AFTER_MS);
+
+          return (
+            <div
+              key={alert.id}
+              className="text-[10px] leading-tight flex gap-2"
+              style={{ opacity: Math.max(0, opacity) }}
+            >
+              <span className="text-text-secondary shrink-0">
+                [{alert.tick}]
+              </span>
+              <span style={{ color: EVENT_COLORS[alert.type] ?? COLORS.textPrimary }}>
+                {alert.message}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </Panel>
   );
