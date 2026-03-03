@@ -26,9 +26,28 @@
 
 - **No incentive to expand** — all asteroids have the same yield, so everyone mines within 10km of the mothership. No reason to build forward bases or control territory.
 
+- **Agents don't use strategy** — corvettes were fitted for combat with no mining lasers. Strike craft all use starter equipment. Nobody upgraded mining capability, so the entire economy ran on 2 ore/tick per ship with 25 cargo. Agents don't think about fleet composition, role specialization, or economic scaling.
+
 ### Proposed Changes
 
 - **Rich asteroids**: higher-yield asteroid variants (same volume, more ore per cycle) spawning further from motherships. Creates contested zones and rewards expansion.
 - **Pacing tuning**: consider reducing build times, ore costs, or research times to accelerate mid-game.
 - **View improvements**: add `my_ship_ids` field so agents/CLI users know which ships they control.
 - **Mothership loadout**: remove scanner from default, require research.
+
+### Agent Strategy Improvements
+
+The core problem: each agent pilot operates independently with no coordination. They make poor loadout decisions (combat corvettes with no mining, never upgrading from starter gear) and don't specialize roles (miners vs combat).
+
+Proposed approach: **Team leader + team chat**
+
+1. **Team leader role** — one agent (or the human player) acts as team commander. They have access to a strategic overview (team ore, fleet composition, research status, enemy sightings) and can issue strategic directives.
+
+2. **Team chat system** — add a `POST /api/chat` endpoint and include recent team chat messages in the view response. The team leader can send strategy messages like:
+   - "pilot_2: refit your corvette with mining_laser + large cargo_bay, we need ore income"
+   - "pilot_4, pilot_5: form up on corvette and attack enemy miners"
+   - "Everyone: stop building strike craft, save ore for frigate"
+
+3. **Strategic analysis in view** — add a `team_summary` section to the view that includes total team ore income/tick, fleet breakdown by class, enemy threat assessment. Gives agents (and the leader) better situational awareness for decision-making.
+
+4. **Role assignments** — leader can tag pilots with roles (miner, scout, combat) via chat or a dedicated command. Agents use their role to guide loadout and behavior decisions.
