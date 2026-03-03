@@ -582,6 +582,18 @@ def order_cancel(
     _show_queued(data, json, "Cancelling order.")
 
 
+@order_app.command("undock")
+def order_undock(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Undock a docked ship from its host."""
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+    data = _handle(client.undock_ship, resolved)
+    _show_queued(data, json, "Undocking ship.")
+
+
 # ---------------------------------------------------------------------------
 # Mining commands
 # ---------------------------------------------------------------------------
@@ -1097,6 +1109,80 @@ def loadout_costs(
         display.display_loadout_costs(data["hull_costs"], data["module_costs"])
 
 
+# Quick-fit presets (mirrors gui/src/data/modules.ts QUICK_FITS)
+QUICKFIT_PRESETS: dict[str, list[tuple[str, int]]] = {
+    "strike_craft": [
+        ("engine", 25),
+        ("reactor", 10),
+        ("cargo_bay", 25),
+        ("starter_mining_laser", 0),
+        ("starter_passive_detector", 0),
+    ],
+    "corvette": [
+        ("engine", 500),
+        ("reactor", 200),
+        ("cargo_bay", 800),
+        ("mining_laser", 0),
+        ("passive_detector", 0),
+        ("starter_turret", 0),
+        ("starter_shield_extender", 0),
+    ],
+    "frigate": [
+        ("engine", 5000),
+        ("reactor", 2000),
+        ("cargo_bay", 6000),
+        ("mining_laser", 0),
+        ("mining_laser", 0),
+        ("passive_detector", 0),
+        ("scanner", 0),
+        ("dropoff", 0),
+    ],
+}
+
+
+@loadout_app.command("quickfit")
+def loadout_quickfit(
+    ship_id: str = typer.Argument(..., help="Ship ID or name."),
+    preset: Optional[str] = typer.Option(
+        None, "--preset", "-p",
+        help="Preset name (strike_craft, corvette, frigate). Auto-detects from ship class if omitted.",
+    ),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Install a quick-fit loadout preset on a ship.
+
+    Installs a pre-defined set of modules in one go.
+    If --preset is omitted, auto-detects from the ship's hull class.
+    """
+    client = _client()
+    resolved = _resolve_ship(client, ship_id)
+
+    # Determine preset
+    preset_name = preset
+    if preset_name is None:
+        ship_data = _handle(client.get_ship, resolved)
+        preset_name = ship_data.get("ship_class")
+    if preset_name not in QUICKFIT_PRESETS:
+        available = ", ".join(QUICKFIT_PRESETS.keys())
+        display.print_error(f"No quickfit preset for '{preset_name}'. Available: {available}")
+        raise typer.Exit(code=1)
+
+    modules = QUICKFIT_PRESETS[preset_name]
+    results = []
+    for module_type, volume in modules:
+        data = _handle(client.install_module, resolved, module_type, volume)
+        results.append(data)
+        if not json:
+            cmd_id = data.get("command_id", "?")
+            display.print_success(f"  #{cmd_id} install {module_type}" + (f" ({volume} m³)" if volume else ""))
+
+    if json:
+        import json as _json
+        print(_json.dumps(results, indent=2))
+    elif results:
+        display.print_success(f"Queued {len(results)} modules for '{preset_name}' preset.")
+
+
 # ---------------------------------------------------------------------------
 # Team commands
 # ---------------------------------------------------------------------------
@@ -1160,6 +1246,37 @@ def team_info(
         print(_json.dumps(data, indent=2))
     else:
         display.display_team_info(data, json)
+
+
+@team_app.command("leave")
+def team_leave(
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Leave your current team."""
+    client = _client()
+    data = _handle(client.leave_team)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.print_success(data.get("message", "Left team."))
+
+
+@team_app.command("switch")
+def team_switch(
+    match_id: int = typer.Argument(..., help="Match ID to switch teams in."),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
+):
+    """Switch to the other team in a match."""
+    client = _client()
+    data = _handle(client.switch_team, match_id)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        faction = data.get("faction", "?")
+        team_id = data.get("team_id", "?")
+        display.print_success(f"Switched to team #{team_id} (faction: {faction})")
 
 
 @team_app.command("research")

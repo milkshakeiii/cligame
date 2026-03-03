@@ -240,6 +240,10 @@ class SpaceGameClient:
         """Dock a ship (command)."""
         return self.send_command("dock", ship_id=ship_id, target_ship_id=target_ship_id)
 
+    def undock_ship(self, ship_id: int) -> dict:
+        """Undock a ship (command)."""
+        return self.send_command("undock", ship_id=ship_id)
+
     # ------------------------------------------------------------------
     # Mining & resources
     # ------------------------------------------------------------------
@@ -402,6 +406,18 @@ class SpaceGameClient:
     def get_team_research(self, team_id: int) -> list:
         """GET /api/teams/{team_id}/research — team research status."""
         return self._request("GET", f"/api/teams/{team_id}/research")
+
+    def leave_team(self) -> dict:
+        """POST /api/teams/leave — leave current team."""
+        return self._request("POST", "/api/teams/leave")
+
+    # ------------------------------------------------------------------
+    # Match extras
+    # ------------------------------------------------------------------
+
+    def switch_team(self, match_id: int) -> dict:
+        """POST /api/matches/{match_id}/switch-team — switch to the other team."""
+        return self._request("POST", f"/api/matches/{match_id}/switch-team")
 
     # ------------------------------------------------------------------
     # Leech debuffs (Phase 7)
