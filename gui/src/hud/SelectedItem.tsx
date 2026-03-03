@@ -14,6 +14,9 @@ function distFromActiveShip(contact: NearbyContact, ship: Ship | undefined): num
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+const OBJECT_ORBIT_RADII = [500, 1000, 2000];
+const SHIP_ORBIT_RADII = [1000, 5000, 10000];
+
 /**
  * Selected Item panel (left side) — details about the selected object
  * with action buttons for movement orders and targeting.
@@ -38,8 +41,8 @@ export default function SelectedItem() {
         onApproach={() =>
           send("move", { order_type: "approach", target_ship_id: ship.id })
         }
-        onOrbit={() =>
-          send("move", { order_type: "orbit", target_ship_id: ship.id, orbit_radius: 5000 })
+        onOrbit={(radius) =>
+          send("move", { order_type: "orbit", target_ship_id: ship.id, orbit_radius: radius })
         }
         onDock={() => send("dock", { target_ship_id: ship.id })}
       />
@@ -59,11 +62,11 @@ export default function SelectedItem() {
         onApproach={() =>
           send("move", { order_type: "approach", target_object_id: contact.id })
         }
-        onOrbit={() =>
+        onOrbit={(radius) =>
           send("move", {
             order_type: "orbit",
             target_object_id: contact.id,
-            orbit_radius: 500,
+            orbit_radius: radius,
           })
         }
         onMine={() => {
@@ -85,8 +88,8 @@ export default function SelectedItem() {
       onApproach={() =>
         send("move", { order_type: "approach", target_ship_id: contact.id })
       }
-      onOrbit={() =>
-        send("move", { order_type: "orbit", target_ship_id: contact.id, orbit_radius: 5000 })
+      onOrbit={(radius) =>
+        send("move", { order_type: "orbit", target_ship_id: contact.id, orbit_radius: radius })
       }
       onKeepRange={() =>
         send("move", {
@@ -125,6 +128,26 @@ function ActionButton({
   );
 }
 
+function OrbitButtons({
+  radii,
+  onOrbit,
+}: {
+  radii: number[];
+  onOrbit: (radius: number) => void;
+}) {
+  return (
+    <>
+      {radii.map((r) => (
+        <ActionButton
+          key={r}
+          label={`Orbit ${formatDistance(r)}`}
+          onClick={() => onOrbit(r)}
+        />
+      ))}
+    </>
+  );
+}
+
 function FriendlyShipDetails({
   ship,
   onApproach,
@@ -133,7 +156,7 @@ function FriendlyShipDetails({
 }: {
   ship: Ship;
   onApproach: () => void;
-  onOrbit: () => void;
+  onOrbit: (radius: number) => void;
   onDock: () => void;
 }) {
   return (
@@ -148,7 +171,7 @@ function FriendlyShipDetails({
       </div>
       <div className="flex flex-wrap gap-1">
         <ActionButton label="Approach" onClick={onApproach} />
-        <ActionButton label="Orbit" onClick={onOrbit} />
+        <OrbitButtons radii={SHIP_ORBIT_RADII} onOrbit={onOrbit} />
         <ActionButton label="Dock" onClick={onDock} />
       </div>
     </Panel>
@@ -166,7 +189,7 @@ function EnemyShipDetails({
   contact: NearbyContact;
   distance: number;
   onApproach: () => void;
-  onOrbit: () => void;
+  onOrbit: (radius: number) => void;
   onKeepRange: () => void;
   onLock: () => void;
 }) {
@@ -207,7 +230,7 @@ function EnemyShipDetails({
       )}
       <div className="flex flex-wrap gap-1">
         <ActionButton label="Approach" onClick={onApproach} />
-        <ActionButton label="Orbit" onClick={onOrbit} />
+        <OrbitButtons radii={SHIP_ORBIT_RADII} onOrbit={onOrbit} />
         <ActionButton label="Keep Range" onClick={onKeepRange} />
         <ActionButton label="Lock" onClick={onLock} color={COLORS.hostile} />
       </div>
@@ -225,7 +248,7 @@ function ObjectDetails({
   contact: NearbyContact;
   distance: number;
   onApproach: () => void;
-  onOrbit: () => void;
+  onOrbit: (radius: number) => void;
   onMine: () => void;
 }) {
   const isAsteroid = contact.object_type === "asteroid";
@@ -244,7 +267,7 @@ function ObjectDetails({
       )}
       <div className="flex flex-wrap gap-1">
         <ActionButton label="Approach" onClick={onApproach} />
-        <ActionButton label="Orbit 500m" onClick={onOrbit} />
+        <OrbitButtons radii={OBJECT_ORBIT_RADII} onOrbit={onOrbit} />
         {isAsteroid && (
           <ActionButton label="Mine" onClick={onMine} color={COLORS.moduleActive} />
         )}

@@ -88,6 +88,7 @@ from server.production import tick_build_order, FACTORY_CAP_PER_TICK, get_next_q
 from server.physics import (
     DT,
     DOCK_TICKS,
+    ORBIT_MIN_RADIUS_PER_VOLUME,
     Vec3,
     behavior_approach,
     behavior_dock,
@@ -832,12 +833,21 @@ def _process_physics(
         completed = res.completed
 
     elif active_order.order_type == OrderType.orbit:
+        # Add target's physical radius so ships orbit outside the object
+        effective_orbit_radius = active_order.orbit_radius
+        if target_ship is not None:
+            effective_orbit_radius += target_ship.effective_signature_radius()
+        elif target_object is not None:
+            effective_orbit_radius += 500.0  # default celestial object radius
+        # Clamp to minimum turn radius based on ship volume (mass proxy)
+        min_orbit = ship.total_volume * ORBIT_MIN_RADIUS_PER_VOLUME
+        effective_orbit_radius = max(effective_orbit_radius, min_orbit)
         res = behavior_orbit(
             position=position,
             velocity=velocity,
             target_pos=target_pos,
             target_vel=target_vel,
-            orbit_radius=active_order.orbit_radius,
+            orbit_radius=effective_orbit_radius,
             max_speed=max_speed,
             acceleration_mag=accel_mag,
         )

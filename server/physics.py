@@ -28,6 +28,7 @@ STOP_SPEED_THRESHOLD: float = 0.1           # m/s — set to zero below this
 
 ORBIT_SPEED_FRACTION: float = 0.5           # orbit speed = 0.5 * max_speed
 ORBIT_RADIAL_GAIN: float = 0.5              # proportional radial correction gain
+ORBIT_MIN_RADIUS_PER_VOLUME: float = 0.05   # min orbit radius = ship volume * this
 ORBIT_STABLE_FRACTION: float = 0.10         # ±10 % of radius = stable
 
 KEEP_RANGE_DEAD_ZONE: float = 0.05          # ±5 %  no correction
@@ -246,7 +247,7 @@ def behavior_orbit(
     radial_speed = vec_dot(rel_vel_full, radial_dir)
     # PD controller: proportional for position + derivative for velocity damping
     # Damping term prevents overshoot by braking when approaching the orbit radius
-    radial_force = -radial_error * ORBIT_RADIAL_GAIN - radial_speed * ORBIT_RADIAL_GAIN
+    radial_force = radial_error * ORBIT_RADIAL_GAIN - radial_speed * ORBIT_RADIAL_GAIN
     radial_correction = vec_scale(radial_dir, radial_force)
 
     # ---- Tangential thrust ----
