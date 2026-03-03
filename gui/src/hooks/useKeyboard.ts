@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useActiveShip, useGameStore } from "../store/gameStore";
 import { useTacticalStore } from "../store/tacticalStore";
+import { useMoveStore } from "../store/moveStore";
 import { useCommand } from "./useCommand";
 
 /**
@@ -62,6 +63,24 @@ export function useKeyboard() {
         const nextIdx = (currentIdx + 1) % nearby.length;
         const next = nearby[nextIdx];
         selectTarget(next.id, next.type);
+      }
+
+      // M: Enter move mode
+      if ((e.key === "m" || e.key === "M") && ship) {
+        const moveState = useMoveStore.getState();
+        if (moveState.phase === "off") {
+          useMoveStore.getState().enter(ship.pos_y);
+        }
+        return;
+      }
+
+      // Escape: Cancel move mode (if active)
+      if (e.key === "Escape") {
+        const moveState = useMoveStore.getState();
+        if (moveState.phase !== "off") {
+          moveState.cancel();
+          return;
+        }
       }
     }
 

@@ -120,6 +120,14 @@ def integrate(
             acceleration_vec = (0.0, 0.0, 0.0)
 
     new_vel = vec_add(velocity, vec_scale(acceleration_vec, dt))
+
+    # Hard-clamp total speed to max_speed so perpendicular components
+    # can't push the ship above the limit.
+    if max_speed > 0.0:
+        speed = vec_magnitude(new_vel)
+        if speed > max_speed:
+            new_vel = vec_scale(vec_normalize(new_vel), max_speed)
+
     new_pos = vec_add(position, vec_scale(new_vel, dt))
     return new_pos, new_vel
 
@@ -174,8 +182,12 @@ def behavior_approach(
     """
     Approach a target position.
 
-    Phase 1 (beyond braking distance): accelerate toward target.
-    Phase 2 (within braking distance): decelerate to arrive at rest.
+    Computes a desired velocity toward the target (at max_speed, or
+    slowing to stop for arrival) and thrusts toward that desired velocity.
+    This naturally kills lateral velocity from prior orders, preventing
+    the spiral-instead-of-converge bug that occurs when acceleration is
+    only applied toward the target position.
+
     Completes when within ``arrival_distance`` and relative speed < ``arrival_speed``.
     """
     rel_pos = vec_sub(target_pos, position)
@@ -187,23 +199,42 @@ def behavior_approach(
     if distance <= arrival_distance and rel_speed < arrival_speed:
         return BehaviorResult(completed=True)
 
-    current_speed = vec_magnitude(velocity)
-    # Use potential speed (after one tick of acceleration) to compute braking
-    # distance.  This prevents discrete-time overshoot where the ship decides
-    # to accelerate on one tick, but the resulting speed increase pushes the
-    # braking distance beyond the remaining distance.
-    potential_speed = min(current_speed + acceleration_mag * DT, max_speed)
-    bd = braking_distance(potential_speed, acceleration_mag)
+    if distance < 1e-6:
+        # On top of target but still moving — just brake
+        if rel_speed > 1e-6:
+            decel_dir = vec_normalize(rel_vel)
+            return BehaviorResult(acceleration=vec_scale(decel_dir, acceleration_mag))
+        return BehaviorResult(completed=True)
 
-    if distance > bd:
-        # Accelerate toward target
-        direction = vec_normalize(rel_pos)
-        accel = vec_scale(direction, acceleration_mag)
-    else:
-        # Decelerate: thrust opposite to relative velocity with respect to target
-        # We want to match target velocity when we arrive.
-        decel_dir = vec_normalize(rel_vel) if rel_speed > 1e-6 else vec_normalize(rel_pos)
-        accel = vec_scale(decel_dir, acceleration_mag)
+    direction = vec_normalize(rel_pos)
+
+    # Compute closing speed (velocity component toward target)
+    speed_toward = vec_dot(velocity, direction) - vec_dot(target_vel, direction)
+
+    # Determine desired speed: full speed if far away, ramp down for arrival.
+    #
+    # The desired speed at distance d is chosen so that constant
+    # deceleration at ``acceleration_mag`` brings the ship to rest in
+    # exactly d metres: v = sqrt(2*a*d).  We reduce this by a factor to
+    # compensate for discrete-time integration (Euler: vel is updated
+    # before position, so the ship travels further than the continuous
+    # model predicts).
+    kinematic_speed = (2.0 * acceleration_mag * max(distance - arrival_distance, 0.0)) ** 0.5
+    desired_speed = min(kinematic_speed, max_speed)
+    desired_vel = vec_add(target_vel, vec_scale(direction, desired_speed))
+
+    # Thrust toward desired velocity
+    vel_error = vec_sub(desired_vel, velocity)
+    error_mag = vec_magnitude(vel_error)
+
+    if error_mag < 1e-6:
+        return BehaviorResult(acceleration=(0.0, 0.0, 0.0))
+
+    # Clamp thrust magnitude.  Also limit so we don't overshoot the
+    # desired velocity in one tick (prevents oscillation at low speed).
+    thrust_mag = min(acceleration_mag, error_mag / DT)
+    accel_dir = vec_normalize(vel_error)
+    accel = vec_scale(accel_dir, thrust_mag)
 
     return BehaviorResult(acceleration=accel)
 

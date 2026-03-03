@@ -5,6 +5,7 @@ import { useKeyboard } from "../hooks/useKeyboard";
 import { useGameStore, useActiveShip } from "../store/gameStore";
 import { useAuthStore } from "../store/authStore";
 import { useTacticalStore } from "../store/tacticalStore";
+import { useMoveStore } from "../store/moveStore";
 import SpaceScene from "../scene/SpaceScene";
 import { CapRing, ShipStatus } from "../hud/ShipHUD";
 import ModuleRack from "../hud/ModuleRack";
@@ -121,6 +122,19 @@ function OptionsMenu() {
   );
 }
 
+function MoveIndicator() {
+  const phase = useMoveStore((s) => s.phase);
+  if (phase === "off") return null;
+
+  return (
+    <div className="absolute top-20 left-1/2 -translate-x-1/2 pointer-events-none z-40">
+      <div className="text-[10px] font-mono tracking-widest px-3 py-1 rounded bg-space-panel/80 border border-friendly/40 text-friendly">
+        MOVE MODE &mdash; click to confirm, hold Shift for height &mdash; Esc to cancel
+      </div>
+    </div>
+  );
+}
+
 /**
  * Ship View — primary gameplay screen.
  * Full-screen 3D viewport with HUD panels layered on top.
@@ -168,6 +182,9 @@ export default function ShipView() {
             </div>
           </div>
         )}
+
+        {/* Move mode indicator */}
+        <MoveIndicator />
 
         {/* Connection status */}
         {!connected && (

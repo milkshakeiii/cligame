@@ -9,6 +9,7 @@ import ShipModel from "./ShipModel";
 import AsteroidModel from "./AsteroidModel";
 import Bracket from "./Bracket";
 import OrderIndicators from "./OrderIndicators";
+import MoveOrderOverlay from "./MoveOrderOverlay";
 import TacticalCamera from "./TacticalCamera";
 import TacticalShipIcon from "./TacticalShipIcon";
 import TacticalHeightMarker from "./TacticalHeightMarker";
@@ -418,6 +419,9 @@ export default function SpaceScene() {
       {/* Tactical overlays */}
       {isTactical && <TacticalGrid />}
       {isTactical && <TacticalFogOfWar />}
+
+      {/* Move-to-coordinate overlay (both modes) */}
+      <MoveOrderOverlay />
 
       {/* Celestials (same in both modes) */}
       <Celestials />
