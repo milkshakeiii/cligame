@@ -5,7 +5,7 @@ import { useAuthStore } from "./authStore";
 interface OptimisticOrder {
   commandId: number;
   type: string;
-  shipId: number;
+  shipId: number | null;
   tickIssued: number;
   payload: Record<string, unknown>;
 }

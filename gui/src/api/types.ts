@@ -159,17 +159,35 @@ export interface AvailableHull {
   hull_point_cost: number;
 }
 
+export interface ChatMessage {
+  tick: number;
+  username: string;
+  message: string;
+  user_id: number;
+}
+
+export interface TeamSummary {
+  total_ore: number;
+  fleet_composition: Record<string, number>;
+  total_ships: number;
+  destroyed_ships: number;
+}
+
 export interface ViewResponse {
   tick: number;
   points: number;
+  my_ship_ids: number[];
   ships: Ship[];
   available_hulls: AvailableHull[];
   free_hull_classes: string[];
   boardable_ships: BoardableShip[];
   nearby: NearbyContact[];
   events: GameEvent[];
+  points_log: unknown[];
+  team_chat: ChatMessage[];
   pending_commands: PendingCommand[];
   team: TeamInfo | null;
+  team_summary: TeamSummary | null;
   match: MatchInfo | null;
 }
 

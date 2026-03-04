@@ -10,6 +10,7 @@ import type {
   MatchInfo,
   AvailableHull,
   BoardableShip,
+  ChatMessage,
 } from "../api/types";
 import { useAuthStore } from "./authStore";
 
@@ -26,6 +27,7 @@ interface GameState {
   availableHulls: AvailableHull[];
   freeHullClasses: string[];
   boardableShips: BoardableShip[];
+  teamChat: ChatMessage[];
 
   // UI state
   activeShipId: number | null;
@@ -54,6 +56,7 @@ export const useGameStore = create<GameState>((set) => ({
   availableHulls: [],
   freeHullClasses: [],
   boardableShips: [],
+  teamChat: [],
 
   activeShipId: null,
   selectedTargetId: null,
@@ -94,6 +97,7 @@ export const useGameStore = create<GameState>((set) => ({
         availableHulls: view.available_hulls,
         freeHullClasses: view.free_hull_classes,
         boardableShips: view.boardable_ships ?? [],
+        teamChat: view.team_chat ?? [],
         activeShipId,
         connected: true,
         pollError: null,
@@ -114,6 +118,7 @@ export const useGameStore = create<GameState>((set) => ({
     availableHulls: [],
     freeHullClasses: [],
     boardableShips: [],
+    teamChat: [],
     activeShipId: null,
     selectedTargetId: null,
     selectedTargetType: null,

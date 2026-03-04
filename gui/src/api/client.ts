@@ -140,4 +140,15 @@ export const api = {
       token,
     );
   },
+
+  sendChat(token: string, message: string) {
+    return request<{ status: string; tick: number }>(
+      "/api/chat",
+      {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      },
+      token,
+    );
+  },
 };

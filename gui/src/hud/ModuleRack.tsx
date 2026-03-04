@@ -75,7 +75,7 @@ function moduleShortName(type: string): string {
     .replace("large_", "Lg ")
     .replace("light_", "Lt ")
     .replace("heavy_", "Hv ")
-    .replaceAll("_", " ");
+    .replace(/_/g, " ");
 }
 
 /**

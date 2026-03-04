@@ -14,6 +14,7 @@ import SelectedItem from "../hud/SelectedItem";
 import AlertsFeed from "../hud/AlertsFeed";
 import TargetBar from "../hud/TargetBar";
 import ActionsPanel from "../hud/ActionsPanel";
+import ChatPanel from "../hud/ChatPanel";
 import { formatDistance, shipClassName } from "../utils/formatting";
 import { COLORS } from "../utils/colors";
 import { api, ApiError } from "../api/client";
@@ -219,6 +220,11 @@ export default function ShipView() {
         {/* Right: Overview (anchored top-right, grows downward, resizable) */}
         <div className="absolute right-2 top-2 pointer-events-auto">
           <Overview />
+        </div>
+
+        {/* Bottom-left: Chat */}
+        <div className="absolute bottom-2 left-2 pointer-events-auto z-30">
+          <ChatPanel />
         </div>
 
         {/* Bottom center: modules flanking cap ring, status below */}
