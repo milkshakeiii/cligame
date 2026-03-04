@@ -382,16 +382,16 @@ class TestSpawnNewShip:
 class TestBuildCosts:
     def test_strike_craft_cost(self):
         assert BUILD_COSTS["strike_craft"]["ore"] == 200
-        assert BUILD_COSTS["strike_craft"]["ticks"] == 120
+        assert BUILD_COSTS["strike_craft"]["ticks"] == 60
 
     def test_corvette_cost(self):
-        assert BUILD_COSTS["corvette"]["ore"] == 1_500
-        assert BUILD_COSTS["corvette"]["ticks"] == 480
+        assert BUILD_COSTS["corvette"]["ore"] == 1_000
+        assert BUILD_COSTS["corvette"]["ticks"] == 180
 
     def test_frigate_cost(self):
-        assert BUILD_COSTS["frigate"]["ore"] == 10_000
-        assert BUILD_COSTS["frigate"]["ticks"] == 1_800
+        assert BUILD_COSTS["frigate"]["ore"] == 3_000
+        assert BUILD_COSTS["frigate"]["ticks"] == 360
 
     def test_cruiser_cost(self):
-        assert BUILD_COSTS["cruiser"]["ore"] == 200_000
-        assert BUILD_COSTS["cruiser"]["ticks"] == 18_000
+        assert BUILD_COSTS["cruiser"]["ore"] == 50_000
+        assert BUILD_COSTS["cruiser"]["ticks"] == 1_800

@@ -525,11 +525,11 @@ FACTORY_REQUIREMENTS: dict[str, int] = {
 
 # Build costs (ore, ticks) per ship class
 BUILD_COSTS: Dict[str, dict] = {
-    "strike_craft": {"ore": 200, "ticks": 120},
-    "corvette": {"ore": 1_500, "ticks": 480},
-    "frigate": {"ore": 10_000, "ticks": 1_800},
-    "destroyer": {"ore": 50_000, "ticks": 5_400},
-    "cruiser": {"ore": 200_000, "ticks": 18_000},
+    "strike_craft": {"ore": 200, "ticks": 60},       # 1 min
+    "corvette": {"ore": 1_000, "ticks": 180},         # 3 min
+    "frigate": {"ore": 3_000, "ticks": 360},           # 6 min
+    "destroyer": {"ore": 15_000, "ticks": 900},        # 15 min
+    "cruiser": {"ore": 50_000, "ticks": 1_800},        # 30 min
 }
 
 # ---------------------------------------------------------------------------
@@ -539,7 +539,7 @@ BUILD_COSTS: Dict[str, dict] = {
 EJECT_ALLOWED_CLASSES: set[str] = {"mothership"}
 
 HULL_POINT_COSTS: Dict[str, int] = {
-    "strike_craft": 0, "corvette": 500, "frigate": 2_000,
+    "strike_craft": 0, "corvette": 250, "frigate": 2_000,
     "destroyer": 5_000, "cruiser": 10_000,
 }
 
@@ -634,7 +634,6 @@ MATCH_MOTHERSHIP_LOADOUT: list[tuple[str, int]] = [
     ("docking_bay", 500),
     ("factory", 300_000),
     ("mining_laser", 50),
-    ("scanner", 100),
     ("passive_detector", 100),
     ("dropoff", 500),
     ("research_module", 5_000),
@@ -650,10 +649,10 @@ MATCH_MOTHERSHIP_LOADOUT: list[tuple[str, int]] = [
 
 # Research tier costs
 RESEARCH_COSTS: Dict[int, dict] = {
-    1: {"ore": 500, "ticks": 300},
-    2: {"ore": 2_000, "ticks": 900},
-    3: {"ore": 8_000, "ticks": 1_800},
-    4: {"ore": 25_000, "ticks": 3_600},
+    1: {"ore": 500, "ticks": 180},           # 3 min
+    2: {"ore": 1_500, "ticks": 300},          # 5 min
+    3: {"ore": 5_000, "ticks": 600},          # 10 min
+    4: {"ore": 15_000, "ticks": 1_200},       # 20 min
 }
 
 # Tech tree: each node has an id, tier, prerequisites, and what it unlocks.
@@ -1745,6 +1744,7 @@ class CelestialObject(SQLModel, table=True):
     # Asteroid-specific
     ore_remaining: float = Field(default=0.0)
     ore_initial: float = Field(default=0.0)
+    ore_richness: float = Field(default=1.0)
 
     # Wreck-specific: tick when the object was created (for expiration)
     created_tick: Optional[int] = Field(default=None)
@@ -1765,6 +1765,13 @@ class Event(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+    # Unified stream fields (Phase 10)
+    category: str = Field(default="action", index=True)  # "action" | "points" | "chat"
+    amount: Optional[float] = Field(default=None)    # points amount
+    reason: Optional[str] = Field(default=None)       # "damage dealt", "mining", etc.
+    team_id: Optional[int] = Field(default=None, index=True)
+    username: Optional[str] = Field(default=None)     # denormalized sender name
 
     user: Optional[User] = Relationship(back_populates="events")
     ship: Optional[Spaceship] = Relationship(back_populates="events")

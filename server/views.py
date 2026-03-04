@@ -293,6 +293,7 @@ async def compute_player_view(
                     }
                     if detail >= DETAIL_CLASSIFICATION:
                         contact["ore_remaining"] = obj.ore_remaining
+                        contact["ore_richness"] = obj.ore_richness
                     # Avoid duplicates — keep highest detail sighting
                     existing = next((c for c in nearby if c["type"] == "object" and c["id"] == obj.id), None)
                     if existing is None:
@@ -333,16 +334,64 @@ async def compute_player_view(
         .order_by(Event.tick.desc(), Event.id.desc())
         .limit(100)
     )
-    events = [
-        {
-            "id": e.id,
-            "tick": e.tick,
-            "type": e.event_type.value if hasattr(e.event_type, "value") else e.event_type,
-            "message": e.message,
-            "ship_id": e.ship_id,
-        }
-        for e in events_result.all()
-    ]
+    all_recent_events = list(events_result.all())
+
+    # Split into three arrays by category
+    events = []
+    points_log = []
+    team_chat = []
+    for e in all_recent_events:
+        cat = getattr(e, 'category', 'action') or 'action'
+        etype = e.event_type.value if hasattr(e.event_type, "value") else e.event_type
+        if cat == "points":
+            points_log.append({
+                "tick": e.tick,
+                "amount": e.amount,
+                "reason": e.reason,
+                "ship_id": e.ship_id,
+                "total": user.points,
+            })
+        elif cat == "chat":
+            # Only show chat from the player's own team
+            if e.team_id is not None and e.team_id == user.team_id:
+                team_chat.append({
+                    "tick": e.tick,
+                    "username": e.username,
+                    "message": e.message,
+                    "user_id": e.user_id,
+                })
+        else:
+            events.append({
+                "id": e.id,
+                "tick": e.tick,
+                "type": etype,
+                "message": e.message,
+                "ship_id": e.ship_id,
+            })
+
+    # Also fetch team chat that wasn't in the personal event query
+    if on_team:
+        chat_result = await session.exec(
+            select(Event)
+            .where(
+                Event.category == "chat",
+                Event.team_id == user.team_id,
+                Event.tick >= event_since,
+            )
+            .order_by(Event.tick.desc(), Event.id.desc())
+            .limit(50)
+        )
+        existing_chat_ids = {(c["tick"], c["user_id"]) for c in team_chat}
+        for e in chat_result.all():
+            key = (e.tick, e.user_id)
+            if key not in existing_chat_ids:
+                team_chat.append({
+                    "tick": e.tick,
+                    "username": e.username,
+                    "message": e.message,
+                    "user_id": e.user_id,
+                })
+        team_chat.sort(key=lambda c: c["tick"], reverse=True)
 
     # --- Pending/recent commands ---
     cmd_result = await session.exec(
@@ -434,16 +483,43 @@ async def compute_player_view(
                 "name": s.name,
             })
 
+    # --- my_ship_ids ---
+    my_ship_ids = [s.id for s in ships if s.claimed_by_user_id == user.id]
+
+    # --- team_summary ---
+    team_summary = None
+    if on_team:
+        total_ore = sum(s.ore for s in ships)
+        fleet_composition: dict[str, int] = {}
+        total_ships = 0
+        destroyed_ships = 0
+        for s in ships:
+            cls = s.ship_class.value
+            fleet_composition[cls] = fleet_composition.get(cls, 0) + 1
+            total_ships += 1
+            if s.is_destroyed:
+                destroyed_ships += 1
+        team_summary = {
+            "total_ore": total_ore,
+            "fleet_composition": fleet_composition,
+            "total_ships": total_ships,
+            "destroyed_ships": destroyed_ships,
+        }
+
     return {
         "tick": current_tick,
         "points": user.points,
+        "my_ship_ids": my_ship_ids,
         "ships": ship_views,
         "available_hulls": available_hulls,
         "free_hull_classes": free_hull_classes,
         "boardable_ships": boardable_ships,
         "nearby": nearby,
         "events": events,
+        "points_log": points_log,
+        "team_chat": team_chat,
         "pending_commands": pending_commands,
         "team": team_info,
+        "team_summary": team_summary,
         "match": match_info,
     }

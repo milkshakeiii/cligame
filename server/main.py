@@ -178,6 +178,7 @@ from server.routes.teams import router as teams_router          # noqa: E402
 from server.routes.matches import router as matches_router      # noqa: E402
 from server.routes.commands import router as commands_router    # noqa: E402
 from server.routes.view import router as view_router            # noqa: E402
+from server.routes.chat import router as chat_router            # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(game_router)
@@ -192,3 +193,4 @@ app.include_router(teams_router)
 app.include_router(matches_router)
 app.include_router(commands_router)
 app.include_router(view_router)
+app.include_router(chat_router)

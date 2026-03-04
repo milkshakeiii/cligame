@@ -90,7 +90,8 @@ def tick_mining_laser(
     cargo_cap = ship.cargo_capacity()
     available_space = cargo_cap - ship.ore
 
-    yield_amount = min(module.mining_yield, asteroid.ore_remaining)
+    richness = getattr(asteroid, 'ore_richness', 1.0)
+    yield_amount = min(module.mining_yield * richness, asteroid.ore_remaining)
 
     if available_space <= 0.0:
         # Cargo full — laser cycles (cap already drained) but asteroid ore is preserved

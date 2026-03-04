@@ -397,7 +397,7 @@ async def test_mothership_loadout(db_session: AsyncSession):
     assert ms.ship_class == ShipClass.mothership
     assert ms.match_id == match.id
     assert ms.team_id == team.id
-    assert ms.ore == 5_000.0
+    assert ms.ore == 7_500.0
     assert ms.max_capacitor > 0
     assert ms.max_shield_hp > 0
     assert ms.max_armor_hp > 0
@@ -1688,7 +1688,7 @@ async def test_mothership_name_includes_team_name(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_mothership_starting_ore_5000(db_session: AsyncSession):
-    """Motherships start with exactly 5000 ore."""
+    """Motherships start with exactly 7500 ore."""
     team = Team(name="Ore Team", faction="voidborn")
     db_session.add(team)
     await db_session.flush()
@@ -1715,7 +1715,7 @@ async def test_mothership_starting_ore_5000(db_session: AsyncSession):
     )
     await db_session.commit()
 
-    assert ms.ore == 5_000.0
+    assert ms.ore == 7_500.0
 
 
 # ---------------------------------------------------------------------------
@@ -1880,8 +1880,8 @@ async def test_full_match_lifecycle_creation_to_victory(client: AsyncClient):
     assert ship2["max_armor_hp"] > 0
     assert ship1["is_destroyed"] is False
     assert ship2["is_destroyed"] is False
-    assert ship1["ore"] == 5_000.0
-    assert ship2["ore"] == 5_000.0
+    assert ship1["ore"] == 7_500.0
+    assert ship2["ore"] == 7_500.0
 
     # -----------------------------------------------------------------------
     # 8. Verify match info is active with all fields populated
@@ -1965,10 +1965,10 @@ async def test_full_match_with_win_condition_db(db_session: AsyncSession):
     )
     asteroids = asteroid_result.all()
 
-    # Expected: 8+10 per home (x2=36) + 30-40 center + 8-12 per flank (x2=16-24)
-    # Total range: 82-100
+    # Expected: 8+10 per home (x2=36) + 30-40 center + 8-12 per flank (x2=16-24) + 8-14 rich
+    # Total range: 74-124
     assert len(asteroids) >= 66, f"Expected >= 66 asteroids, got {len(asteroids)}"
-    assert len(asteroids) <= 110, f"Expected <= 110 asteroids, got {len(asteroids)}"
+    assert len(asteroids) <= 130, f"Expected <= 130 asteroids, got {len(asteroids)}"
 
     # All asteroids should be scoped to this match
     for ast in asteroids:
@@ -2041,7 +2041,7 @@ async def test_full_match_with_win_condition_db(db_session: AsyncSession):
     assert ms1.shield_hp == ms1.max_shield_hp
     assert ms1.max_armor_hp > 0
     assert ms1.armor_hp == ms1.max_armor_hp
-    assert ms1.ore == 5_000.0
+    assert ms1.ore == 7_500.0
     assert ms1.is_destroyed is False
     assert ms1.match_id == match.id
     assert ms1.team_id == team1.id

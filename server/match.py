@@ -98,6 +98,7 @@ def _make_asteroid(
     pos: tuple[float, float, float],
     ore: float,
     match_id: int,
+    richness: float = 1.0,
 ) -> CelestialObject:
     return CelestialObject(
         name=name,
@@ -107,6 +108,7 @@ def _make_asteroid(
         pos_z=pos[2],
         ore_remaining=ore,
         ore_initial=ore,
+        ore_richness=richness,
         match_id=match_id,
     )
 
@@ -187,6 +189,21 @@ async def generate_match_map(session, match, team1, team2, current_tick: int) ->
                 match_id,
             ))
 
+    # --- Rich asteroid belt (between teams, high yield) ---
+    num_rich = random.randint(8, 14)
+    for _ in range(num_rich):
+        size_name, ore = _pick_size([("large", 0.5), ("huge", 0.5)])
+        richness = round(random.uniform(2.0, 5.0), 1)
+        pos = _random_point_in_shell(0.0, 0.0, 0.0, 15_000.0, 50_000.0)
+        idx += 1
+        asteroids.append(_make_asteroid(
+            f"Rich {size_name.title()} Asteroid {idx}",
+            pos,
+            ore,
+            match_id,
+            richness=richness,
+        ))
+
     for asteroid in asteroids:
         session.add(asteroid)
 
@@ -228,7 +245,7 @@ async def create_match_mothership(
         faction=faction,
     )
     ship.match_id = match_id
-    ship.ore = 5_000.0
+    ship.ore = 7_500.0
     ship.claimed_by_user_id = None
 
     session.add(ship)

@@ -40,4 +40,7 @@ def award_points(
         ship_id=ship_id,
         event_type=EventType.points_earned,
         message=f"+{amount:.1f} pts ({reason})",
+        category="points",
+        amount=amount,
+        reason=reason,
     ))

@@ -39,6 +39,7 @@ research_app = typer.Typer(help="Research / tech tree commands.", no_args_is_hel
 loadout_app = typer.Typer(help="Ship claiming and loadout.", no_args_is_help=True)
 team_app = typer.Typer(help="Team management commands.", no_args_is_help=True)
 match_app = typer.Typer(help="Match management commands.", no_args_is_help=True)
+chat_app = typer.Typer(help="Team chat commands.", no_args_is_help=True)
 
 app.add_typer(ship_app, name="ship")
 app.add_typer(order_app, name="order")
@@ -50,6 +51,7 @@ app.add_typer(research_app, name="research")
 app.add_typer(loadout_app, name="loadout")
 app.add_typer(team_app, name="team")
 app.add_typer(match_app, name="match")
+app.add_typer(chat_app, name="chat")
 
 
 # ---------------------------------------------------------------------------
@@ -1519,6 +1521,63 @@ def match_surrender(
     c = _client()
     data = _handle(c.surrender_match, match_id)
     _show_queued(data, json, "Surrender vote cast.")
+
+
+# ---------------------------------------------------------------------------
+# Chat commands
+# ---------------------------------------------------------------------------
+
+
+@chat_app.command("send")
+def chat_send(
+    message: str = typer.Argument(..., help="Message to send to team"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Send a message to your team chat."""
+    c = _client()
+    data = _handle(c.send_chat, message)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        display.console.print("[green]Message sent.[/green]")
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def notifications(
+    since: Optional[int] = typer.Option(None, "--since", help="Events since this tick"),
+    category: Optional[str] = typer.Option(
+        None, "--category", help="Filter: action|points|chat",
+    ),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max entries"),
+    json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+):
+    """Read recent notifications (events, points, chat)."""
+    c = _client()
+    data = _handle(c.get_notifications, since_tick=since, category=category, limit=limit)
+    if json:
+        import json as _json
+        print(_json.dumps(data, indent=2))
+    else:
+        for entry in data:
+            cat = entry.get("category", "action")
+            tick = entry.get("tick", "?")
+            msg = entry.get("message", "")
+            if cat == "chat":
+                username = entry.get("username", "?")
+                display.console.print(f"[dim]t{tick}[/dim] [cyan][{username}][/cyan] {msg}")
+            elif cat == "points":
+                amount = entry.get("amount", 0)
+                reason = entry.get("reason", "")
+                display.console.print(f"[dim]t{tick}[/dim] [yellow]+{amount:.1f} pts[/yellow] ({reason})")
+            else:
+                etype = entry.get("type", "")
+                display.console.print(f"[dim]t{tick}[/dim] [{etype}] {msg}")
 
 
 # ---------------------------------------------------------------------------

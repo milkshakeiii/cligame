@@ -478,6 +478,32 @@ class SpaceGameClient:
             params["since_tick"] = since_tick
         return self._request("GET", "/api/view", params=params)
 
+    # ------------------------------------------------------------------
+    # Chat & Notifications
+    # ------------------------------------------------------------------
+
+    def send_chat(self, message: str) -> dict:
+        """POST /api/chat — send a team chat message."""
+        return self._request("POST", "/api/chat", json_body={"message": message})
+
+    def get_notifications(
+        self,
+        since_tick: Optional[int] = None,
+        category: Optional[str] = None,
+        limit: int = 50,
+    ) -> list:
+        """GET /api/notifications — unified notification read."""
+        params: dict = {"limit": limit}
+        if since_tick is not None:
+            params["since_tick"] = since_tick
+        if category is not None:
+            params["category"] = category
+        return self._request("GET", "/api/notifications", params=params)
+
+    # ------------------------------------------------------------------
+    # Commands
+    # ------------------------------------------------------------------
+
     def list_commands(self, status: Optional[str] = None, limit: int = 50) -> list:
         """GET /api/commands — list player's commands."""
         params: dict = {"limit": limit}
