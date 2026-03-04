@@ -70,9 +70,10 @@ class TestLogin:
         resp = await client.post("/api/auth/login", json={"username": "eve2", "password": "wrong"})
         assert resp.status_code == 401
 
-    async def test_login_unknown_user_404(self, client: AsyncClient):
+    async def test_login_unknown_user_401(self, client: AsyncClient):
+        """Unknown username returns 401 (same as wrong password, to prevent enumeration)."""
         resp = await client.post("/api/auth/login", json={"username": "nobody", "password": "whatever"})
-        assert resp.status_code == 404
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------

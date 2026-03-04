@@ -120,11 +120,14 @@ class TestPointConstants:
             assert MODULE_POINT_COSTS[mod] == 0, f"{mod} should be free"
 
     def test_engines_always_free(self):
-        assert MODULE_POINT_COSTS["engine"] == 0
+        assert MODULE_POINT_COSTS["starter_engine"] == 0
 
     def test_infrastructure_modules_free(self):
         """Core infrastructure modules should cost zero points."""
-        free_modules = ["engine", "reactor", "cargo_bay", "docking_bay", "dropoff", "factory"]
+        free_modules = [
+            "starter_engine", "starter_reactor", "tiny_cargo_bay",
+            "tiny_docking_bay", "dropoff", "starter_factory",
+        ]
         for mod in free_modules:
             assert MODULE_POINT_COSTS[mod] == 0, f"{mod} should be free"
 
@@ -302,7 +305,7 @@ class TestLoadoutCostsEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert "module_costs" in data
-        assert data["module_costs"]["engine"] == 0
+        assert data["module_costs"]["starter_engine"] == 0
         assert data["module_costs"]["small_turret_kinetic"] == 50
 
     @pytest.mark.anyio

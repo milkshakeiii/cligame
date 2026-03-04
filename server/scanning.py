@@ -12,13 +12,13 @@ Handles:
 from __future__ import annotations
 
 import logging
-import math
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from server.models import Spaceship, ShipModule, CelestialObject
 
 from server.models import DETECTION_REFERENCE_SIGNATURE, ModuleType
+from server.physics import vec_distance
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,6 @@ DEFAULT_LEVEL3_RANGE: float = 100.0     # 100 m
 # ---------------------------------------------------------------------------
 # Range helpers
 # ---------------------------------------------------------------------------
-
-
-def _dist(ax: float, ay: float, az: float,
-          bx: float, by: float, bz: float) -> float:
-    dx, dy, dz = ax - bx, ay - by, az - bz
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
 def passive_detection_range(
@@ -142,9 +136,9 @@ def tick_passive_detector(
             continue
         if ship.is_docked():
             continue  # docked ships are hidden
-        distance = _dist(
-            detector_ship.pos_x, detector_ship.pos_y, detector_ship.pos_z,
-            ship.pos_x, ship.pos_y, ship.pos_z,
+        distance = vec_distance(
+            (detector_ship.pos_x, detector_ship.pos_y, detector_ship.pos_z),
+            (ship.pos_x, ship.pos_y, ship.pos_z),
         )
         effective_range = passive_detection_range(base_range, ship.effective_signature_radius())
         if distance <= effective_range:
@@ -160,9 +154,9 @@ def tick_passive_detector(
 
     # Detect celestial objects (asteroids etc.) at contact level
     for obj in all_objects:
-        distance = _dist(
-            detector_ship.pos_x, detector_ship.pos_y, detector_ship.pos_z,
-            obj.pos_x, obj.pos_y, obj.pos_z,
+        distance = vec_distance(
+            (detector_ship.pos_x, detector_ship.pos_y, detector_ship.pos_z),
+            (obj.pos_x, obj.pos_y, obj.pos_z),
         )
         # Use a fixed signature radius for celestial objects (large = always detectable nearby)
         obj_signature = 500.0
@@ -228,9 +222,9 @@ def tick_active_scanner(
             continue
         if ship.is_docked():
             continue
-        distance = _dist(
-            scanning_ship.pos_x, scanning_ship.pos_y, scanning_ship.pos_z,
-            ship.pos_x, ship.pos_y, ship.pos_z,
+        distance = vec_distance(
+            (scanning_ship.pos_x, scanning_ship.pos_y, scanning_ship.pos_z),
+            (ship.pos_x, ship.pos_y, ship.pos_z),
         )
         if distance > scan_range:
             continue
@@ -264,9 +258,9 @@ def tick_active_scanner(
 
     # Scan celestial objects
     for obj in all_objects:
-        distance = _dist(
-            scanning_ship.pos_x, scanning_ship.pos_y, scanning_ship.pos_z,
-            obj.pos_x, obj.pos_y, obj.pos_z,
+        distance = vec_distance(
+            (scanning_ship.pos_x, scanning_ship.pos_y, scanning_ship.pos_z),
+            (obj.pos_x, obj.pos_y, obj.pos_z),
         )
         if distance > scan_range:
             continue
@@ -313,9 +307,9 @@ def get_ships_that_detect_scan(
             continue
         if ship.is_docked():
             continue
-        distance = _dist(
-            scanning_ship.pos_x, scanning_ship.pos_y, scanning_ship.pos_z,
-            ship.pos_x, ship.pos_y, ship.pos_z,
+        distance = vec_distance(
+            (scanning_ship.pos_x, scanning_ship.pos_y, scanning_ship.pos_z),
+            (ship.pos_x, ship.pos_y, ship.pos_z),
         )
         if distance > SCAN_REVEAL_RANGE:
             continue

@@ -134,7 +134,7 @@ class TestDrainModule:
     def test_engine_exempt_from_drain(self):
         ship = make_test_ship(ShipClass.frigate)
         ship.capacitor = 0.0  # even with 0 cap
-        engine = add_module_to_ship(ship, ModuleType.engine, 6000)
+        engine = add_module_to_ship(ship, ModuleType.medium_standard_engine, 0)
         result = drain_module(ship, engine)
         assert result is True
         assert ship.capacitor == 0.0  # unchanged
@@ -142,7 +142,7 @@ class TestDrainModule:
     def test_zero_cap_per_cycle_always_succeeds(self):
         ship = make_test_ship(ShipClass.frigate)
         ship.capacitor = 0.0
-        cargo = add_module_to_ship(ship, ModuleType.cargo_bay, 5000)
+        cargo = add_module_to_ship(ship, ModuleType.medium_cargo_bay, 0)
         # cargo_bay has cap_per_cycle = 0
         result = drain_module(ship, cargo)
         assert result is True
@@ -203,7 +203,7 @@ class TestCheckDepletion:
         ship = make_test_ship(ShipClass.frigate)
         ship.max_capacitor = 1000.0
         ship.capacitor = 0.0
-        engine = add_module_to_ship(ship, ModuleType.engine, 6000)
+        engine = add_module_to_ship(ship, ModuleType.medium_standard_engine, 0)
         engine.active = True
         check_depletion(ship)
         # Engines should remain active per spec

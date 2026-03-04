@@ -23,13 +23,12 @@ from server.database import get_session
 from server.models import (
     ARMOR_REPAIRER_TYPES,
     ARMOR_PLATE_TYPES,
+    FACTORY_TYPES,
     MISSILE_TYPES,
     SHIELD_BOOSTER_TYPES,
     SHIELD_EXTENDER_TYPES,
-    SOLARION_MODULE_PARAMS,
     STEALTH_FIELD_TYPES,
     TURRET_TYPES,
-    VOIDBORN_MODULE_PARAMS,
     ModuleType,
     ShipModule,
     Spaceship,
@@ -158,7 +157,7 @@ def _module_to_out(m: ShipModule) -> ModuleOut:
         base.scan_range = m.scan_range
     elif mt in (ModuleType.passive_detector, ModuleType.starter_passive_detector):
         base.detection_range = m.detection_range
-    elif mt == ModuleType.factory:
+    elif mt_val in FACTORY_TYPES:
         base.factory_max_class = m.factory_max_class
     elif mt_val in TURRET_TYPES:
         base.damage_per_cycle = m.damage_per_cycle
@@ -189,12 +188,7 @@ def _module_to_out(m: ShipModule) -> ModuleOut:
 
 def _ship_to_out(ship: Spaceship) -> ShipOut:
     used = sum(m.volume for m in ship.modules)
-    # Derive faction safely — requires team relationship to be loaded
-    faction = None
-    try:
-        faction = ship.faction
-    except Exception:
-        pass
+    faction = ship.team.faction if ship.team is not None else None
     return ShipOut(
         id=ship.id,
         name=ship.name,

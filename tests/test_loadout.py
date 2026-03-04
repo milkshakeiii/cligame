@@ -175,7 +175,7 @@ class TestClaimShip:
 
         # Claim with free modules: engine (30 m3) + starter_turret (fixed 15 m3)
         await _claim_ship(client, headers, craft["id"], modules=[
-            {"module_type": "engine", "volume": 30},
+            {"module_type": "starter_engine"},
             {"module_type": "starter_turret"},
         ])
 
@@ -216,7 +216,7 @@ class TestClaimShip:
 
         # Try to claim a ship that does not exist
         await _claim_ship(client, headers, hull_id=99999, modules=[
-            {"module_type": "engine", "volume": 30},
+            {"module_type": "starter_engine"},
         ])
 
         rejected = await _get_rejected_commands(client, headers)
@@ -229,10 +229,10 @@ class TestClaimShip:
         headers = await _auth_header(client)
         craft, _ms = await _create_and_dock_strike_craft(client, headers)
 
-        # Try to fit 120 m3 of new modules into a 100 m3 hull
+        # Try to fit modules exceeding hull volume (starter_engine=25 + small_standard_engine=500 > 100)
         await _claim_ship(client, headers, craft["id"], modules=[
-            {"module_type": "engine", "volume": 60},
-            {"module_type": "engine", "volume": 60},
+            {"module_type": "starter_engine"},
+            {"module_type": "small_standard_engine"},
         ])
 
         rejected = await _get_rejected_commands(client, headers)
@@ -291,7 +291,7 @@ class TestReship:
 
         # Claim with free modules (total cost = 0)
         await _claim_ship(client, headers, craft["id"], modules=[
-            {"module_type": "engine", "volume": 30},
+            {"module_type": "starter_engine"},
             {"module_type": "starter_turret"},
         ])
 
@@ -352,7 +352,7 @@ class TestReship:
 
         # Claim with starter_turret + engine
         await _claim_ship(client, headers, craft["id"], modules=[
-            {"module_type": "engine", "volume": 30},
+            {"module_type": "starter_engine"},
             {"module_type": "starter_turret"},
         ])
 
@@ -486,7 +486,7 @@ class TestAutoCreateClaim:
         await _send_raw_command(
             client, headers, "claim_ship",
             payload={"ship_class": "strike_craft", "modules": [
-                {"module_type": "engine", "volume": 30},
+                {"module_type": "starter_engine"},
                 {"module_type": "starter_turret"},
             ]},
         )

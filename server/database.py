@@ -9,9 +9,10 @@ engine = create_async_engine(settings.database_url, echo=False)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-async def init_db():
+async def init_db(*, drop_all: bool = False):
     async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
+        if drop_all:
+            await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
 
 

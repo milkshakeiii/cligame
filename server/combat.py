@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from server.models import (
     ARMOR_BASE_RESISTS,
@@ -23,29 +23,14 @@ from server.models import (
     Spaceship,
     ShipModule,
 )
-
-
-# ---------------------------------------------------------------------------
-# Vector helpers (reuse-friendly with physics.py Vec3 tuples)
-# ---------------------------------------------------------------------------
-
-Vec3 = Tuple[float, float, float]
-
-
-def _sub(a: Vec3, b: Vec3) -> Vec3:
-    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
-
-
-def _dot(a: Vec3, b: Vec3) -> float:
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-
-
-def _mag(v: Vec3) -> float:
-    return math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
-
-
-def _scale(v: Vec3, s: float) -> Vec3:
-    return (v[0] * s, v[1] * s, v[2] * s)
+from server.physics import (
+    Vec3,
+    vec_distance,
+    vec_dot,
+    vec_magnitude,
+    vec_scale,
+    vec_sub,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -63,21 +48,21 @@ def compute_transversal_velocity(
     Transversal = component of relative velocity perpendicular to the
     line between attacker and target.
     """
-    direction = _sub(target_pos, attacker_pos)
-    dist = _mag(direction)
+    direction = vec_sub(target_pos, attacker_pos)
+    dist = vec_magnitude(direction)
     if dist < 1e-6:
         return 0.0
 
-    direction_unit = _scale(direction, 1.0 / dist)
-    relative_vel = _sub(target_vel, attacker_vel)
+    direction_unit = vec_scale(direction, 1.0 / dist)
+    relative_vel = vec_sub(target_vel, attacker_vel)
 
     # Radial component (along the line)
-    radial_speed = _dot(relative_vel, direction_unit)
-    radial_component = _scale(direction_unit, radial_speed)
+    radial_speed = vec_dot(relative_vel, direction_unit)
+    radial_component = vec_scale(direction_unit, radial_speed)
 
     # Transversal = relative_vel - radial_component
-    transversal = _sub(relative_vel, radial_component)
-    return _mag(transversal)
+    transversal = vec_sub(relative_vel, radial_component)
+    return vec_magnitude(transversal)
 
 
 def compute_angular_velocity(
@@ -144,7 +129,7 @@ def compute_final_hit_chance(
     falloff: float,
 ) -> float:
     """Compute final hit chance combining tracking and range."""
-    distance = _mag(_sub(target_pos, attacker_pos))
+    distance = vec_distance(target_pos, attacker_pos)
     transversal = compute_transversal_velocity(
         attacker_pos, attacker_vel, target_pos, target_vel
     )

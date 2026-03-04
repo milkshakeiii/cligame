@@ -8,7 +8,6 @@ tick loop writes).
 
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 from sqlmodel import select
@@ -33,12 +32,8 @@ from server.models import (
     User,
     WeaponAssignment,
 )
+from server.physics import vec_distance
 from server.scanning import default_visibility_level, DETAIL_CLASSIFICATION, DETAIL_IDENTIFICATION
-
-
-def _dist(ax, ay, az, bx, by, bz) -> float:
-    dx, dy, dz = ax - bx, ay - by, az - bz
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
 async def compute_player_view(
@@ -86,11 +81,7 @@ async def compute_player_view(
 
     ship_views = []
     for ship in ships:
-        faction = None
-        try:
-            faction = ship.faction
-        except Exception:
-            pass
+        faction = ship.team.faction if ship.team is not None else None
 
         used_volume = sum(m.volume for m in ship.modules)
         modules = [
@@ -237,15 +228,19 @@ async def compute_player_view(
 
             visibility_range = 1_000.0
             for m in ship.modules:
+                if not m.active:
+                    continue
                 if m.module_type == ModuleType.scanner and m.scan_range and m.scan_range > 0:
                     visibility_range = max(visibility_range, m.scan_range)
-                elif m.module_type == ModuleType.passive_detector and m.detection_range and m.detection_range > 0:
+                elif m.module_type in (ModuleType.passive_detector, ModuleType.starter_passive_detector) and m.detection_range and m.detection_range > 0:
                     visibility_range = max(visibility_range, m.detection_range)
 
             # Other ships
             for other in all_other_ships:
-                dist = _dist(ship.pos_x, ship.pos_y, ship.pos_z,
-                           other.pos_x, other.pos_y, other.pos_z)
+                dist = vec_distance(
+                    (ship.pos_x, ship.pos_y, ship.pos_z),
+                    (other.pos_x, other.pos_y, other.pos_z),
+                )
                 if dist <= visibility_range:
                     detail = default_visibility_level(dist)
                     if detail == 0:
@@ -276,8 +271,10 @@ async def compute_player_view(
 
             # Celestial objects
             for obj in all_celestial_objects:
-                dist = _dist(ship.pos_x, ship.pos_y, ship.pos_z,
-                           obj.pos_x, obj.pos_y, obj.pos_z)
+                dist = vec_distance(
+                    (ship.pos_x, ship.pos_y, ship.pos_z),
+                    (obj.pos_x, obj.pos_y, obj.pos_z),
+                )
                 if dist <= visibility_range:
                     detail = default_visibility_level(dist)
                     if detail == 0:

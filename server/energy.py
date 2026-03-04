@@ -50,8 +50,15 @@ def apply_regen(ship: "Spaceship") -> None:
     Regenerate capacitor for one tick.
 
     Mutates ship.capacitor in place.  Clamps to [0, max_capacitor].
+    Includes flat regen bonus from reactor modules.
     """
+    from server.models import REACTOR_TYPES  # local import to avoid circular deps
+
     regen = capacitor_regen_rate(ship.capacitor, ship.max_capacitor)
+    # Add flat regen from reactor modules
+    for m in ship.modules:
+        if m.module_type.value in REACTOR_TYPES and m.reactor_regen_bonus > 0:
+            regen += m.reactor_regen_bonus
     ship.capacitor = min(ship.max_capacitor, ship.capacitor + regen)
 
 
@@ -68,17 +75,28 @@ def drain_module(ship: "Spaceship", module: "ShipModule") -> bool:
     Returns False if the cap was insufficient — the caller should deactivate
     the module.
 
-    Engines are exempt from capacitor drain (free in Phase 1).
+    Engines are exempt from cycle-based capacitor drain (light engines
+    drain separately via engine_cap_drain per tick).
+    Reactor efficiency reduces drain on all non-engine modules.
     """
-    from server.models import ModuleType  # local import to avoid circular deps
+    from server.models import ENGINE_TYPES, REACTOR_TYPES  # local import to avoid circular deps
 
-    if module.module_type == ModuleType.engine:
+    if module.module_type.value in ENGINE_TYPES:
         return True
     if module.capacitor_per_cycle <= 0.0:
         return True
 
-    if ship.capacitor >= module.capacitor_per_cycle:
-        ship.capacitor -= module.capacitor_per_cycle
+    # Apply reactor efficiency reduction (capped at 30%)
+    total_efficiency = 0.0
+    for m in ship.modules:
+        if m.module_type.value in REACTOR_TYPES and m.reactor_efficiency > 0:
+            total_efficiency += m.reactor_efficiency
+    total_efficiency = min(total_efficiency, 0.30)
+
+    effective_drain = module.capacitor_per_cycle * (1.0 - total_efficiency)
+
+    if ship.capacitor >= effective_drain:
+        ship.capacitor -= effective_drain
         return True
 
     return False
@@ -97,13 +115,13 @@ def check_depletion(ship: "Spaceship") -> bool:
 
     Returns True if cap was depleted (caller should emit a cap_depleted event).
     """
-    from server.models import ModuleType  # local import to avoid circular deps
+    from server.models import ENGINE_TYPES  # local import to avoid circular deps
 
     if ship.capacitor <= 0.0:
         ship.capacitor = 0.0
         depleted = False
         for module in ship.modules:
-            if module.active and module.module_type != ModuleType.engine:
+            if module.active and module.module_type.value not in ENGINE_TYPES:
                 module.active = False
                 depleted = True
         return depleted

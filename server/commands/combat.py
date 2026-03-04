@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import math
-
 from sqlmodel import select
 
 from server.combat import compute_lock_time
+from server.physics import vec_distance
 from server.commands import CommandRejected, TickContext, get_payload, register_handler
 from server.models import (
     Command,
@@ -14,7 +13,7 @@ from server.models import (
     ModuleType,
     STEALTH_FIELD_TYPES,
     TargetLock,
-    VOIDBORN_MODULE_PARAMS,
+    MODULE_REGISTRY,
     WEAPON_TYPES,
     WeaponAssignment,
     get_max_locks,
@@ -64,10 +63,10 @@ async def handle_lock_target(ctx: TickContext, cmd: Command) -> None:
     # Range check
     has_scanner = any(m.module_type == ModuleType.scanner for m in ship.modules)
     lock_range = 200_000.0 if has_scanner else 1_000.0
-    dx = ship.pos_x - target.pos_x
-    dy = ship.pos_y - target.pos_y
-    dz = ship.pos_z - target.pos_z
-    distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+    distance = vec_distance(
+        (ship.pos_x, ship.pos_y, ship.pos_z),
+        (target.pos_x, target.pos_y, target.pos_z),
+    )
     if distance > lock_range:
         raise CommandRejected(
             f"Target out of range: {distance/1000:.1f} km (max {lock_range/1000:.0f} km)"
@@ -82,9 +81,7 @@ async def handle_lock_target(ctx: TickContext, cmd: Command) -> None:
     for m in ship.modules:
         if m.module_type.value in STEALTH_FIELD_TYPES and m.active:
             m.active = False
-            m.stealth_cooldown_remaining = VOIDBORN_MODULE_PARAMS.get(
-                m.module_type.value, {}
-            ).get("decloak_cooldown", 10)
+            m.stealth_cooldown_remaining = MODULE_REGISTRY[m.module_type.value].decloak_cooldown
 
     # Compute lock time
     consts = get_ship_classes(ship.faction if hasattr(ship, 'faction') else None)[ship.ship_class.value]

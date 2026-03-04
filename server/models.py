@@ -7,6 +7,7 @@ Covers: GameState, User, Spaceship, ShipModule, MovementOrder, BuildOrder,
 
 import math
 import random
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
@@ -42,12 +43,78 @@ class LockStatus(str, Enum):
 
 
 class ModuleType(str, Enum):
-    engine = "engine"
-    reactor = "reactor"
-    cargo_bay = "cargo_bay"
-    docking_bay = "docking_bay"
+    # --- Engines (preset) ---
+    starter_engine = "starter_engine"
+    tiny_standard_engine = "tiny_standard_engine"
+    tiny_light_engine = "tiny_light_engine"
+    tiny_agile_engine = "tiny_agile_engine"
+    small_standard_engine = "small_standard_engine"
+    small_light_engine = "small_light_engine"
+    small_agile_engine = "small_agile_engine"
+    small_advanced_engine = "small_advanced_engine"
+    medium_standard_engine = "medium_standard_engine"
+    medium_light_engine = "medium_light_engine"
+    medium_agile_engine = "medium_agile_engine"
+    medium_advanced_engine = "medium_advanced_engine"
+    large_standard_engine = "large_standard_engine"
+    large_light_engine = "large_light_engine"
+    large_agile_engine = "large_agile_engine"
+    large_advanced_engine = "large_advanced_engine"
+    huge_standard_engine = "huge_standard_engine"
+    huge_light_engine = "huge_light_engine"
+    huge_agile_engine = "huge_agile_engine"
+    huge_advanced_engine = "huge_advanced_engine"
+    capital_standard_engine = "capital_standard_engine"
+    capital_advanced_engine = "capital_advanced_engine"
+    # --- Reactors (preset) ---
+    starter_reactor = "starter_reactor"
+    tiny_standard_reactor = "tiny_standard_reactor"
+    tiny_capacity_reactor = "tiny_capacity_reactor"
+    tiny_recharge_reactor = "tiny_recharge_reactor"
+    small_standard_reactor = "small_standard_reactor"
+    small_capacity_reactor = "small_capacity_reactor"
+    small_recharge_reactor = "small_recharge_reactor"
+    small_efficiency_reactor = "small_efficiency_reactor"
+    small_advanced_reactor = "small_advanced_reactor"
+    medium_standard_reactor = "medium_standard_reactor"
+    medium_capacity_reactor = "medium_capacity_reactor"
+    medium_recharge_reactor = "medium_recharge_reactor"
+    medium_efficiency_reactor = "medium_efficiency_reactor"
+    medium_advanced_reactor = "medium_advanced_reactor"
+    large_standard_reactor = "large_standard_reactor"
+    large_capacity_reactor = "large_capacity_reactor"
+    large_recharge_reactor = "large_recharge_reactor"
+    large_efficiency_reactor = "large_efficiency_reactor"
+    large_advanced_reactor = "large_advanced_reactor"
+    huge_standard_reactor = "huge_standard_reactor"
+    huge_capacity_reactor = "huge_capacity_reactor"
+    huge_advanced_reactor = "huge_advanced_reactor"
+    capital_standard_reactor = "capital_standard_reactor"
+    capital_advanced_reactor = "capital_advanced_reactor"
+    # --- Cargo bays (preset, tiered) ---
+    tiny_cargo_bay = "tiny_cargo_bay"
+    small_cargo_bay = "small_cargo_bay"
+    medium_cargo_bay = "medium_cargo_bay"
+    large_cargo_bay = "large_cargo_bay"
+    huge_cargo_bay = "huge_cargo_bay"
+    # --- Factories (preset) ---
+    starter_factory = "starter_factory"
+    small_factory = "small_factory"
+    small_fast_factory = "small_fast_factory"
+    small_efficient_factory = "small_efficient_factory"
+    medium_factory = "medium_factory"
+    medium_fast_factory = "medium_fast_factory"
+    medium_efficient_factory = "medium_efficient_factory"
+    large_factory = "large_factory"
+    huge_factory = "huge_factory"
+    # --- Docking bays (preset, tiered) ---
+    tiny_docking_bay = "tiny_docking_bay"
+    small_docking_bay = "small_docking_bay"
+    medium_docking_bay = "medium_docking_bay"
+    large_docking_bay = "large_docking_bay"
+    huge_docking_bay = "huge_docking_bay"
+    # --- Utility (fixed-size) ---
     dropoff = "dropoff"
-    factory = "factory"
     mining_laser = "mining_laser"
     scanner = "scanner"
     passive_detector = "passive_detector"
@@ -97,7 +164,6 @@ class ModuleType(str, Enum):
     # --- Phase 5: Research & unlocked modules ---
     research_module = "research_module"
     strip_miner = "strip_miner"
-    enhanced_docking_bay = "enhanced_docking_bay"
     fortress = "fortress"
     # --- Phase 7: Solarion modules ---
     focused_beam_medium = "focused_beam_medium"
@@ -514,13 +580,16 @@ def get_max_locks(faction: Optional[str], ship_class: str) -> int:
     return MAX_LOCKS.get(ship_class, 2)
 
 
-# Minimum factory volume required to build each ship class (from SPEC.md)
-FACTORY_REQUIREMENTS: dict[str, int] = {
-    "strike_craft": 500,
-    "corvette": 5_000,
-    "frigate": 30_000,
-    "destroyer": 100_000,
-    "cruiser": 300_000,
+# Ship class ordering for docking bay / factory class gating
+# Each docking bay has a docking_max_class; a ship can dock if its class index
+# is <= the bay's max class index.
+DOCKING_CLASS_INDEX: dict[str, int] = {
+    "strike_craft": 0,
+    "corvette": 1,
+    "frigate": 2,
+    "destroyer": 3,
+    "cruiser": 4,
+    "mothership": 5,
 }
 
 # Build costs (ore, ticks) per ship class
@@ -541,64 +610,6 @@ EJECT_ALLOWED_CLASSES: set[str] = {"mothership"}
 HULL_POINT_COSTS: Dict[str, int] = {
     "strike_craft": 0, "corvette": 250, "frigate": 2_000,
     "destroyer": 5_000, "cruiser": 10_000,
-}
-
-MODULE_POINT_COSTS: Dict[str, int] = {
-    # Always free
-    "engine": 0, "reactor": 0, "cargo_bay": 0, "docking_bay": 0,
-    "dropoff": 0, "factory": 0, "mining_laser": 0,
-    "starter_turret": 0, "starter_mining_laser": 0,
-    "starter_shield_extender": 0, "starter_armor_plate": 0,
-    "starter_passive_detector": 0,
-    # Small modules
-    "small_turret_kinetic": 50, "small_turret_thermal": 50,
-    "light_missile_launcher": 75,
-    "small_shield_extender": 25,
-    "small_shield_hardener_kinetic": 40, "small_shield_hardener_thermal": 40,
-    "small_shield_hardener_explosive": 40,
-    "small_shield_booster": 50,
-    "small_armor_plate": 25,
-    "small_armor_hardener_kinetic": 40, "small_armor_hardener_thermal": 40,
-    "small_armor_hardener_explosive": 40,
-    "small_armor_repairer": 50,
-    "passive_detector": 50, "scanner": 100, "research_module": 100,
-    # Medium modules
-    "medium_turret_kinetic": 200, "medium_turret_thermal": 200,
-    "heavy_missile_launcher": 300,
-    "medium_shield_extender": 150,
-    "medium_shield_hardener_kinetic": 200, "medium_shield_hardener_thermal": 200,
-    "medium_shield_hardener_explosive": 200,
-    "medium_shield_booster": 250,
-    "medium_armor_plate": 150,
-    "medium_armor_hardener_kinetic": 200, "medium_armor_hardener_thermal": 200,
-    "medium_armor_hardener_explosive": 200,
-    "medium_armor_repairer": 250,
-    "strip_miner": 300,
-    # Large modules
-    "large_turret_kinetic": 800, "large_turret_thermal": 800,
-    "torpedo_launcher": 1_200,
-    "large_shield_extender": 600,
-    "large_shield_hardener_kinetic": 800, "large_shield_hardener_thermal": 800,
-    "large_shield_hardener_explosive": 800,
-    "large_shield_booster": 1_000,
-    "large_armor_plate": 600,
-    "large_armor_hardener_kinetic": 800, "large_armor_hardener_thermal": 800,
-    "large_armor_hardener_explosive": 800,
-    "large_armor_repairer": 1_000,
-    "shield_purge": 400,
-    "enhanced_docking_bay": 500,
-    # Solarion faction
-    "focused_beam_medium": 400, "focused_beam_large": 1_500,
-    "reactive_armor_membrane_medium": 400, "reactive_armor_membrane_large": 1_500,
-    "armor_repair_nexus_medium": 400, "armor_repair_nexus_large": 1_500,
-    "solar_lance": 5_000,
-    # Voidborn faction
-    "light_leech_projector": 150, "heavy_leech_projector": 500,
-    "phase_shield_amplifier_medium": 400, "phase_shield_amplifier_large": 1_500,
-    "small_stealth_field": 200, "medium_stealth_field": 600,
-    "bio_repair_swarm": 3_000,
-    # Shared
-    "fortress": 4_000,
 }
 
 BUILD_COMPLETE_POINTS: Dict[str, int] = {
@@ -626,21 +637,20 @@ ASTEROID_SIZES: Dict[str, float] = {
     "huge": 50_000.0,
 }
 
-# Modules installed on each match mothership at start: (module_type, volume)
-MATCH_MOTHERSHIP_LOADOUT: list[tuple[str, int]] = [
-    ("reactor", 200),
-    ("reactor", 200),
-    ("cargo_bay", 10_000),
-    ("docking_bay", 500),
-    ("factory", 300_000),
-    ("mining_laser", 50),
-    ("passive_detector", 100),
-    ("dropoff", 500),
-    ("research_module", 5_000),
-    ("large_turret_kinetic", 0),
-    ("large_turret_thermal", 0),
-    ("large_armor_plate", 0),
-    ("large_shield_extender", 0),
+# Modules installed on each match mothership at start
+MATCH_MOTHERSHIP_LOADOUT: list[str] = [
+    "capital_standard_reactor",
+    "huge_cargo_bay",
+    "small_docking_bay",
+    "small_factory",
+    "mining_laser",
+    "passive_detector",
+    "dropoff",
+    "research_module",
+    "large_turret_kinetic",
+    "large_turret_thermal",
+    "large_armor_plate",
+    "large_shield_extender",
 ]
 
 # ---------------------------------------------------------------------------
@@ -719,6 +729,32 @@ TECH_TREE: Dict[str, dict] = {
         "prerequisites": [], "duplicable": False,
         "unlocks_modules": ["strip_miner"], "unlocks_ships": [],
     },
+    "1k_advanced_propulsion": {
+        "name": "Advanced Propulsion", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": [
+            "small_advanced_engine", "medium_advanced_engine",
+            "large_advanced_engine", "huge_advanced_engine", "capital_advanced_engine",
+        ],
+        "unlocks_ships": [],
+    },
+    "1l_reactor_efficiency": {
+        "name": "Reactor Efficiency", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": [
+            "small_efficiency_reactor", "small_advanced_reactor",
+            "medium_efficiency_reactor", "medium_advanced_reactor",
+            "large_efficiency_reactor", "large_advanced_reactor",
+            "huge_advanced_reactor", "capital_advanced_reactor",
+        ],
+        "unlocks_ships": [],
+    },
+    "1m_factory_specialization": {
+        "name": "Factory Specialization", "tier": 1,
+        "prerequisites": [], "duplicable": False,
+        "unlocks_modules": ["small_fast_factory", "small_efficient_factory"],
+        "unlocks_ships": [],
+    },
     "1h_corvette_hull": {
         "name": "Corvette Hull", "tier": 1,
         "prerequisites": [], "duplicable": True,
@@ -784,10 +820,16 @@ TECH_TREE: Dict[str, dict] = {
         "prerequisites_any": ["1e_medium_shield_hardeners", "1h_medium_armor_hardeners"],
         "unlocks_modules": ["shield_purge"], "unlocks_ships": [],
     },
-    "2k_enhanced_docking": {
-        "name": "Enhanced Docking", "tier": 2,
+    "2k_advanced_docking": {
+        "name": "Advanced Docking", "tier": 2,
         "prerequisites": [], "duplicable": False,
-        "unlocks_modules": ["enhanced_docking_bay"], "unlocks_ships": [],
+        "unlocks_modules": ["medium_docking_bay"], "unlocks_ships": [],
+    },
+    "2l_medium_production": {
+        "name": "Medium Production", "tier": 2,
+        "prerequisites": ["1m_factory_specialization"], "duplicable": False,
+        "unlocks_modules": ["medium_factory", "medium_fast_factory", "medium_efficient_factory"],
+        "unlocks_ships": [],
     },
     "2h_frigate_hull": {
         "name": "Frigate Hull", "tier": 2,
@@ -843,6 +885,12 @@ TECH_TREE: Dict[str, dict] = {
         "prerequisites": ["2h_frigate_hull"], "duplicable": True,
         "unlocks_modules": [], "unlocks_ships": ["destroyer"],
     },
+    "3i_large_production": {
+        "name": "Large Production", "tier": 3,
+        "prerequisites": ["2l_medium_production"], "duplicable": False,
+        "unlocks_modules": ["large_factory", "large_docking_bay"],
+        "unlocks_ships": [],
+    },
     # --- Tier 4: Endgame (25000 ore, 3600 ticks) ---
     "4a_solar_lance": {
         "name": "Solar Lance", "tier": 4,
@@ -858,8 +906,14 @@ TECH_TREE: Dict[str, dict] = {
     },
     "4b_fortress": {
         "name": "Fortress Systems", "tier": 4,
-        "prerequisites": ["2k_enhanced_docking"], "duplicable": False,
+        "prerequisites": ["2k_advanced_docking"], "duplicable": False,
         "unlocks_modules": ["fortress"], "unlocks_ships": [],
+    },
+    "4c_huge_production": {
+        "name": "Huge Production", "tier": 4,
+        "prerequisites": ["3i_large_production"], "duplicable": False,
+        "unlocks_modules": ["huge_factory", "huge_docking_bay"],
+        "unlocks_ships": [],
     },
     "4h_cruiser_hull": {
         "name": "Cruiser Hull", "tier": 4,
@@ -885,415 +939,322 @@ for _tech_id, _node in TECH_TREE.items():
         SHIP_REQUIRED_TECH[_ship] = _tech_id
 
 # Class ordering used for docking eligibility checks (smaller index = smaller class)
-CLASS_ORDER: list[str] = [
-    "strike_craft",
-    "corvette",
-    "frigate",
-    "destroyer",
-    "cruiser",
-    "mothership",
-]
+# Derived from DOCKING_CLASS_INDEX to avoid maintaining two parallel structures.
+CLASS_ORDER: list[str] = sorted(DOCKING_CLASS_INDEX, key=DOCKING_CLASS_INDEX.__getitem__)
 
-# Reference engine fraction for max-speed calculations
-REFERENCE_ENGINE_FRACTION: float = 0.30
+# ---------------------------------------------------------------------------
+# Unified Module Registry
+# ---------------------------------------------------------------------------
 
-# Fixed module volumes (m^3) for modules with a fixed size
-MODULE_FIXED_VOLUMES: dict[str, int] = {
-    "dropoff": 500,
-    "mining_laser": 200,
-    "scanner": 500,
-    "passive_detector": 100,
-    "research_module": 5_000,
-    "strip_miner": 1_000,
-    "fortress": 50_000,
-    "starter_turret": 15,
-    "starter_mining_laser": 20,
-    "starter_shield_extender": 15,
-    "starter_armor_plate": 15,
-    "starter_passive_detector": 10,
+
+@dataclass(frozen=True, slots=True)
+class ModuleSpec:
+    """Immutable specification for a module type.  Every field maps to either a
+    ShipModule constructor arg or metadata used at install / tick time."""
+
+    category: str       # engine, reactor, cargo, factory, docking, turret, missile, defensive, utility
+    volume: int
+    point_cost: int = 0
+    faction: str | None = None  # "solarion", "voidborn", or None
+
+    # Cycling
+    cycle_time: int = 0
+    cap_per_cycle: float = 0.0
+
+    # Engine
+    engine_speed: float = 0.0
+    engine_accel_time: float = 0.0
+    engine_cap_drain: float = 0.0
+
+    # Reactor
+    reactor_cap_bonus: float = 0.0
+    reactor_regen_bonus: float = 0.0
+    reactor_efficiency: float = 0.0
+
+    # Factory
+    factory_max_class: str | None = None
+    factory_speed_mult: float = 1.0
+    factory_efficiency_mult: float = 1.0
+
+    # Docking
+    docking_max_class: str | None = None
+
+    # Mining / scanning / detection
+    mining_yield: float = 0.0
+    mining_range: float = 0.0
+    scan_range: float = 0.0
+    detection_range: float = 0.0
+
+    # Combat (turrets / beams)
+    damage: float = 0.0
+    damage_type: str | None = None
+    optimal_range: float = 0.0
+    falloff: float = 0.0
+    tracking_speed: float = 0.0
+    sig_resolution: float = 0.0
+
+    # Missiles
+    missile_speed: float = 0.0
+    missile_flight_time: int = 0
+    explosion_radius: float = 0.0
+    explosion_velocity: float = 0.0
+
+    # Defense
+    shield_bonus: float = 0.0
+    armor_bonus: float = 0.0
+    shield_repair: float = 0.0
+    armor_repair: float = 0.0
+    sig_radius_bonus: float = 0.0
+    speed_penalty: float = 0.0
+
+    # Resistance (hardeners)
+    resistance_bonus: float = 0.0
+    resistance_type: str | None = None
+    resistance_layer: str | None = None
+
+    # Solarion-specific
+    all_resistance_bonus: float = 0.0
+    lance_charge_time: int = 0
+    lance_cooldown: int = 0
+    lance_cap_cost: float = 0.0
+    lance_max_angular: float = 0.0
+
+    # Voidborn-specific
+    leech_damage_per_tick: float = 0.0
+    leech_damage_type: str | None = None
+    leech_cap_drain_per_tick: float = 0.0
+    leech_duration: int = 0
+    leech_type: str | None = None
+    sig_radius_mult: float = 1.0
+    decloak_cooldown: int = 0
+    repair_percent_per_tick: float = 0.0
+
+    # Shared
+    shield_hp_cost_percent: float = 0.0
+    min_ship_class: str | None = None
+
+
+# fmt: off
+MODULE_REGISTRY: dict[str, ModuleSpec] = {
+    # ── Engines ──────────────────────────────────────────────────────────
+    # Tiny (strike_craft, 100 m³)
+    "starter_engine":          ModuleSpec("engine", 25, engine_speed=80, engine_accel_time=12),
+    "tiny_standard_engine":    ModuleSpec("engine", 25, engine_speed=120, engine_accel_time=10),
+    "tiny_light_engine":       ModuleSpec("engine", 25, engine_speed=200, engine_accel_time=14, engine_cap_drain=2),
+    "tiny_agile_engine":       ModuleSpec("engine", 25, engine_speed=80, engine_accel_time=4),
+    # Small (corvette, 2000 m³)
+    "small_standard_engine":   ModuleSpec("engine", 500, engine_speed=250, engine_accel_time=12),
+    "small_light_engine":      ModuleSpec("engine", 500, engine_speed=400, engine_accel_time=18, engine_cap_drain=5),
+    "small_agile_engine":      ModuleSpec("engine", 500, engine_speed=150, engine_accel_time=5),
+    "small_advanced_engine":   ModuleSpec("engine", 500, point_cost=100, engine_speed=350, engine_accel_time=8),
+    # Medium (frigate, 20000 m³)
+    "medium_standard_engine":  ModuleSpec("engine", 5000, engine_speed=150, engine_accel_time=20),
+    "medium_light_engine":     ModuleSpec("engine", 5000, engine_speed=250, engine_accel_time=28, engine_cap_drain=15),
+    "medium_agile_engine":     ModuleSpec("engine", 5000, engine_speed=100, engine_accel_time=8),
+    "medium_advanced_engine":  ModuleSpec("engine", 5000, point_cost=400, engine_speed=220, engine_accel_time=14),
+    # Large (destroyer, 80000 m³)
+    "large_standard_engine":   ModuleSpec("engine", 20000, engine_speed=100, engine_accel_time=30),
+    "large_light_engine":      ModuleSpec("engine", 20000, engine_speed=170, engine_accel_time=40, engine_cap_drain=30),
+    "large_agile_engine":      ModuleSpec("engine", 20000, engine_speed=70, engine_accel_time=12),
+    "large_advanced_engine":   ModuleSpec("engine", 20000, point_cost=1_500, engine_speed=150, engine_accel_time=20),
+    # Huge (cruiser, 250000 m³)
+    "huge_standard_engine":    ModuleSpec("engine", 60000, engine_speed=60, engine_accel_time=45),
+    "huge_light_engine":       ModuleSpec("engine", 60000, engine_speed=100, engine_accel_time=60, engine_cap_drain=60),
+    "huge_agile_engine":       ModuleSpec("engine", 60000, engine_speed=40, engine_accel_time=18),
+    "huge_advanced_engine":    ModuleSpec("engine", 60000, point_cost=4_000, engine_speed=90, engine_accel_time=30),
+    # Capital (mothership, 2000000 m³)
+    "capital_standard_engine": ModuleSpec("engine", 400000, engine_speed=30, engine_accel_time=60),
+    "capital_advanced_engine": ModuleSpec("engine", 400000, point_cost=8_000, engine_speed=50, engine_accel_time=40),
+
+    # ── Reactors ─────────────────────────────────────────────────────────
+    # Tiny
+    "starter_reactor":            ModuleSpec("reactor", 10, reactor_cap_bonus=30),
+    "tiny_standard_reactor":      ModuleSpec("reactor", 10, reactor_cap_bonus=50),
+    "tiny_capacity_reactor":      ModuleSpec("reactor", 15, reactor_cap_bonus=80),
+    "tiny_recharge_reactor":      ModuleSpec("reactor", 10, reactor_cap_bonus=20, reactor_regen_bonus=2),
+    # Small
+    "small_standard_reactor":     ModuleSpec("reactor", 200, reactor_cap_bonus=200),
+    "small_capacity_reactor":     ModuleSpec("reactor", 300, reactor_cap_bonus=400),
+    "small_recharge_reactor":     ModuleSpec("reactor", 200, reactor_cap_bonus=100, reactor_regen_bonus=8),
+    "small_efficiency_reactor":   ModuleSpec("reactor", 250, point_cost=50, reactor_cap_bonus=150, reactor_efficiency=0.05),
+    "small_advanced_reactor":     ModuleSpec("reactor", 300, point_cost=100, reactor_cap_bonus=350, reactor_regen_bonus=5, reactor_efficiency=0.03),
+    # Medium
+    "medium_standard_reactor":    ModuleSpec("reactor", 2000, reactor_cap_bonus=1000),
+    "medium_capacity_reactor":    ModuleSpec("reactor", 3000, reactor_cap_bonus=2000),
+    "medium_recharge_reactor":    ModuleSpec("reactor", 2000, reactor_cap_bonus=500, reactor_regen_bonus=30),
+    "medium_efficiency_reactor":  ModuleSpec("reactor", 2500, point_cost=200, reactor_cap_bonus=800, reactor_efficiency=0.08),
+    "medium_advanced_reactor":    ModuleSpec("reactor", 3000, point_cost=400, reactor_cap_bonus=1500, reactor_regen_bonus=15, reactor_efficiency=0.05),
+    # Large
+    "large_standard_reactor":     ModuleSpec("reactor", 8000, reactor_cap_bonus=3000),
+    "large_capacity_reactor":     ModuleSpec("reactor", 12000, reactor_cap_bonus=6000),
+    "large_recharge_reactor":     ModuleSpec("reactor", 8000, reactor_cap_bonus=1500, reactor_regen_bonus=80),
+    "large_efficiency_reactor":   ModuleSpec("reactor", 10000, point_cost=600, reactor_cap_bonus=2500, reactor_efficiency=0.10),
+    "large_advanced_reactor":     ModuleSpec("reactor", 12000, point_cost=1_500, reactor_cap_bonus=5000, reactor_regen_bonus=40, reactor_efficiency=0.06),
+    # Huge
+    "huge_standard_reactor":      ModuleSpec("reactor", 30000, reactor_cap_bonus=8000),
+    "huge_capacity_reactor":      ModuleSpec("reactor", 45000, reactor_cap_bonus=16000),
+    "huge_advanced_reactor":      ModuleSpec("reactor", 45000, point_cost=4_000, reactor_cap_bonus=12000, reactor_regen_bonus=100, reactor_efficiency=0.08),
+    # Capital
+    "capital_standard_reactor":   ModuleSpec("reactor", 200000, reactor_cap_bonus=25000),
+    "capital_advanced_reactor":   ModuleSpec("reactor", 200000, point_cost=8_000, reactor_cap_bonus=20000, reactor_regen_bonus=200, reactor_efficiency=0.10),
+
+    # ── Cargo Bays ───────────────────────────────────────────────────────
+    "tiny_cargo_bay":   ModuleSpec("cargo", 25),
+    "small_cargo_bay":  ModuleSpec("cargo", 300),
+    "medium_cargo_bay": ModuleSpec("cargo", 3000),
+    "large_cargo_bay":  ModuleSpec("cargo", 15000),
+    "huge_cargo_bay":   ModuleSpec("cargo", 50000),
+
+    # ── Factories ────────────────────────────────────────────────────────
+    "starter_factory":          ModuleSpec("factory", 500, factory_max_class="strike_craft"),
+    "small_factory":            ModuleSpec("factory", 3000, factory_max_class="corvette"),
+    "small_fast_factory":       ModuleSpec("factory", 3500, point_cost=100, factory_max_class="corvette", factory_speed_mult=0.7, factory_efficiency_mult=1.2),
+    "small_efficient_factory":  ModuleSpec("factory", 3500, point_cost=100, factory_max_class="corvette", factory_speed_mult=1.3, factory_efficiency_mult=0.75),
+    "medium_factory":           ModuleSpec("factory", 20000, point_cost=300, factory_max_class="frigate"),
+    "medium_fast_factory":      ModuleSpec("factory", 22000, point_cost=500, factory_max_class="frigate", factory_speed_mult=0.7, factory_efficiency_mult=1.2),
+    "medium_efficient_factory": ModuleSpec("factory", 22000, point_cost=500, factory_max_class="frigate", factory_speed_mult=1.3, factory_efficiency_mult=0.75),
+    "large_factory":            ModuleSpec("factory", 80000, point_cost=1_000, factory_max_class="destroyer"),
+    "huge_factory":             ModuleSpec("factory", 250000, point_cost=3_000, factory_max_class="cruiser"),
+
+    # ── Docking Bays ─────────────────────────────────────────────────────
+    "tiny_docking_bay":   ModuleSpec("docking", 200, docking_max_class="strike_craft"),
+    "small_docking_bay":  ModuleSpec("docking", 2000, docking_max_class="corvette"),
+    "medium_docking_bay": ModuleSpec("docking", 25000, point_cost=300, docking_max_class="frigate"),
+    "large_docking_bay":  ModuleSpec("docking", 100000, point_cost=1_000, docking_max_class="destroyer"),
+    "huge_docking_bay":   ModuleSpec("docking", 350000, point_cost=3_000, docking_max_class="cruiser"),
+
+    # ── Utility ──────────────────────────────────────────────────────────
+    "dropoff":           ModuleSpec("utility", 500),
+    "mining_laser":      ModuleSpec("utility", 200, cycle_time=10, cap_per_cycle=50, mining_yield=10, mining_range=500),
+    "scanner":           ModuleSpec("utility", 500, point_cost=100, cycle_time=30, cap_per_cycle=200, scan_range=200_000),
+    "passive_detector":  ModuleSpec("utility", 100, point_cost=50, cycle_time=5, cap_per_cycle=5, detection_range=50_000),
+    "research_module":   ModuleSpec("utility", 5_000, point_cost=100, cycle_time=1, cap_per_cycle=50),
+    "strip_miner":       ModuleSpec("utility", 1_000, point_cost=300, cycle_time=15, cap_per_cycle=150, mining_yield=50, mining_range=1_000),
+    "fortress":          ModuleSpec("utility", 50_000, point_cost=4_000, cycle_time=1, cap_per_cycle=500),
+
+    # ── Starter modules ──────────────────────────────────────────────────
+    "starter_turret":            ModuleSpec("turret", 15, cycle_time=5, cap_per_cycle=3, damage=5, damage_type="kinetic", optimal_range=2_000, falloff=1_500, tracking_speed=0.12, sig_resolution=25),
+    "starter_mining_laser":      ModuleSpec("utility", 20, cycle_time=10, cap_per_cycle=10, mining_yield=2, mining_range=500),
+    "starter_shield_extender":   ModuleSpec("defensive", 15, shield_bonus=15, sig_radius_bonus=2),
+    "starter_armor_plate":       ModuleSpec("defensive", 15, armor_bonus=25, speed_penalty=0.03),
+    "starter_passive_detector":  ModuleSpec("utility", 10, cycle_time=10, cap_per_cycle=2, detection_range=10_000),
+
+    # ── Turrets ──────────────────────────────────────────────────────────
+    "small_turret_kinetic":  ModuleSpec("turret", 50, point_cost=50, cycle_time=5, cap_per_cycle=10, damage=15, damage_type="kinetic", optimal_range=5_000, falloff=3_000, tracking_speed=0.08, sig_resolution=40),
+    "small_turret_thermal":  ModuleSpec("turret", 50, point_cost=50, cycle_time=5, cap_per_cycle=10, damage=15, damage_type="thermal", optimal_range=5_000, falloff=3_000, tracking_speed=0.08, sig_resolution=40),
+    "medium_turret_kinetic": ModuleSpec("turret", 300, point_cost=200, cycle_time=8, cap_per_cycle=40, damage=80, damage_type="kinetic", optimal_range=15_000, falloff=8_000, tracking_speed=0.03, sig_resolution=200),
+    "medium_turret_thermal": ModuleSpec("turret", 300, point_cost=200, cycle_time=8, cap_per_cycle=40, damage=80, damage_type="thermal", optimal_range=15_000, falloff=8_000, tracking_speed=0.03, sig_resolution=200),
+    "large_turret_kinetic":  ModuleSpec("turret", 2_000, point_cost=800, cycle_time=12, cap_per_cycle=150, damage=400, damage_type="kinetic", optimal_range=40_000, falloff=20_000, tracking_speed=0.008, sig_resolution=800),
+    "large_turret_thermal":  ModuleSpec("turret", 2_000, point_cost=800, cycle_time=12, cap_per_cycle=150, damage=400, damage_type="thermal", optimal_range=40_000, falloff=20_000, tracking_speed=0.008, sig_resolution=800),
+
+    # ── Missiles ─────────────────────────────────────────────────────────
+    "light_missile_launcher": ModuleSpec("missile", 100, point_cost=75, cycle_time=10, cap_per_cycle=15, damage=25, damage_type="explosive", optimal_range=20_000, missile_speed=500, missile_flight_time=40, explosion_radius=50, explosion_velocity=200),
+    "heavy_missile_launcher": ModuleSpec("missile", 500, point_cost=300, cycle_time=15, cap_per_cycle=50, damage=120, damage_type="explosive", optimal_range=35_000, missile_speed=300, missile_flight_time=117, explosion_radius=200, explosion_velocity=100),
+    "torpedo_launcher":       ModuleSpec("missile", 3_000, point_cost=1_200, cycle_time=20, cap_per_cycle=200, damage=600, damage_type="explosive", optimal_range=50_000, missile_speed=150, missile_flight_time=333, explosion_radius=800, explosion_velocity=50),
+
+    # ── Shield Extenders (passive) ───────────────────────────────────────
+    "small_shield_extender":  ModuleSpec("defensive", 50, point_cost=25, shield_bonus=30, sig_radius_bonus=5),
+    "medium_shield_extender": ModuleSpec("defensive", 300, point_cost=150, shield_bonus=200, sig_radius_bonus=30),
+    "large_shield_extender":  ModuleSpec("defensive", 2_000, point_cost=600, shield_bonus=1_500, sig_radius_bonus=100),
+
+    # ── Shield Hardeners (active) ────────────────────────────────────────
+    "small_shield_hardener_kinetic":    ModuleSpec("defensive", 30, point_cost=40, cycle_time=5, cap_per_cycle=5, resistance_bonus=0.15, resistance_type="kinetic", resistance_layer="shield"),
+    "small_shield_hardener_thermal":    ModuleSpec("defensive", 30, point_cost=40, cycle_time=5, cap_per_cycle=5, resistance_bonus=0.15, resistance_type="thermal", resistance_layer="shield"),
+    "small_shield_hardener_explosive":  ModuleSpec("defensive", 30, point_cost=40, cycle_time=5, cap_per_cycle=5, resistance_bonus=0.15, resistance_type="explosive", resistance_layer="shield"),
+    "medium_shield_hardener_kinetic":   ModuleSpec("defensive", 200, point_cost=200, cycle_time=5, cap_per_cycle=20, resistance_bonus=0.25, resistance_type="kinetic", resistance_layer="shield"),
+    "medium_shield_hardener_thermal":   ModuleSpec("defensive", 200, point_cost=200, cycle_time=5, cap_per_cycle=20, resistance_bonus=0.25, resistance_type="thermal", resistance_layer="shield"),
+    "medium_shield_hardener_explosive": ModuleSpec("defensive", 200, point_cost=200, cycle_time=5, cap_per_cycle=20, resistance_bonus=0.25, resistance_type="explosive", resistance_layer="shield"),
+    "large_shield_hardener_kinetic":    ModuleSpec("defensive", 1_500, point_cost=800, cycle_time=5, cap_per_cycle=60, resistance_bonus=0.35, resistance_type="kinetic", resistance_layer="shield"),
+    "large_shield_hardener_thermal":    ModuleSpec("defensive", 1_500, point_cost=800, cycle_time=5, cap_per_cycle=60, resistance_bonus=0.35, resistance_type="thermal", resistance_layer="shield"),
+    "large_shield_hardener_explosive":  ModuleSpec("defensive", 1_500, point_cost=800, cycle_time=5, cap_per_cycle=60, resistance_bonus=0.35, resistance_type="explosive", resistance_layer="shield"),
+
+    # ── Shield Boosters (active) ─────────────────────────────────────────
+    "small_shield_booster":  ModuleSpec("defensive", 50, point_cost=50, cycle_time=8, cap_per_cycle=20, shield_repair=20),
+    "medium_shield_booster": ModuleSpec("defensive", 300, point_cost=250, cycle_time=8, cap_per_cycle=80, shield_repair=100),
+    "large_shield_booster":  ModuleSpec("defensive", 2_000, point_cost=1_000, cycle_time=8, cap_per_cycle=300, shield_repair=500),
+
+    # ── Armor Plates (passive) ───────────────────────────────────────────
+    "small_armor_plate":  ModuleSpec("defensive", 50, point_cost=25, armor_bonus=50, speed_penalty=0.05),
+    "medium_armor_plate": ModuleSpec("defensive", 300, point_cost=150, armor_bonus=400, speed_penalty=0.10),
+    "large_armor_plate":  ModuleSpec("defensive", 2_000, point_cost=600, armor_bonus=3_000, speed_penalty=0.15),
+
+    # ── Armor Hardeners (active) ─────────────────────────────────────────
+    "small_armor_hardener_kinetic":    ModuleSpec("defensive", 30, point_cost=40, cycle_time=5, cap_per_cycle=5, resistance_bonus=0.15, resistance_type="kinetic", resistance_layer="armor"),
+    "small_armor_hardener_thermal":    ModuleSpec("defensive", 30, point_cost=40, cycle_time=5, cap_per_cycle=5, resistance_bonus=0.15, resistance_type="thermal", resistance_layer="armor"),
+    "small_armor_hardener_explosive":  ModuleSpec("defensive", 30, point_cost=40, cycle_time=5, cap_per_cycle=5, resistance_bonus=0.15, resistance_type="explosive", resistance_layer="armor"),
+    "medium_armor_hardener_kinetic":   ModuleSpec("defensive", 200, point_cost=200, cycle_time=5, cap_per_cycle=20, resistance_bonus=0.25, resistance_type="kinetic", resistance_layer="armor"),
+    "medium_armor_hardener_thermal":   ModuleSpec("defensive", 200, point_cost=200, cycle_time=5, cap_per_cycle=20, resistance_bonus=0.25, resistance_type="thermal", resistance_layer="armor"),
+    "medium_armor_hardener_explosive": ModuleSpec("defensive", 200, point_cost=200, cycle_time=5, cap_per_cycle=20, resistance_bonus=0.25, resistance_type="explosive", resistance_layer="armor"),
+    "large_armor_hardener_kinetic":    ModuleSpec("defensive", 1_500, point_cost=800, cycle_time=5, cap_per_cycle=60, resistance_bonus=0.35, resistance_type="kinetic", resistance_layer="armor"),
+    "large_armor_hardener_thermal":    ModuleSpec("defensive", 1_500, point_cost=800, cycle_time=5, cap_per_cycle=60, resistance_bonus=0.35, resistance_type="thermal", resistance_layer="armor"),
+    "large_armor_hardener_explosive":  ModuleSpec("defensive", 1_500, point_cost=800, cycle_time=5, cap_per_cycle=60, resistance_bonus=0.35, resistance_type="explosive", resistance_layer="armor"),
+
+    # ── Armor Repairers (active) ─────────────────────────────────────────
+    "small_armor_repairer":  ModuleSpec("defensive", 80, point_cost=50, cycle_time=10, cap_per_cycle=25, armor_repair=15),
+    "medium_armor_repairer": ModuleSpec("defensive", 500, point_cost=250, cycle_time=10, cap_per_cycle=100, armor_repair=80),
+    "large_armor_repairer":  ModuleSpec("defensive", 3_000, point_cost=1_000, cycle_time=10, cap_per_cycle=400, armor_repair=400),
+
+    # ── Solarion Faction Modules ─────────────────────────────────────────
+    "focused_beam_medium":             ModuleSpec("turret", 350, point_cost=400, faction="solarion", cycle_time=10, cap_per_cycle=55, damage=100, damage_type="thermal", optimal_range=25_000, falloff=12_000, tracking_speed=0.02, sig_resolution=250),
+    "focused_beam_large":              ModuleSpec("turret", 2_500, point_cost=1_500, faction="solarion", cycle_time=15, cap_per_cycle=200, damage=500, damage_type="thermal", optimal_range=60_000, falloff=25_000, tracking_speed=0.005, sig_resolution=1_000),
+    "reactive_armor_membrane_medium":  ModuleSpec("defensive", 250, point_cost=400, faction="solarion", all_resistance_bonus=0.12, speed_penalty=0.05),
+    "reactive_armor_membrane_large":   ModuleSpec("defensive", 1_800, point_cost=1_500, faction="solarion", all_resistance_bonus=0.20, speed_penalty=0.08),
+    "armor_repair_nexus_medium":       ModuleSpec("defensive", 450, point_cost=400, faction="solarion", cycle_time=10, cap_per_cycle=80, armor_repair=120),
+    "armor_repair_nexus_large":        ModuleSpec("defensive", 2_800, point_cost=1_500, faction="solarion", cycle_time=10, cap_per_cycle=320, armor_repair=600),
+    "solar_lance":                     ModuleSpec("turret", 100_000, point_cost=5_000, faction="solarion", damage=50_000, damage_type="thermal", optimal_range=100_000, lance_charge_time=60, lance_cooldown=300, lance_cap_cost=10_000, lance_max_angular=0.001, min_ship_class="mothership"),
+
+    # ── Voidborn Faction Modules ─────────────────────────────────────────
+    "light_leech_projector":           ModuleSpec("turret", 80, point_cost=150, faction="voidborn", cycle_time=5, cap_per_cycle=20, optimal_range=8_000, leech_damage_per_tick=3.0, leech_damage_type="kinetic", leech_cap_drain_per_tick=5.0, leech_duration=60, leech_type="light"),
+    "heavy_leech_projector":           ModuleSpec("turret", 400, point_cost=500, faction="voidborn", cycle_time=8, cap_per_cycle=60, optimal_range=15_000, leech_damage_per_tick=8.0, leech_damage_type="kinetic", leech_cap_drain_per_tick=15.0, leech_duration=90, leech_type="heavy"),
+    "phase_shield_amplifier_medium":   ModuleSpec("defensive", 280, point_cost=400, faction="voidborn", cycle_time=8, cap_per_cycle=65, shield_repair=150),
+    "phase_shield_amplifier_large":    ModuleSpec("defensive", 1_800, point_cost=1_500, faction="voidborn", cycle_time=8, cap_per_cycle=250, shield_repair=750),
+    "small_stealth_field":             ModuleSpec("defensive", 100, point_cost=200, faction="voidborn", cycle_time=3, cap_per_cycle=15, sig_radius_mult=0.50, decloak_cooldown=10),
+    "medium_stealth_field":            ModuleSpec("defensive", 600, point_cost=600, faction="voidborn", cycle_time=3, cap_per_cycle=50, sig_radius_mult=0.50, decloak_cooldown=10),
+    "bio_repair_swarm":                ModuleSpec("utility", 80_000, point_cost=3_000, faction="voidborn", cycle_time=1, cap_per_cycle=400, optimal_range=30_000, repair_percent_per_tick=0.02, min_ship_class="mothership"),
+
+    # ── Shared Faction Module ────────────────────────────────────────────
+    "shield_purge": ModuleSpec("utility", 200, point_cost=400, cycle_time=30, cap_per_cycle=100, shield_hp_cost_percent=0.10),
 }
-
-# Module cycling parameters for non-passive modules
-MODULE_PARAMS: Dict[str, dict] = {
-    "mining_laser": {
-        "cycle_time": 10,
-        "cap_per_cycle": 50,
-        "mining_yield": 10,
-        "range": 500,
-    },
-    "factory": {
-        "cycle_time": 1,
-        "cap_per_cycle": 100,
-    },
-    "scanner": {
-        "cycle_time": 30,
-        "cap_per_cycle": 200,
-        "scan_range": 200_000,  # 200 km in meters
-    },
-    "passive_detector": {
-        "cycle_time": 5,
-        "cap_per_cycle": 5,
-        "base_detection_range": 50_000,  # 50 km in meters
-    },
-    "research_module": {
-        "cycle_time": 1,
-        "cap_per_cycle": 50,
-    },
-    "starter_mining_laser": {
-        "cycle_time": 10,
-        "cap_per_cycle": 10,
-        "mining_yield": 2,
-        "range": 500,
-    },
-    "starter_passive_detector": {
-        "cycle_time": 10,
-        "cap_per_cycle": 2,
-        "base_detection_range": 10_000,
-    },
-    "strip_miner": {
-        "cycle_time": 15,
-        "cap_per_cycle": 150,
-        "mining_yield": 50,
-        "range": 1_000,
-    },
-    "fortress": {
-        "cycle_time": 1,
-        "cap_per_cycle": 500,
-    },
-}
+# fmt: on
 
 # Reference signature radius for passive detection range scaling
 DETECTION_REFERENCE_SIGNATURE: float = 300.0  # frigate's sig radius
 
-
 # ---------------------------------------------------------------------------
-# Phase 4: Combat module constants
+# Derived structures (all from MODULE_REGISTRY)
 # ---------------------------------------------------------------------------
 
-# Turret parameters keyed by module_type value
-TURRET_PARAMS: Dict[str, dict] = {
-    "small_turret_kinetic": {
-        "volume": 50, "damage": 15, "damage_type": "kinetic",
-        "cycle_time": 5, "cap_per_cycle": 10,
-        "optimal_range": 5_000, "falloff": 3_000,
-        "tracking_speed": 0.08, "sig_resolution": 40,
-    },
-    "small_turret_thermal": {
-        "volume": 50, "damage": 15, "damage_type": "thermal",
-        "cycle_time": 5, "cap_per_cycle": 10,
-        "optimal_range": 5_000, "falloff": 3_000,
-        "tracking_speed": 0.08, "sig_resolution": 40,
-    },
-    "medium_turret_kinetic": {
-        "volume": 300, "damage": 80, "damage_type": "kinetic",
-        "cycle_time": 8, "cap_per_cycle": 40,
-        "optimal_range": 15_000, "falloff": 8_000,
-        "tracking_speed": 0.03, "sig_resolution": 200,
-    },
-    "medium_turret_thermal": {
-        "volume": 300, "damage": 80, "damage_type": "thermal",
-        "cycle_time": 8, "cap_per_cycle": 40,
-        "optimal_range": 15_000, "falloff": 8_000,
-        "tracking_speed": 0.03, "sig_resolution": 200,
-    },
-    "large_turret_kinetic": {
-        "volume": 2_000, "damage": 400, "damage_type": "kinetic",
-        "cycle_time": 12, "cap_per_cycle": 150,
-        "optimal_range": 40_000, "falloff": 20_000,
-        "tracking_speed": 0.008, "sig_resolution": 800,
-    },
-    "large_turret_thermal": {
-        "volume": 2_000, "damage": 400, "damage_type": "thermal",
-        "cycle_time": 12, "cap_per_cycle": 150,
-        "optimal_range": 40_000, "falloff": 20_000,
-        "tracking_speed": 0.008, "sig_resolution": 800,
-    },
-    "starter_turret": {
-        "volume": 15, "damage": 5, "damage_type": "kinetic",
-        "cycle_time": 5, "cap_per_cycle": 3,
-        "optimal_range": 2_000, "falloff": 1_500,
-        "tracking_speed": 0.12, "sig_resolution": 25,
-    },
-}
+MODULE_FIXED_VOLUMES: dict[str, int] = {k: v.volume for k, v in MODULE_REGISTRY.items()}
+MODULE_POINT_COSTS: dict[str, int] = {k: v.point_cost for k, v in MODULE_REGISTRY.items()}
 
-# Missile launcher parameters keyed by module_type value
-MISSILE_PARAMS: Dict[str, dict] = {
-    "light_missile_launcher": {
-        "volume": 100, "damage": 25, "damage_type": "explosive",
-        "cycle_time": 10, "cap_per_cycle": 15,
-        "range": 20_000, "missile_speed": 500, "max_flight_time": 40,
-        "explosion_radius": 50, "explosion_velocity": 200,
-    },
-    "heavy_missile_launcher": {
-        "volume": 500, "damage": 120, "damage_type": "explosive",
-        "cycle_time": 15, "cap_per_cycle": 50,
-        "range": 35_000, "missile_speed": 300, "max_flight_time": 117,
-        "explosion_radius": 200, "explosion_velocity": 100,
-    },
-    "torpedo_launcher": {
-        "volume": 3_000, "damage": 600, "damage_type": "explosive",
-        "cycle_time": 20, "cap_per_cycle": 200,
-        "range": 50_000, "missile_speed": 150, "max_flight_time": 333,
-        "explosion_radius": 800, "explosion_velocity": 50,
-    },
-}
+ENGINE_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "engine"}
+REACTOR_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "reactor"}
+CARGO_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "cargo"}
+FACTORY_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "factory"}
+DOCKING_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "docking"}
 
-# Defensive module parameters keyed by module_type value
-DEFENSIVE_MODULE_PARAMS: Dict[str, dict] = {
-    # Shield extenders (passive — increase max shield HP and sig radius)
-    "small_shield_extender": {
-        "volume": 50, "shield_bonus": 30, "sig_radius_bonus": 5,
-    },
-    "medium_shield_extender": {
-        "volume": 300, "shield_bonus": 200, "sig_radius_bonus": 30,
-    },
-    "large_shield_extender": {
-        "volume": 2_000, "shield_bonus": 1_500, "sig_radius_bonus": 100,
-    },
-    # Shield hardeners (active — increase resistance to specific damage type)
-    "small_shield_hardener_kinetic": {
-        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "kinetic",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 5,
-    },
-    "small_shield_hardener_thermal": {
-        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "thermal",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 5,
-    },
-    "small_shield_hardener_explosive": {
-        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "explosive",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 5,
-    },
-    "medium_shield_hardener_kinetic": {
-        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "kinetic",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 20,
-    },
-    "medium_shield_hardener_thermal": {
-        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "thermal",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 20,
-    },
-    "medium_shield_hardener_explosive": {
-        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "explosive",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 20,
-    },
-    "large_shield_hardener_kinetic": {
-        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "kinetic",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 60,
-    },
-    "large_shield_hardener_thermal": {
-        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "thermal",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 60,
-    },
-    "large_shield_hardener_explosive": {
-        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "explosive",
-        "layer": "shield", "cycle_time": 5, "cap_per_cycle": 60,
-    },
-    # Shield boosters (active — repair shield HP)
-    "small_shield_booster": {
-        "volume": 50, "shield_repair": 20,
-        "cycle_time": 8, "cap_per_cycle": 20,
-    },
-    "medium_shield_booster": {
-        "volume": 300, "shield_repair": 100,
-        "cycle_time": 8, "cap_per_cycle": 80,
-    },
-    "large_shield_booster": {
-        "volume": 2_000, "shield_repair": 500,
-        "cycle_time": 8, "cap_per_cycle": 300,
-    },
-    # Armor plates (passive — increase max armor HP, reduce speed)
-    "small_armor_plate": {
-        "volume": 50, "armor_bonus": 50, "speed_penalty": 0.05,
-    },
-    "medium_armor_plate": {
-        "volume": 300, "armor_bonus": 400, "speed_penalty": 0.10,
-    },
-    "large_armor_plate": {
-        "volume": 2_000, "armor_bonus": 3_000, "speed_penalty": 0.15,
-    },
-    # Armor hardeners (active)
-    "small_armor_hardener_kinetic": {
-        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "kinetic",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 5,
-    },
-    "small_armor_hardener_thermal": {
-        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "thermal",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 5,
-    },
-    "small_armor_hardener_explosive": {
-        "volume": 30, "resistance_bonus": 0.15, "resistance_type": "explosive",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 5,
-    },
-    "medium_armor_hardener_kinetic": {
-        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "kinetic",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 20,
-    },
-    "medium_armor_hardener_thermal": {
-        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "thermal",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 20,
-    },
-    "medium_armor_hardener_explosive": {
-        "volume": 200, "resistance_bonus": 0.25, "resistance_type": "explosive",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 20,
-    },
-    "large_armor_hardener_kinetic": {
-        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "kinetic",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 60,
-    },
-    "large_armor_hardener_thermal": {
-        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "thermal",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 60,
-    },
-    "large_armor_hardener_explosive": {
-        "volume": 1_500, "resistance_bonus": 0.35, "resistance_type": "explosive",
-        "layer": "armor", "cycle_time": 5, "cap_per_cycle": 60,
-    },
-    # Armor repairers (active — repair armor HP)
-    "small_armor_repairer": {
-        "volume": 80, "armor_repair": 15,
-        "cycle_time": 10, "cap_per_cycle": 25,
-    },
-    "medium_armor_repairer": {
-        "volume": 500, "armor_repair": 80,
-        "cycle_time": 10, "cap_per_cycle": 100,
-    },
-    "large_armor_repairer": {
-        "volume": 3_000, "armor_repair": 400,
-        "cycle_time": 10, "cap_per_cycle": 400,
-    },
-    # Starter defensive modules
-    "starter_shield_extender": {
-        "volume": 15, "shield_bonus": 15, "sig_radius_bonus": 2,
-    },
-    "starter_armor_plate": {
-        "volume": 15, "armor_bonus": 25, "speed_penalty": 0.03,
-    },
-}
-
-# Solarion-exclusive module params
-SOLARION_MODULE_PARAMS: Dict[str, dict] = {
-    "focused_beam_medium": {
-        "volume": 350, "damage": 100, "damage_type": "thermal",
-        "cycle_time": 10, "cap_per_cycle": 55,
-        "optimal_range": 25_000, "falloff": 12_000,
-        "tracking_speed": 0.02, "sig_resolution": 250,
-    },
-    "focused_beam_large": {
-        "volume": 2_500, "damage": 500, "damage_type": "thermal",
-        "cycle_time": 15, "cap_per_cycle": 200,
-        "optimal_range": 60_000, "falloff": 25_000,
-        "tracking_speed": 0.005, "sig_resolution": 1_000,
-    },
-    "reactive_armor_membrane_medium": {
-        "volume": 250, "all_resistance_bonus": 0.12, "speed_penalty": 0.05,
-    },
-    "reactive_armor_membrane_large": {
-        "volume": 1_800, "all_resistance_bonus": 0.20, "speed_penalty": 0.08,
-    },
-    "armor_repair_nexus_medium": {
-        "volume": 450, "armor_repair": 120,
-        "cycle_time": 10, "cap_per_cycle": 80,
-    },
-    "armor_repair_nexus_large": {
-        "volume": 2_800, "armor_repair": 600,
-        "cycle_time": 10, "cap_per_cycle": 320,
-    },
-    "solar_lance": {
-        "volume": 100_000, "damage": 50_000, "damage_type": "thermal",
-        "range": 100_000, "charge_time": 60, "cooldown": 300,
-        "cap_cost": 10_000, "max_angular_velocity": 0.001,
-        "min_ship_class": "mothership",
-    },
-}
-
-# Voidborn-exclusive module params
-VOIDBORN_MODULE_PARAMS: Dict[str, dict] = {
-    "light_leech_projector": {
-        "volume": 80, "cycle_time": 5, "cap_per_cycle": 20,
-        "range": 8_000,
-        "leech_damage_per_tick": 3.0, "leech_damage_type": "kinetic",
-        "leech_cap_drain_per_tick": 5.0, "leech_duration": 60, "leech_type": "light",
-    },
-    "heavy_leech_projector": {
-        "volume": 400, "cycle_time": 8, "cap_per_cycle": 60,
-        "range": 15_000,
-        "leech_damage_per_tick": 8.0, "leech_damage_type": "kinetic",
-        "leech_cap_drain_per_tick": 15.0, "leech_duration": 90, "leech_type": "heavy",
-    },
-    "phase_shield_amplifier_medium": {
-        "volume": 280, "shield_repair": 150,
-        "cycle_time": 8, "cap_per_cycle": 65,
-    },
-    "phase_shield_amplifier_large": {
-        "volume": 1_800, "shield_repair": 750,
-        "cycle_time": 8, "cap_per_cycle": 250,
-    },
-    "small_stealth_field": {
-        "volume": 100, "sig_radius_mult": 0.50,
-        "cycle_time": 3, "cap_per_cycle": 15,
-        "decloak_cooldown": 10,
-    },
-    "medium_stealth_field": {
-        "volume": 600, "sig_radius_mult": 0.50,
-        "cycle_time": 3, "cap_per_cycle": 50,
-        "decloak_cooldown": 10,
-    },
-    "bio_repair_swarm": {
-        "volume": 80_000, "cycle_time": 1, "cap_per_cycle": 400,
-        "repair_percent_per_tick": 0.02, "range": 30_000,
-        "min_ship_class": "mothership",
-    },
-}
-
-# Shared counter-module
-SHARED_MODULE_PARAMS: Dict[str, dict] = {
-    "shield_purge": {
-        "volume": 200, "cycle_time": 30, "cap_per_cycle": 100,
-        "shield_hp_cost_percent": 0.10,
-    },
-}
-
-# Helper sets for module type classification
-# Faction-specific classification sets
-SOLARION_TURRET_TYPES: set[str] = {"focused_beam_medium", "focused_beam_large"}
+SOLARION_TURRET_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.faction == "solarion" and v.category == "turret" and k != "solar_lance"}
 SOLARION_BEAM_TURRET_TYPES = SOLARION_TURRET_TYPES  # alias for tick.py
-LEECH_PROJECTOR_TYPES: set[str] = {"light_leech_projector", "heavy_leech_projector"}
-STEALTH_FIELD_TYPES: set[str] = {"small_stealth_field", "medium_stealth_field"}
-REACTIVE_MEMBRANE_TYPES: set[str] = {"reactive_armor_membrane_medium", "reactive_armor_membrane_large"}
-SOLARION_ARMOR_REPAIRER_TYPES: set[str] = {"armor_repair_nexus_medium", "armor_repair_nexus_large"}
-VOIDBORN_SHIELD_BOOSTER_TYPES: set[str] = {"phase_shield_amplifier_medium", "phase_shield_amplifier_large"}
+LEECH_PROJECTOR_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.leech_type is not None}
+STEALTH_FIELD_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.decloak_cooldown > 0}
+REACTIVE_MEMBRANE_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.all_resistance_bonus > 0}
+SOLARION_ARMOR_REPAIRER_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.faction == "solarion" and v.armor_repair > 0}
+VOIDBORN_SHIELD_BOOSTER_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.faction == "voidborn" and v.shield_repair > 0}
 
-# Solarion-exclusive module types (all modules only installable on Solarion ships)
-SOLARION_EXCLUSIVE_MODULES: set[str] = set(SOLARION_MODULE_PARAMS.keys())
-# Voidborn-exclusive module types
-VOIDBORN_EXCLUSIVE_MODULES: set[str] = set(VOIDBORN_MODULE_PARAMS.keys())
+SOLARION_EXCLUSIVE_MODULES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.faction == "solarion"}
+VOIDBORN_EXCLUSIVE_MODULES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.faction == "voidborn"}
 
-TURRET_TYPES: set[str] = set(TURRET_PARAMS.keys()) | SOLARION_TURRET_TYPES
-MISSILE_TYPES: set[str] = set(MISSILE_PARAMS.keys())
-WEAPON_TYPES: set[str] = TURRET_TYPES | MISSILE_TYPES | SOLARION_TURRET_TYPES | LEECH_PROJECTOR_TYPES
-SHIELD_EXTENDER_TYPES: set[str] = {
-    "small_shield_extender", "medium_shield_extender", "large_shield_extender",
-    "starter_shield_extender",
-}
-SHIELD_HARDENER_TYPES: set[str] = {
-    k for k in DEFENSIVE_MODULE_PARAMS
-    if "shield_hardener" in k
-}
-SHIELD_BOOSTER_TYPES: set[str] = {
-    "small_shield_booster", "medium_shield_booster", "large_shield_booster",
-} | VOIDBORN_SHIELD_BOOSTER_TYPES
-ARMOR_PLATE_TYPES: set[str] = {
-    "small_armor_plate", "medium_armor_plate", "large_armor_plate",
-    "starter_armor_plate",
-}
-ARMOR_HARDENER_TYPES: set[str] = {
-    k for k in DEFENSIVE_MODULE_PARAMS
-    if "armor_hardener" in k
-}
-ARMOR_REPAIRER_TYPES: set[str] = {
-    "small_armor_repairer", "medium_armor_repairer", "large_armor_repairer",
-} | SOLARION_ARMOR_REPAIRER_TYPES
+TURRET_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "turret"}
+MISSILE_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "missile"}
+WEAPON_TYPES: set[str] = TURRET_TYPES | MISSILE_TYPES | LEECH_PROJECTOR_TYPES
+SHIELD_EXTENDER_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.shield_bonus > 0 and v.cycle_time == 0}
+SHIELD_HARDENER_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.resistance_layer == "shield"}
+SHIELD_BOOSTER_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.shield_repair > 0 and v.cycle_time > 0}
+ARMOR_PLATE_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.armor_bonus > 0 and v.cycle_time == 0}
+ARMOR_HARDENER_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.resistance_layer == "armor"}
+ARMOR_REPAIRER_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.armor_repair > 0 and v.cycle_time > 0}
 HARDENER_TYPES: set[str] = SHIELD_HARDENER_TYPES | ARMOR_HARDENER_TYPES
-DEFENSIVE_TYPES: set[str] = set(DEFENSIVE_MODULE_PARAMS.keys())
+DEFENSIVE_TYPES: set[str] = {k for k, v in MODULE_REGISTRY.items() if v.category == "defensive"}
 
 
 # ---------------------------------------------------------------------------
@@ -1454,39 +1415,83 @@ class Spaceship(SQLModel, table=True):
     def class_constants(self) -> dict:
         return get_ship_classes(self.faction)[self.ship_class.value]
 
-    def engine_volume(self) -> float:
-        """Sum of all engine module volumes."""
-        return sum(m.volume for m in self.modules if m.module_type == ModuleType.engine)
-
     def max_speed(self) -> float:
-        """Derived max speed based on engine allocation."""
+        """Sum of engine_speed from all engine modules, capped at 2x base_speed."""
         consts = self.class_constants()
-        if self.total_volume == 0:
-            return 0.0
-        fraction = self.engine_volume() / self.total_volume
-        speed = consts["base_speed"] * (fraction / REFERENCE_ENGINE_FRACTION)
-        return min(speed, 2.0 * consts["base_speed"])
+        total_speed = sum(
+            m.engine_speed for m in self.modules
+            if m.module_type.value in ENGINE_TYPES
+        )
+        return min(total_speed, 2.0 * consts["base_speed"])
 
     def acceleration(self) -> float:
-        """Derived acceleration (m/s^2)."""
-        consts = self.class_constants()
-        return self.max_speed() / consts["accel_time"]
+        """Derived acceleration: max_speed / weighted_avg_accel_time."""
+        speed = self.max_speed()
+        if speed <= 0:
+            return 0.0
+        engines = [
+            m for m in self.modules
+            if m.module_type.value in ENGINE_TYPES and m.engine_speed > 0
+        ]
+        if not engines:
+            return 0.0
+        # Speed-weighted average accel time
+        total_weight = sum(m.engine_speed for m in engines)
+        avg_accel = sum(m.engine_speed * m.engine_accel_time for m in engines) / total_weight
+        if avg_accel <= 0:
+            return speed  # instant accel
+        return speed / avg_accel
 
     def cargo_capacity(self) -> float:
-        """Total cargo capacity (m^3 of ore)."""
+        """Total cargo capacity from cargo bay modules (volume == capacity for cargo)."""
         return sum(
             m.volume
             for m in self.modules
-            if m.module_type == ModuleType.cargo_bay
+            if m.module_type.value in CARGO_TYPES
         )
 
     def docking_capacity(self) -> float:
-        """Total docking bay capacity in m^3 of dockable ship volume."""
-        return sum(
-            m.volume * 0.5
-            for m in self.modules
-            if m.module_type == ModuleType.docking_bay
-        )
+        """Total docking bay capacity in m^3 (legacy, use max_dockable_volume)."""
+        return self.max_dockable_volume()
+
+    def max_dockable_volume(self) -> float:
+        """Largest ship volume that can dock, based on biggest docking bay."""
+        bays = [m.volume for m in self.modules if m.module_type.value in DOCKING_TYPES]
+        return max(bays, default=0)
+
+    def can_dock_ship_class(self, ship_class_value: str) -> bool:
+        """Check if any docking bay can accept ships of the given class."""
+        target_idx = DOCKING_CLASS_INDEX.get(ship_class_value, 999)
+        for m in self.modules:
+            mt = m.module_type.value
+            if mt in DOCKING_TYPES:
+                bay_max = MODULE_REGISTRY[mt].docking_max_class
+                if bay_max and DOCKING_CLASS_INDEX.get(bay_max, -1) >= target_idx:
+                    return True
+        return False
+
+    def max_buildable_class(self) -> Optional[str]:
+        """Return the highest ship class that can be built by any factory on this ship,
+        gated by the docking bay max class."""
+        best_factory_idx = -1
+        best_dock_idx = -1
+        for m in self.modules:
+            mt = m.module_type.value
+            if mt in FACTORY_TYPES:
+                fmc = MODULE_REGISTRY[mt].factory_max_class
+                if fmc:
+                    best_factory_idx = max(best_factory_idx, DOCKING_CLASS_INDEX.get(fmc, -1))
+            if mt in DOCKING_TYPES:
+                dmc = MODULE_REGISTRY[mt].docking_max_class
+                if dmc:
+                    best_dock_idx = max(best_dock_idx, DOCKING_CLASS_INDEX.get(dmc, -1))
+        effective_idx = min(best_factory_idx, best_dock_idx)
+        if effective_idx < 0:
+            return None
+        for cls_name, idx in DOCKING_CLASS_INDEX.items():
+            if idx == effective_idx:
+                return cls_name
+        return None
 
     def has_dropoff(self) -> bool:
         return any(m.module_type == ModuleType.dropoff for m in self.modules)
@@ -1501,12 +1506,9 @@ class Spaceship(SQLModel, table=True):
         """Sum of speed penalties from all armor plate and reactive membrane modules."""
         total = 0.0
         for m in self.modules:
-            if m.module_type.value in ARMOR_PLATE_TYPES:
-                params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {})
-                total += params.get("speed_penalty", 0.0)
-            elif m.module_type.value in REACTIVE_MEMBRANE_TYPES:
-                params = SOLARION_MODULE_PARAMS.get(m.module_type.value, {})
-                total += params.get("speed_penalty", 0.0)
+            mt = m.module_type.value
+            if mt in ARMOR_PLATE_TYPES or mt in REACTIVE_MEMBRANE_TYPES:
+                total += MODULE_REGISTRY[mt].speed_penalty
         return min(total, 0.75)  # cap at 75% penalty (25% min speed)
 
     def effective_max_speed(self) -> float:
@@ -1514,21 +1516,32 @@ class Spaceship(SQLModel, table=True):
         return self.max_speed() * (1.0 - self.armor_plate_speed_penalty())
 
     def effective_acceleration(self) -> float:
-        """Acceleration based on effective max speed."""
-        consts = self.class_constants()
-        return self.effective_max_speed() / consts["accel_time"]
+        """Acceleration based on effective max speed, using engine accel times."""
+        eff_speed = self.effective_max_speed()
+        if eff_speed <= 0:
+            return 0.0
+        engines = [
+            m for m in self.modules
+            if m.module_type.value in ENGINE_TYPES and m.engine_speed > 0
+        ]
+        if not engines:
+            return 0.0
+        total_weight = sum(m.engine_speed for m in engines)
+        avg_accel = sum(m.engine_speed * m.engine_accel_time for m in engines) / total_weight
+        if avg_accel <= 0:
+            return eff_speed
+        return eff_speed / avg_accel
 
     def effective_signature_radius(self) -> float:
         """Signature radius including shield extender bonuses and stealth field."""
         extra = 0.0
         stealth_mult = 1.0
         for m in self.modules:
-            if m.module_type.value in SHIELD_EXTENDER_TYPES:
-                params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {})
-                extra += params.get("sig_radius_bonus", 0.0)
-            if m.module_type.value in STEALTH_FIELD_TYPES and m.active:
-                params = VOIDBORN_MODULE_PARAMS.get(m.module_type.value, {})
-                stealth_mult = min(stealth_mult, params.get("sig_radius_mult", 1.0))
+            mt = m.module_type.value
+            if mt in SHIELD_EXTENDER_TYPES:
+                extra += MODULE_REGISTRY[mt].sig_radius_bonus
+            if mt in STEALTH_FIELD_TYPES and m.active:
+                stealth_mult = min(stealth_mult, MODULE_REGISTRY[mt].sig_radius_mult)
         return (self.signature_radius + extra) * stealth_mult
 
     def compute_resistances(self, layer: str) -> Dict[str, float]:
@@ -1543,8 +1556,7 @@ class Spaceship(SQLModel, table=True):
         if layer == "armor":
             for m in self.modules:
                 if m.module_type.value in REACTIVE_MEMBRANE_TYPES:
-                    params = SOLARION_MODULE_PARAMS.get(m.module_type.value, {})
-                    bonus = params.get("all_resistance_bonus", 0.0)
+                    bonus = MODULE_REGISTRY[m.module_type.value].all_resistance_bonus
                     for dt in base:
                         base[dt] += bonus
 
@@ -1553,15 +1565,13 @@ class Spaceship(SQLModel, table=True):
         for m in self.modules:
             if not m.active:
                 continue
-            params = DEFENSIVE_MODULE_PARAMS.get(m.module_type.value)
-            if params is None:
+            mt = m.module_type.value
+            spec = MODULE_REGISTRY.get(mt)
+            if spec is None or spec.resistance_layer != layer or spec.resistance_bonus == 0:
                 continue
-            if params.get("layer") != layer:
-                continue
-            if "resistance_bonus" not in params:
-                continue
-            dmg_type = params["resistance_type"]
-            bonuses[dmg_type].append(params["resistance_bonus"])
+            dmg_type = spec.resistance_type
+            if dmg_type:
+                bonuses[dmg_type].append(spec.resistance_bonus)
 
         # Apply stacking penalties: effective_bonus_n = base_bonus * 0.87^(n-1)
         for dmg_type, bonus_list in bonuses.items():
@@ -1591,17 +1601,22 @@ class ShipModule(SQLModel, table=True):
     capacitor_per_cycle: float = Field(default=0.0)
 
     # Module-specific parameters (nullable; used only by relevant types)
-    # Engine
-    # (no extra fields — derived from volume fraction)
+    # Engine preset fields
+    engine_speed: float = Field(default=0.0)         # max speed provided (m/s)
+    engine_accel_time: float = Field(default=0.0)    # seconds to reach max speed
+    engine_cap_drain: float = Field(default=0.0)     # cap drain per tick (light engines)
 
-    # Reactor
-    # capacitor_bonus is derived: volume * 5.0
+    # Reactor preset fields
+    reactor_cap_bonus: float = Field(default=0.0)    # flat capacitor bonus
+    reactor_regen_bonus: float = Field(default=0.0)  # flat regen per tick
+    reactor_efficiency: float = Field(default=0.0)   # fraction cap drain reduction
 
-    # Cargo bay
-    # cargo_capacity is derived: volume * 1.0
+    # Factory preset fields
+    factory_speed_mult: float = Field(default=1.0)   # build time multiplier (<1 = faster)
+    factory_efficiency_mult: float = Field(default=1.0)  # ore cost multiplier (<1 = cheaper)
 
-    # Docking bay
-    # docking_capacity is derived: volume * 0.5
+    # Docking bay preset field
+    docking_max_class: Optional[str] = Field(default=None)  # max ship class that can dock
 
     # Mining laser
     mining_yield: float = Field(default=0.0)   # ore per cycle
@@ -1653,23 +1668,21 @@ class ShipModule(SQLModel, table=True):
 
     @property
     def capacitor_bonus(self) -> float:
-        """Extra capacitor provided by a reactor (5 cap per m^3)."""
-        if self.module_type == ModuleType.reactor:
-            return self.volume * 5.0
-        return 0.0
+        """Extra capacitor provided by a reactor."""
+        return self.reactor_cap_bonus
 
     @property
     def effective_cargo_capacity(self) -> float:
-        """Cargo capacity for cargo_bay modules."""
-        if self.module_type == ModuleType.cargo_bay:
+        """Cargo capacity for cargo_bay modules (volume == capacity)."""
+        if self.module_type.value in CARGO_TYPES:
             return float(self.volume)
         return 0.0
 
     @property
     def effective_docking_capacity(self) -> float:
         """Dockable ship volume for docking_bay modules."""
-        if self.module_type == ModuleType.docking_bay:
-            return self.volume * 0.5
+        if self.module_type.value in DOCKING_TYPES:
+            return float(self.volume)
         return 0.0
 
 
@@ -1934,9 +1947,9 @@ def recalculate_max_capacitor(ship: Spaceship) -> None:
     """
     consts = ship.class_constants()
     reactor_bonus = sum(
-        m.volume * 5.0
+        m.reactor_cap_bonus
         for m in ship.modules
-        if m.module_type == ModuleType.reactor
+        if m.module_type.value in REACTOR_TYPES
     )
     ship.max_capacitor = consts["base_cap"] + reactor_bonus
 
@@ -1945,7 +1958,7 @@ def recalculate_max_shield(ship: Spaceship) -> None:
     """Recompute ship.max_shield_hp from base hull value + shield extenders."""
     consts = ship.class_constants()
     extender_bonus = sum(
-        DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {}).get("shield_bonus", 0.0)
+        MODULE_REGISTRY[m.module_type.value].shield_bonus
         for m in ship.modules
         if m.module_type.value in SHIELD_EXTENDER_TYPES
     )
@@ -1956,195 +1969,47 @@ def recalculate_max_armor(ship: Spaceship) -> None:
     """Recompute ship.max_armor_hp from base hull value + armor plates."""
     consts = ship.class_constants()
     plate_bonus = sum(
-        DEFENSIVE_MODULE_PARAMS.get(m.module_type.value, {}).get("armor_bonus", 0.0)
+        MODULE_REGISTRY[m.module_type.value].armor_bonus
         for m in ship.modules
         if m.module_type.value in ARMOR_PLATE_TYPES
     )
     ship.max_armor_hp = consts["base_armor"] + plate_bonus
 
 
-def make_module(module_type: ModuleType, volume: int) -> ShipModule:
-    """
-    Create a ShipModule with the correct cycle parameters filled in.
-    For fixed-size modules the ``volume`` parameter is ignored and the
-    spec value is used instead.
-    """
-    mt_val = module_type.value
-
-    # --- Solarion turrets (focused beams) ---
-    if mt_val in SOLARION_TURRET_TYPES:
-        p = SOLARION_MODULE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-            damage_per_cycle=float(p["damage"]), damage_type=p["damage_type"],
-            optimal_range=float(p["optimal_range"]), falloff_range=float(p["falloff"]),
-            tracking_speed=p["tracking_speed"], sig_resolution=float(p["sig_resolution"]),
-        )
-
-    # --- Reactive armor membranes (passive) ---
-    if mt_val in REACTIVE_MEMBRANE_TYPES:
-        p = SOLARION_MODULE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=0, ticks_until_cycle=0, capacitor_per_cycle=0.0,
-        )
-
-    # --- Armor repair nexus ---
-    if mt_val in SOLARION_ARMOR_REPAIRER_TYPES:
-        p = SOLARION_MODULE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-            armor_repair_per_cycle=float(p["armor_repair"]),
-        )
-
-    # --- Solar Lance ---
-    if mt_val == "solar_lance":
-        p = SOLARION_MODULE_PARAMS["solar_lance"]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=0, ticks_until_cycle=0,
-            capacitor_per_cycle=0.0,
-            damage_per_cycle=float(p["damage"]), damage_type=p["damage_type"],
-            optimal_range=float(p["range"]),
-            lance_state="idle",
-        )
-
-    # --- Leech projectors ---
-    if mt_val in LEECH_PROJECTOR_TYPES:
-        p = VOIDBORN_MODULE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-            optimal_range=float(p["range"]),
-        )
-
-    # --- Phase shield amplifiers ---
-    if mt_val in VOIDBORN_SHIELD_BOOSTER_TYPES:
-        p = VOIDBORN_MODULE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-            shield_repair_per_cycle=float(p["shield_repair"]),
-        )
-
-    # --- Stealth fields ---
-    if mt_val in STEALTH_FIELD_TYPES:
-        p = VOIDBORN_MODULE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-        )
-
-    # --- Bio-Repair Swarm ---
-    if mt_val == "bio_repair_swarm":
-        p = VOIDBORN_MODULE_PARAMS["bio_repair_swarm"]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-            optimal_range=float(p["range"]),
-        )
-
-    # --- Shield purge ---
-    if mt_val == "shield_purge":
-        p = SHARED_MODULE_PARAMS["shield_purge"]
-        return ShipModule(
-            module_type=module_type, volume=p["volume"], active=False,
-            cycle_time=p["cycle_time"], ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-        )
-
-    # --- Turrets ---
-    if mt_val in TURRET_PARAMS:
-        p = TURRET_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type,
-            volume=p["volume"],
-            active=False,
-            cycle_time=p["cycle_time"],
-            ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-            damage_per_cycle=float(p["damage"]),
-            damage_type=p["damage_type"],
-            optimal_range=float(p["optimal_range"]),
-            falloff_range=float(p["falloff"]),
-            tracking_speed=p["tracking_speed"],
-            sig_resolution=float(p["sig_resolution"]),
-        )
-
-    # --- Missile launchers ---
-    if mt_val in MISSILE_PARAMS:
-        p = MISSILE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type,
-            volume=p["volume"],
-            active=False,
-            cycle_time=p["cycle_time"],
-            ticks_until_cycle=p["cycle_time"],
-            capacitor_per_cycle=p["cap_per_cycle"],
-            damage_per_cycle=float(p["damage"]),
-            damage_type=p["damage_type"],
-            missile_speed=float(p["missile_speed"]),
-            missile_flight_time=p["max_flight_time"],
-            explosion_radius=float(p["explosion_radius"]),
-            explosion_velocity=float(p["explosion_velocity"]),
-            optimal_range=float(p["range"]),
-        )
-
-    # --- Defensive modules ---
-    if mt_val in DEFENSIVE_MODULE_PARAMS:
-        p = DEFENSIVE_MODULE_PARAMS[mt_val]
-        return ShipModule(
-            module_type=module_type,
-            volume=p["volume"],
-            active=False,
-            cycle_time=p.get("cycle_time", 0),
-            ticks_until_cycle=p.get("cycle_time", 0),
-            capacitor_per_cycle=p.get("cap_per_cycle", 0.0),
-            shield_hp_bonus=float(p.get("shield_bonus", 0)),
-            armor_hp_bonus=float(p.get("armor_bonus", 0)),
-            shield_repair_per_cycle=float(p.get("shield_repair", 0)),
-            armor_repair_per_cycle=float(p.get("armor_repair", 0)),
-        )
-
-    # --- Original module types ---
-    fixed = MODULE_FIXED_VOLUMES.get(mt_val)
-    if fixed is not None:
-        volume = fixed
-
-    params = MODULE_PARAMS.get(mt_val, {})
-    module = ShipModule(
-        module_type=module_type,
-        volume=volume,
-        active=False,
-        cycle_time=params.get("cycle_time", 0),
-        ticks_until_cycle=params.get("cycle_time", 0),
-        capacitor_per_cycle=params.get("cap_per_cycle", 0.0),
-        mining_yield=float(params.get("mining_yield", 0)),
-        mining_range=float(params.get("range", 0)),
-        scan_range=float(params.get("scan_range", 0)),
-        detection_range=float(params.get("base_detection_range", 0)),
+def make_module(module_type: ModuleType, volume: int = 0) -> ShipModule:
+    """Create a ShipModule from MODULE_REGISTRY.  The ``volume`` arg is ignored."""
+    spec = MODULE_REGISTRY[module_type.value]
+    return ShipModule(
+        module_type=module_type, volume=spec.volume, active=False,
+        cycle_time=spec.cycle_time, ticks_until_cycle=spec.cycle_time,
+        capacitor_per_cycle=spec.cap_per_cycle,
+        # Engine
+        engine_speed=spec.engine_speed, engine_accel_time=spec.engine_accel_time,
+        engine_cap_drain=spec.engine_cap_drain,
+        # Reactor
+        reactor_cap_bonus=spec.reactor_cap_bonus, reactor_regen_bonus=spec.reactor_regen_bonus,
+        reactor_efficiency=spec.reactor_efficiency,
+        # Factory
+        factory_max_class=spec.factory_max_class, factory_speed_mult=spec.factory_speed_mult,
+        factory_efficiency_mult=spec.factory_efficiency_mult,
+        # Docking
+        docking_max_class=spec.docking_max_class,
+        # Mining / scanning
+        mining_yield=spec.mining_yield, mining_range=spec.mining_range,
+        scan_range=spec.scan_range, detection_range=spec.detection_range,
+        # Combat
+        damage_per_cycle=spec.damage, damage_type=spec.damage_type,
+        optimal_range=spec.optimal_range, falloff_range=spec.falloff,
+        tracking_speed=spec.tracking_speed, sig_resolution=spec.sig_resolution,
+        # Missiles
+        missile_speed=spec.missile_speed, missile_flight_time=spec.missile_flight_time,
+        explosion_radius=spec.explosion_radius, explosion_velocity=spec.explosion_velocity,
+        # Defense
+        shield_hp_bonus=spec.shield_bonus, armor_hp_bonus=spec.armor_bonus,
+        shield_repair_per_cycle=spec.shield_repair, armor_repair_per_cycle=spec.armor_repair,
+        # Solar lance
+        lance_state="idle" if module_type.value == "solar_lance" else "idle",
     )
-    # Determine max buildable class for factories
-    if module_type == ModuleType.factory:
-        module.factory_max_class = _factory_max_class(volume)
-    return module
-
-
-def _factory_max_class(volume: int) -> Optional[str]:
-    """Return the largest ship class a factory of given volume can build."""
-    result: Optional[str] = None
-    for cls, min_vol in sorted(FACTORY_REQUIREMENTS.items(), key=lambda x: x[1]):
-        if volume >= min_vol:
-            result = cls
-    return result
 
 
 def spawn_new_ship(

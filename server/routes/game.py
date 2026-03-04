@@ -15,7 +15,22 @@ from sqlmodel import select
 
 from server.auth import get_current_user
 from server.database import get_session
-from server.models import Event, EventType, GameState, HULL_POINT_COSTS, MODULE_POINT_COSTS, User
+from server.models import (
+    CARGO_TYPES,
+    DOCKING_TYPES,
+    ENGINE_TYPES,
+    Event,
+    EventType,
+    FACTORY_TYPES,
+    GameState,
+    HULL_POINT_COSTS,
+    MODULE_FIXED_VOLUMES,
+    MODULE_POINT_COSTS,
+    ModuleType,
+    REACTOR_TYPES,
+    SHIP_CLASSES,
+    User,
+)
 
 router = APIRouter(prefix="/api", tags=["game"])
 
@@ -134,3 +149,54 @@ async def get_events(
 async def loadout_costs():
     """Return hull and module point costs (no auth required)."""
     return {"hull_costs": HULL_POINT_COSTS, "module_costs": MODULE_POINT_COSTS}
+
+
+def _module_category(mt: str) -> str:
+    """Classify a module type string into a GUI category."""
+    if mt in ENGINE_TYPES or mt in REACTOR_TYPES or mt in CARGO_TYPES:
+        return "core"
+    if mt in FACTORY_TYPES or mt in DOCKING_TYPES:
+        return "utility"
+    if "mining" in mt or "strip" in mt:
+        return "mining"
+    if "turret" in mt or "missile" in mt or "shield" in mt or "armor" in mt:
+        return "combat"
+    return "utility"
+
+
+def _module_label(mt: str) -> str:
+    """Generate a human-readable label from a module type string."""
+    return mt.replace("_", " ").title()
+
+
+@router.get("/modules")
+async def list_modules():
+    """Return all module definitions for client/GUI use (no auth required)."""
+    modules = []
+    for mt in ModuleType:
+        mt_val = mt.value
+        volume = MODULE_FIXED_VOLUMES.get(mt_val, 0)
+        modules.append({
+            "type": mt_val,
+            "label": _module_label(mt_val),
+            "fixedVolume": volume,
+            "category": _module_category(mt_val),
+            "pointCost": MODULE_POINT_COSTS.get(mt_val, 0),
+        })
+    return modules
+
+
+@router.get("/ship_classes")
+async def list_ship_classes():
+    """Return ship class definitions (no auth required)."""
+    return {
+        name: {
+            "total_volume": data["total_volume"],
+            "base_hull": data["base_hull"],
+            "base_shield": data["base_shield"],
+            "base_armor": data["base_armor"],
+            "base_capacitor": data["base_capacitor"],
+            "hull_cost": HULL_POINT_COSTS.get(name, 0),
+        }
+        for name, data in SHIP_CLASSES.items()
+    }

@@ -800,7 +800,7 @@ def module_install(
     ),
     volume: int = typer.Option(
         0, "--volume", "-v",
-        help="Volume in m³ (required for variable-size modules: engine, reactor, cargo_bay, docking_bay, factory).",
+        help="Volume in m³ (ignored — all modules are now fixed-size presets).",
     ),
     json: bool = typer.Option(False, "--json", help="Output raw JSON.", is_flag=True),
 ):
@@ -1112,32 +1112,32 @@ def loadout_costs(
 
 
 # Quick-fit presets (mirrors gui/src/data/modules.ts QUICK_FITS)
-QUICKFIT_PRESETS: dict[str, list[tuple[str, int]]] = {
+QUICKFIT_PRESETS: dict[str, list[str]] = {
     "strike_craft": [
-        ("engine", 25),
-        ("reactor", 10),
-        ("cargo_bay", 25),
-        ("starter_mining_laser", 0),
-        ("starter_passive_detector", 0),
+        "starter_engine",
+        "starter_reactor",
+        "tiny_cargo_bay",
+        "starter_mining_laser",
+        "starter_passive_detector",
     ],
     "corvette": [
-        ("engine", 500),
-        ("reactor", 200),
-        ("cargo_bay", 800),
-        ("mining_laser", 0),
-        ("passive_detector", 0),
-        ("starter_turret", 0),
-        ("starter_shield_extender", 0),
+        "small_standard_engine",
+        "small_standard_reactor",
+        "small_cargo_bay",
+        "mining_laser",
+        "passive_detector",
+        "starter_turret",
+        "starter_shield_extender",
     ],
     "frigate": [
-        ("engine", 5000),
-        ("reactor", 2000),
-        ("cargo_bay", 6000),
-        ("mining_laser", 0),
-        ("mining_laser", 0),
-        ("passive_detector", 0),
-        ("scanner", 0),
-        ("dropoff", 0),
+        "medium_standard_engine",
+        "medium_standard_reactor",
+        "medium_cargo_bay",
+        "mining_laser",
+        "mining_laser",
+        "passive_detector",
+        "scanner",
+        "dropoff",
     ],
 }
 
@@ -1171,12 +1171,12 @@ def loadout_quickfit(
 
     modules = QUICKFIT_PRESETS[preset_name]
     results = []
-    for module_type, volume in modules:
-        data = _handle(client.install_module, resolved, module_type, volume)
+    for module_type in modules:
+        data = _handle(client.install_module, resolved, module_type, 0)
         results.append(data)
         if not json:
             cmd_id = data.get("command_id", "?")
-            display.print_success(f"  #{cmd_id} install {module_type}" + (f" ({volume} m³)" if volume else ""))
+            display.print_success(f"  #{cmd_id} install {module_type}")
 
     if json:
         import json as _json

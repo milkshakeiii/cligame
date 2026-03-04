@@ -12,12 +12,13 @@ from server.commands import CommandRejected, TickContext, get_payload, register_
 from server.models import (
     ARMOR_PLATE_TYPES,
     Command,
+    ENGINE_TYPES,
     EventType,
     FACTION_SHIP_NAMES,
+    MODULE_FIXED_VOLUMES,
     MODULE_REQUIRED_TECH,
     ModuleType,
-    REFERENCE_ENGINE_FRACTION,
-    ResearchProgress,
+    REACTOR_TYPES,
     SHIELD_EXTENDER_TYPES,
     SHIP_REQUIRED_TECH,
     ShipClass,
@@ -31,7 +32,7 @@ from server.models import (
     recalculate_max_capacitor,
     recalculate_max_shield,
 )
-from server.research import get_completed_tech_ids, get_tech_name, is_module_unlocked, is_ship_unlocked
+from server.research import get_tech_name, is_module_unlocked, is_ship_unlocked
 
 
 @register_handler("create_ship")
@@ -47,7 +48,7 @@ async def handle_create_ship(ctx: TickContext, cmd: Command) -> None:
     except ValueError:
         raise CommandRejected(f"Invalid ship class: {ship_class_str}")
 
-    # Load user for team info
+    # Load user for team/faction info
     from server.models import User
     user_result = await ctx.session.exec(select(User).where(User.id == cmd.user_id))
     user = user_result.first()
@@ -55,18 +56,7 @@ async def handle_create_ship(ctx: TickContext, cmd: Command) -> None:
         raise CommandRejected("User not found")
 
     # Research gating
-    if user.team_id is not None:
-        rp_result = await ctx.session.exec(
-            select(ResearchProgress).where(
-                (ResearchProgress.user_id == cmd.user_id)
-                | (ResearchProgress.team_id == user.team_id)
-            )
-        )
-    else:
-        rp_result = await ctx.session.exec(
-            select(ResearchProgress).where(ResearchProgress.user_id == cmd.user_id)
-        )
-    completed_techs = get_completed_tech_ids(rp_result.all())
+    completed_techs = await ctx.get_completed_techs(cmd.user_id)
     if not is_ship_unlocked(ship_class_str, completed_techs):
         tech_id = SHIP_REQUIRED_TECH.get(ship_class_str, "?")
         raise CommandRejected(f"Research required: {get_tech_name(tech_id)} ({tech_id})")
@@ -122,9 +112,17 @@ async def handle_create_ship(ctx: TickContext, cmd: Command) -> None:
     ctx.session.add(ship)
     await ctx.session.flush()
 
-    # Add default engine module
-    engine_volume = max(1, int(ship.total_volume * REFERENCE_ENGINE_FRACTION))
-    engine = make_module(ModuleType.engine, engine_volume)
+    # Add default engine module based on ship class
+    _engine_map = {
+        "strike_craft": ModuleType.tiny_standard_engine,
+        "corvette": ModuleType.small_standard_engine,
+        "frigate": ModuleType.medium_standard_engine,
+        "destroyer": ModuleType.large_standard_engine,
+        "cruiser": ModuleType.huge_standard_engine,
+        "mothership": ModuleType.capital_standard_engine,
+    }
+    engine_type = _engine_map.get(ship_class_str, ModuleType.tiny_standard_engine)
+    engine = make_module(engine_type)
     engine.ship_id = ship.id
     ctx.session.add(engine)
     await ctx.session.flush()
@@ -184,31 +182,10 @@ async def handle_install_module(ctx: TickContext, cmd: Command) -> None:
     if lock_result.first() is not None:
         raise CommandRejected("Cannot modify modules while in combat (active target locks)")
 
-    # Variable-size modules need positive volume
-    VARIABLE_SIZE_MODULES = {
-        ModuleType.engine, ModuleType.reactor, ModuleType.cargo_bay,
-        ModuleType.docking_bay, ModuleType.factory, ModuleType.enhanced_docking_bay,
-    }
-    if module_type in VARIABLE_SIZE_MODULES and volume <= 0:
-        raise CommandRejected(f"module_type '{module_type_str}' requires a positive volume")
+    # All modules are now fixed-size presets — volume parameter is ignored
 
     # Research gating
-    from server.models import User
-    user_result = await ctx.session.exec(select(User).where(User.id == cmd.user_id))
-    user = user_result.first()
-
-    if user.team_id is not None:
-        rp_result = await ctx.session.exec(
-            select(ResearchProgress).where(
-                (ResearchProgress.user_id == cmd.user_id)
-                | (ResearchProgress.team_id == user.team_id)
-            )
-        )
-    else:
-        rp_result = await ctx.session.exec(
-            select(ResearchProgress).where(ResearchProgress.user_id == cmd.user_id)
-        )
-    completed_techs = get_completed_tech_ids(rp_result.all())
+    completed_techs = await ctx.get_completed_techs(cmd.user_id)
     if not is_module_unlocked(module_type_str, completed_techs):
         tech_id = MODULE_REQUIRED_TECH.get(module_type_str, "?")
         raise CommandRejected(f"Research required: {get_tech_name(tech_id)} ({tech_id})")
@@ -241,7 +218,7 @@ async def handle_install_module(ctx: TickContext, cmd: Command) -> None:
     ship.modules.append(module)
 
     # Recalculate derived stats
-    if module_type == ModuleType.reactor:
+    if module_type_str in REACTOR_TYPES:
         recalculate_max_capacitor(ship)
     if module_type_str in SHIELD_EXTENDER_TYPES:
         old_max = ship.max_shield_hp
@@ -292,7 +269,7 @@ async def handle_uninstall_module(ctx: TickContext, cmd: Command) -> None:
     ship.modules.remove(module)
     await ctx.session.delete(module)
 
-    if module.module_type == ModuleType.reactor:
+    if module.module_type.value in REACTOR_TYPES:
         recalculate_max_capacitor(ship)
         ship.capacitor = min(ship.capacitor, ship.max_capacitor)
     if module.module_type.value in SHIELD_EXTENDER_TYPES:

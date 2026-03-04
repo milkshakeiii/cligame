@@ -78,9 +78,7 @@ def _build_test_app(test_session_factory) -> FastAPI:
     from server.routes.auth import router as auth_router
     from server.routes.game import router as game_router
     from server.routes.ships import router as ships_router
-    from server.routes.orders import router as orders_router
     from server.routes.production import router as production_router
-    from server.routes.resources import router as resources_router
     from server.routes.scanning import router as scanning_router
     from server.routes.combat import router as combat_router
     from server.routes.research import router as research_router
@@ -104,9 +102,7 @@ def _build_test_app(test_session_factory) -> FastAPI:
     test_app.include_router(auth_router)
     test_app.include_router(game_router)
     test_app.include_router(ships_router)
-    test_app.include_router(orders_router)
     test_app.include_router(production_router)
-    test_app.include_router(resources_router)
     test_app.include_router(scanning_router)
     test_app.include_router(combat_router)
     test_app.include_router(research_router)
@@ -216,16 +212,16 @@ def _build_test_app(test_session_factory) -> FastAPI:
         await session.flush()
 
         modules = [
-            make_module(ModuleType.engine, 200_000),
-            make_module(ModuleType.reactor, 100_000),
-            make_module(ModuleType.cargo_bay, 200_000),
-            make_module(ModuleType.docking_bay, 100_000),
-            make_module(ModuleType.factory, 300_000),
-            make_module(ModuleType.mining_laser, 200),
-            make_module(ModuleType.scanner, 500),
-            make_module(ModuleType.passive_detector, 100),
-            make_module(ModuleType.research_module, 5_000),
-            make_module(ModuleType.dropoff, 500),
+            make_module(ModuleType.capital_standard_engine, 0),
+            make_module(ModuleType.capital_standard_reactor, 0),
+            make_module(ModuleType.huge_cargo_bay, 0),
+            make_module(ModuleType.small_docking_bay, 0),
+            make_module(ModuleType.small_factory, 0),
+            make_module(ModuleType.mining_laser, 0),
+            make_module(ModuleType.scanner, 0),
+            make_module(ModuleType.passive_detector, 0),
+            make_module(ModuleType.research_module, 0),
+            make_module(ModuleType.dropoff, 0),
         ]
         for mod in modules:
             mod.ship_id = ship.id

@@ -119,14 +119,14 @@ class TestPrerequisites:
         assert check_prerequisites("2a_large_kinetic_turrets", {"1a_medium_kinetic_turrets"}) is None
 
     def test_fortress_needs_prereq(self):
-        """4b_fortress requires 2k_enhanced_docking."""
+        """4b_fortress requires 2k_advanced_docking."""
         error = check_prerequisites("4b_fortress", set())
         assert error is not None
-        assert "Enhanced Docking" in error
+        assert "Advanced Docking" in error
 
         assert check_prerequisites(
             "4b_fortress",
-            {"2k_enhanced_docking"},
+            {"2k_advanced_docking"},
         ) is None
 
 

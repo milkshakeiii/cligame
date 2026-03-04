@@ -93,9 +93,8 @@ async def handle_scan(ctx: TickContext, cmd: Command) -> None:
             f"have {ship.capacitor:.0f}"
         )
 
-    # Drain cap and trigger scan on next tick's scanning phase
-    ship.capacitor -= scanner.capacitor_per_cycle
-    scanner.ticks_until_cycle = 0
+    # Trigger scan on next tick's cycling phase (which handles cap drain)
+    scanner.ticks_until_cycle = 1
 
     ctx.emit(
         EventType.scan_complete,

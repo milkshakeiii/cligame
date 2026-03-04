@@ -443,13 +443,13 @@ class TestEffectiveSignatureRadius:
 class TestEffectiveMaxSpeed:
     def test_no_armor_plates_no_penalty(self):
         ship = make_test_ship(ShipClass.frigate)
-        add_module_to_ship(ship, ModuleType.engine, 6000)
+        add_module_to_ship(ship, ModuleType.medium_standard_engine, 0)
         assert ship.armor_plate_speed_penalty() == pytest.approx(0.0, abs=1e-6)
         assert ship.effective_max_speed() == pytest.approx(ship.max_speed(), abs=1e-6)
 
     def test_one_small_armor_plate_5pct_penalty(self):
         ship = make_test_ship(ShipClass.frigate)
-        add_module_to_ship(ship, ModuleType.engine, 6000)
+        add_module_to_ship(ship, ModuleType.medium_standard_engine, 0)
         add_module_to_ship(ship, ModuleType.small_armor_plate, 0)
         assert ship.armor_plate_speed_penalty() == pytest.approx(0.05, abs=1e-6)
         expected_speed = ship.max_speed() * 0.95
@@ -458,7 +458,7 @@ class TestEffectiveMaxSpeed:
     def test_many_armor_plates_capped_at_75pct(self):
         """Speed penalty cannot exceed 75% (minimum speed = 25% of max)."""
         ship = make_test_ship(ShipClass.frigate)
-        add_module_to_ship(ship, ModuleType.engine, 6000)
+        add_module_to_ship(ship, ModuleType.medium_standard_engine, 0)
         # Add enough plates to exceed 75% penalty
         for _ in range(20):
             add_module_to_ship(ship, ModuleType.large_armor_plate, 0)

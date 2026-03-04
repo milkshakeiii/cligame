@@ -8,7 +8,7 @@ from server.commands import CommandRejected, TickContext, get_payload, register_
 from server.models import (
     Command,
     LockStatus,
-    SOLARION_MODULE_PARAMS,
+    MODULE_REGISTRY,
     STEALTH_FIELD_TYPES,
     TargetLock,
 )
@@ -53,9 +53,8 @@ async def handle_activate_module(ctx: TickContext, cmd: Command) -> None:
         )
         if lock_result.first() is None:
             raise CommandRejected(f"Ship #{target_id} is not locked — lock target first")
-        lance_params = SOLARION_MODULE_PARAMS.get("solar_lance", {})
         module.lance_state = "charging"
-        module.lance_charge_remaining = lance_params.get("charge_time", 60)
+        module.lance_charge_remaining = MODULE_REGISTRY["solar_lance"].lance_charge_time
         module.lance_target_ship_id = target_id
 
     module.active = True

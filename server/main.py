@@ -12,7 +12,7 @@ Routers included:
   /api/auth        — registration & login
   /api/game        — status and event log
   /api/ships       — CRUD, modules
-  /api/ships/...   — orders, production, resources
+  /api/ships/...   — production
   /api/nearby      — nearby objects
   /api/alerts      — passive alert subscription
   /api/ships/.../scan — active scan
@@ -168,9 +168,7 @@ async def health():
 from server.routes.auth import router as auth_router          # noqa: E402
 from server.routes.game import router as game_router          # noqa: E402
 from server.routes.ships import router as ships_router        # noqa: E402
-from server.routes.orders import router as orders_router      # noqa: E402
 from server.routes.production import router as production_router  # noqa: E402
-from server.routes.resources import router as resources_router    # noqa: E402
 from server.routes.scanning import router as scanning_router  # noqa: E402
 from server.routes.combat import router as combat_router      # noqa: E402
 from server.routes.research import router as research_router  # noqa: E402
@@ -183,9 +181,7 @@ from server.routes.chat import router as chat_router            # noqa: E402
 app.include_router(auth_router)
 app.include_router(game_router)
 app.include_router(ships_router)
-app.include_router(orders_router)
 app.include_router(production_router)
-app.include_router(resources_router)
 app.include_router(scanning_router)
 app.include_router(combat_router)
 app.include_router(research_router)

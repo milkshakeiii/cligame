@@ -81,18 +81,14 @@ function QuickFitButton({ ship }: { ship: Ship }) {
 
   async function handleQuickFit() {
     setFitting(true);
-    // Install modules sequentially (server processes one per tick)
-    for (const mod of loadout) {
-      const payload: Record<string, unknown> = { module_type: mod.type };
-      if (mod.volume != null) payload.volume = mod.volume;
-      await send("install_module", payload);
+    for (const modType of loadout) {
+      await send("install_module", { module_type: modType });
     }
     setFitting(false);
   }
 
-  const totalVol = loadout.reduce((acc, mod) => {
-    if (mod.volume) return acc + mod.volume;
-    const def = MODULES.find((m) => m.type === mod.type);
+  const totalVol = loadout.reduce((acc, modType) => {
+    const def = MODULES.find((m) => m.type === modType);
     return acc + (def?.fixedVolume ?? 0);
   }, 0);
 
@@ -112,9 +108,9 @@ function QuickFitButton({ ship }: { ship: Ship }) {
         {fitting ? "Fitting..." : `Quick Fit (${totalVol} m³)`}
       </button>
       <div className="text-[10px] text-text-secondary mt-0.5">
-        {loadout.map((m) => {
-          const def = MODULES.find((d) => d.type === m.type);
-          return def?.label ?? m.type;
+        {loadout.map((modType) => {
+          const def = MODULES.find((d) => d.type === modType);
+          return def?.label ?? modType;
         }).join(", ")}
       </div>
     </div>
@@ -124,26 +120,18 @@ function QuickFitButton({ ship }: { ship: Ship }) {
 function ModuleInstaller({ ship, onClose }: { ship: Ship; onClose: () => void }) {
   const send = useCommand();
   const [selectedModule, setSelectedModule] = useState<ModuleDef | null>(null);
-  const [volume, setVolume] = useState(10);
   const [installing, setInstalling] = useState(false);
   const lastError = useCommandStore((s) => s.lastError);
 
   const freeVolume = ship.total_volume - ship.used_volume;
 
   // Filter modules that can fit
-  const fittable = MODULES.filter((m) => {
-    if (m.fixedVolume != null) return m.fixedVolume <= freeVolume;
-    return freeVolume >= (m.minVolume ?? 1);
-  });
+  const fittable = MODULES.filter((m) => m.fixedVolume <= freeVolume);
 
   async function handleInstall() {
     if (!selectedModule) return;
     setInstalling(true);
-    const payload: Record<string, unknown> = { module_type: selectedModule.type };
-    if (selectedModule.fixedVolume == null) {
-      payload.volume = volume;
-    }
-    await send("install_module", payload);
+    await send("install_module", { module_type: selectedModule.type });
     setInstalling(false);
     setSelectedModule(null);
   }
@@ -171,19 +159,12 @@ function ModuleInstaller({ ship, onClose }: { ship: Ship; onClose: () => void })
                 {mods.map((mod) => (
                   <button
                     key={mod.type}
-                    onClick={() => {
-                      setSelectedModule(mod);
-                      if (mod.fixedVolume == null) {
-                        setVolume(Math.min(Math.max(mod.minVolume ?? 10, 10), freeVolume));
-                      }
-                    }}
+                    onClick={() => setSelectedModule(mod)}
                     className="w-full flex justify-between items-center px-2 py-1 text-[10px]
                                bg-space-bg border border-space-border rounded hover:bg-space-panel transition"
                   >
                     <span className="text-text-primary">{mod.label}</span>
-                    <span className="text-text-secondary">
-                      {mod.fixedVolume != null ? `${mod.fixedVolume} m³` : "variable"}
-                    </span>
+                    <span className="text-text-secondary">{mod.fixedVolume} m³</span>
                   </button>
                 ))}
               </div>
@@ -194,37 +175,7 @@ function ModuleInstaller({ ship, onClose }: { ship: Ship; onClose: () => void })
         <div className="bg-space-bg/50 border border-space-border rounded p-2">
           <div className="text-text-primary text-xs mb-1">{selectedModule.label}</div>
           <div className="text-text-secondary text-[10px] mb-1">{selectedModule.description}</div>
-
-          {selectedModule.fixedVolume == null && (
-            <div className="mb-1.5">
-              <div className="text-text-secondary text-[10px] mb-0.5">
-                Volume (1–{freeVolume} m³)
-              </div>
-              <input
-                type="range"
-                min={selectedModule.minVolume ?? 1}
-                max={freeVolume}
-                value={volume}
-                onChange={(e) => setVolume(Number(e.target.value))}
-                className="w-full h-1 accent-friendly"
-              />
-              <div className="flex justify-between text-[10px]">
-                <input
-                  type="number"
-                  min={selectedModule.minVolume ?? 1}
-                  max={freeVolume}
-                  value={volume}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    if (v >= (selectedModule.minVolume ?? 1) && v <= freeVolume) setVolume(v);
-                  }}
-                  className="w-16 bg-space-bg border border-space-border rounded px-1 py-0.5
-                             text-text-primary text-center focus:border-friendly/50 focus:outline-none"
-                />
-                <span className="text-text-secondary">{volume} m³</span>
-              </div>
-            </div>
-          )}
+          <div className="text-text-secondary text-[10px] mb-1.5">{selectedModule.fixedVolume} m³</div>
 
           <div className="flex gap-1">
             <button

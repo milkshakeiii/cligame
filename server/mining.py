@@ -8,28 +8,14 @@ All functions accept explicit ORM objects — no FastAPI context needed.
 from __future__ import annotations
 
 import logging
-import math
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from server.models import Spaceship, ShipModule, CelestialObject
 
+from server.physics import vec_distance
+
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Distance helper (repeated here to keep mining.py self-contained)
-# ---------------------------------------------------------------------------
-
-
-def _distance(
-    ship: "Spaceship",
-    asteroid: "CelestialObject",
-) -> float:
-    dx = ship.pos_x - asteroid.pos_x
-    dy = ship.pos_y - asteroid.pos_y
-    dz = ship.pos_z - asteroid.pos_z
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +67,10 @@ def tick_mining_laser(
         return result
 
     # Range check
-    distance = _distance(ship, asteroid)
+    distance = vec_distance(
+        (ship.pos_x, ship.pos_y, ship.pos_z),
+        (asteroid.pos_x, asteroid.pos_y, asteroid.pos_z),
+    )
     if distance > module.mining_range:
         result["out_of_range"] = True
         return result
@@ -146,10 +135,10 @@ def tick_ore_transfer(
         return result
 
     # Range check
-    dx = source.pos_x - target.pos_x
-    dy = source.pos_y - target.pos_y
-    dz = source.pos_z - target.pos_z
-    distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+    distance = vec_distance(
+        (source.pos_x, source.pos_y, source.pos_z),
+        (target.pos_x, target.pos_y, target.pos_z),
+    )
     if distance > transfer_range:
         result["error"] = f"ships are {distance:.0f} m apart, maximum {transfer_range:.0f} m"
         return result

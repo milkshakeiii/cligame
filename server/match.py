@@ -252,8 +252,8 @@ async def create_match_mothership(
     await session.flush()  # get ship.id
 
     # Install loadout modules
-    for module_type_str, volume in MATCH_MOTHERSHIP_LOADOUT:
-        mod = make_module(ModuleType(module_type_str), volume)
+    for module_type_str in MATCH_MOTHERSHIP_LOADOUT:
+        mod = make_module(ModuleType(module_type_str))
         mod.ship_id = ship.id
         session.add(mod)
 

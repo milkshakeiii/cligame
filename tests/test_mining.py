@@ -47,7 +47,7 @@ class TestTickMiningLaser:
     def test_successful_mining_adds_ore(self):
         ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
         laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 5_000)
+        add_module_to_ship(ship, ModuleType.medium_cargo_bay, 0)  # 3000 capacity
         asteroid = make_asteroid(ore=500.0, pos_x=100.0)  # within 500m range
 
         result = tick_mining_laser(ship, laser, asteroid)
@@ -61,7 +61,7 @@ class TestTickMiningLaser:
     def test_out_of_range_returns_flag(self):
         ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
         laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 5_000)
+        add_module_to_ship(ship, ModuleType.medium_cargo_bay, 0)
         asteroid = make_asteroid(ore=500.0, pos_x=600.0)  # 600m > 500m range
 
         result = tick_mining_laser(ship, laser, asteroid)
@@ -82,7 +82,7 @@ class TestTickMiningLaser:
     def test_depleted_asteroid_returns_flag(self):
         ship = make_test_ship(ShipClass.frigate)
         laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 5_000)
+        add_module_to_ship(ship, ModuleType.medium_cargo_bay, 0)
         asteroid = make_asteroid(ore=0.0, pos_x=100.0)
 
         result = tick_mining_laser(ship, laser, asteroid)
@@ -94,7 +94,7 @@ class TestTickMiningLaser:
         """When asteroid has less than full yield, mine what's left."""
         ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
         laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 5_000)
+        add_module_to_ship(ship, ModuleType.medium_cargo_bay, 0)
         asteroid = make_asteroid(ore=5.0, pos_x=100.0)  # less than 10 yield
 
         result = tick_mining_laser(ship, laser, asteroid)
@@ -107,8 +107,8 @@ class TestTickMiningLaser:
         """When cargo full, laser cycles (cap drained) but asteroid ore is preserved."""
         ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
         laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 10)  # tiny cargo
-        ship.ore = 10.0  # cargo is full
+        add_module_to_ship(ship, ModuleType.tiny_cargo_bay, 0)  # 25 capacity
+        ship.ore = 25.0  # cargo is full
         asteroid = make_asteroid(ore=500.0, pos_x=100.0)
 
         result = tick_mining_laser(ship, laser, asteroid)
@@ -122,22 +122,22 @@ class TestTickMiningLaser:
         """If cargo has 5 units of space and yield is 10, get 5 ore and lose 5."""
         ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
         laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 10)  # 10 total capacity
-        ship.ore = 5.0  # 5 units free
+        add_module_to_ship(ship, ModuleType.tiny_cargo_bay, 0)  # 25 capacity
+        ship.ore = 20.0  # 5 units free
         asteroid = make_asteroid(ore=500.0, pos_x=100.0)
 
         result = tick_mining_laser(ship, laser, asteroid)
 
         assert result["ore_mined"] == pytest.approx(5.0)
         assert result["ore_lost"] == pytest.approx(5.0)
-        assert ship.ore == pytest.approx(10.0)
+        assert ship.ore == pytest.approx(25.0)
 
     def test_partial_cargo_does_not_waste_asteroid_ore(self):
         """M-1: Only the ore actually added to cargo should be subtracted from asteroid."""
         ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
         laser = add_module_to_ship(ship, ModuleType.mining_laser, 200)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 10)  # 10 total capacity
-        ship.ore = 5.0  # 5 units free, yield=10 → only 5 mined
+        add_module_to_ship(ship, ModuleType.tiny_cargo_bay, 0)  # 25 capacity
+        ship.ore = 20.0  # 5 units free, yield=10 → only 5 mined
         asteroid = make_asteroid(ore=500.0, pos_x=100.0)
 
         tick_mining_laser(ship, laser, asteroid)
@@ -165,7 +165,7 @@ class TestTickMiningLaser:
 class TestTickOreTransfer:
     def _make_source_ship(self) -> object:
         ship = make_test_ship(ShipClass.frigate, pos_x=0.0)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 5_000)
+        add_module_to_ship(ship, ModuleType.medium_cargo_bay, 0)  # 3000 capacity
         ship.ore = 500.0
         ship.id = 1
         return ship
@@ -173,7 +173,7 @@ class TestTickOreTransfer:
     def _make_target_ship(self) -> object:
         ship = make_test_ship(ShipClass.corvette, pos_x=50.0)  # within 100m
         add_module_to_ship(ship, ModuleType.dropoff, 500)
-        add_module_to_ship(ship, ModuleType.cargo_bay, 5_000)
+        add_module_to_ship(ship, ModuleType.medium_cargo_bay, 0)  # 3000 capacity
         ship.ore = 0.0
         ship.id = 2
         return ship
@@ -193,7 +193,7 @@ class TestTickOreTransfer:
         source = self._make_source_ship()
         target = make_test_ship(ShipClass.corvette, pos_x=50.0)
         # No dropoff module
-        add_module_to_ship(target, ModuleType.cargo_bay, 2_000)
+        add_module_to_ship(target, ModuleType.small_cargo_bay, 0)
         target.ore = 0.0
         target.id = 2
 
@@ -226,7 +226,7 @@ class TestTickOreTransfer:
     def test_target_full_returns_complete(self):
         source = self._make_source_ship()
         target = self._make_target_ship()
-        target.ore = 5_000.0  # cargo full
+        target.ore = 3_000.0  # cargo full (medium_cargo_bay = 3000)
 
         result = tick_ore_transfer(source, target)
 

@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-from sqlmodel import select, or_
-
 from server.commands import CommandRejected, TickContext, get_payload, register_handler
 from server.models import (
     BuildStatus,
     Command,
-    ModuleType,
-    ResearchProgress,
+    FACTORY_TYPES,
     SHIP_REQUIRED_TECH,
     ShipClass,
 )
 from server.production import can_factory_build, start_build
-from server.research import get_completed_tech_ids, get_tech_name, is_ship_unlocked
+from server.research import get_tech_name, is_ship_unlocked
 
 
 @register_handler("build")
@@ -36,23 +33,13 @@ async def handle_build(ctx: TickContext, cmd: Command) -> None:
     ship = ctx.find_ship(cmd.ship_id, cmd.user_id)
 
     # Research gating
-    from server.models import User
-    user_result = await ctx.session.exec(select(User).where(User.id == cmd.user_id))
-    user = user_result.first()
-
-    research_conditions = [ResearchProgress.user_id == cmd.user_id]
-    if user.team_id is not None:
-        research_conditions.append(ResearchProgress.team_id == user.team_id)
-    rp_result = await ctx.session.exec(
-        select(ResearchProgress).where(or_(*research_conditions))
-    )
-    completed_techs = get_completed_tech_ids(rp_result.all())
+    completed_techs = await ctx.get_completed_techs(cmd.user_id)
     if not is_ship_unlocked(blueprint_str, completed_techs):
         tech_id = SHIP_REQUIRED_TECH.get(blueprint_str, "?")
         raise CommandRejected(f"Research required: {get_tech_name(tech_id)} ({tech_id})")
 
     # Find factory module
-    factory_modules = [m for m in ship.modules if m.module_type == ModuleType.factory]
+    factory_modules = [m for m in ship.modules if m.module_type.value in FACTORY_TYPES]
     if not factory_modules:
         raise CommandRejected("Ship has no factory module installed")
 
@@ -63,7 +50,7 @@ async def handle_build(ctx: TickContext, cmd: Command) -> None:
     else:
         factory = None
         for m in factory_modules:
-            ok, _ = can_factory_build(m, blueprint)
+            ok, _ = can_factory_build(ship, m, blueprint)
             if ok:
                 factory = m
                 break

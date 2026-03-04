@@ -19,6 +19,14 @@ from server.models import (
 )
 
 
+def cancel_active_orders(ship: Spaceship) -> None:
+    """Cancel all active movement orders on a ship."""
+    if hasattr(ship, 'movement_orders') and ship.movement_orders:
+        for order in ship.movement_orders:
+            if order.status == OrderStatus.active:
+                order.status = OrderStatus.cancelled
+
+
 @register_handler("move")
 async def handle_move(ctx: TickContext, cmd: Command) -> None:
     payload = get_payload(cmd)
@@ -80,10 +88,7 @@ async def handle_move(ctx: TickContext, cmd: Command) -> None:
             raise CommandRejected(f"Target object #{target_object_id} not found")
 
     # Cancel existing active orders
-    if hasattr(ship, 'movement_orders') and ship.movement_orders:
-        for existing in ship.movement_orders:
-            if existing.status == OrderStatus.active:
-                existing.status = OrderStatus.cancelled
+    cancel_active_orders(ship)
 
     order = MovementOrder(
         ship_id=ship.id,
@@ -149,32 +154,14 @@ async def handle_dock(ctx: TickContext, cmd: Command) -> None:
 
     target = ctx.find_any_ship(target_ship_id)
 
-    if target.docking_capacity() <= 0:
-        raise CommandRejected("Target ship has no docking bay")
-
-    # Class check
-    ship_class_idx = CLASS_ORDER.index(ship.ship_class.value)
-    target_class_idx = CLASS_ORDER.index(target.ship_class.value)
-    if ship_class_idx >= target_class_idx:
+    if not target.can_dock_ship_class(ship.ship_class.value):
         raise CommandRejected(
-            f"Cannot dock: ship class '{ship.ship_class.value}' must be strictly "
-            f"smaller than target class '{target.ship_class.value}'"
-        )
-
-    # Capacity check
-    docked_volume = sum(s.total_volume for s in ctx.ships if s.docked_in_id == target.id)
-    remaining = target.docking_capacity() - docked_volume
-    if ship.total_volume > remaining:
-        raise CommandRejected(
-            f"Insufficient docking capacity: ship requires {ship.total_volume} m³, "
-            f"only {remaining:.0f} m³ available"
+            f"Target ship has no docking bay that can accept "
+            f"{ship.ship_class.value} class ships"
         )
 
     # Cancel active orders
-    if hasattr(ship, 'movement_orders') and ship.movement_orders:
-        for existing in ship.movement_orders:
-            if existing.status == OrderStatus.active:
-                existing.status = OrderStatus.cancelled
+    cancel_active_orders(ship)
 
     order = MovementOrder(
         ship_id=ship.id,
@@ -196,12 +183,16 @@ async def handle_stop(ctx: TickContext, cmd: Command) -> None:
     ship = ctx.find_ship(cmd.ship_id, cmd.user_id)
 
     # Cancel all active orders
-    if hasattr(ship, 'movement_orders') and ship.movement_orders:
-        for existing in ship.movement_orders:
-            if existing.status == OrderStatus.active:
-                existing.status = OrderStatus.cancelled
+    cancel_active_orders(ship)
 
-    # Zero velocity
-    ship.vel_x = 0.0
-    ship.vel_y = 0.0
-    ship.vel_z = 0.0
+    # Create a stop order so physics phase decelerates properly
+    order = MovementOrder(
+        ship_id=ship.id,
+        order_type=OrderType.stop,
+        status=OrderStatus.active,
+    )
+    ctx.session.add(order)
+    await ctx.session.flush()
+
+    if hasattr(ship, 'movement_orders') and ship.movement_orders is not None:
+        ship.movement_orders.append(order)

@@ -188,11 +188,11 @@ class TestIsModuleUnlockedExtended:
     def test_torpedo_launcher_unlocked_with_torpedoes(self):
         assert is_module_unlocked("torpedo_launcher", {"2c_torpedoes"})
 
-    def test_enhanced_docking_bay_locked_without_research(self):
-        assert not is_module_unlocked("enhanced_docking_bay", set())
+    def test_medium_docking_bay_locked_without_research(self):
+        assert not is_module_unlocked("medium_docking_bay", set())
 
-    def test_enhanced_docking_bay_unlocked_with_enhanced_docking(self):
-        assert is_module_unlocked("enhanced_docking_bay", {"2k_enhanced_docking"})
+    def test_medium_docking_bay_unlocked_with_advanced_docking(self):
+        assert is_module_unlocked("medium_docking_bay", {"2k_advanced_docking"})
 
     def test_fortress_locked_without_research(self):
         assert not is_module_unlocked("fortress", set())

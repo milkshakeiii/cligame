@@ -7,6 +7,7 @@ from sqlmodel import select
 from server.commands import CommandRejected, TickContext, get_payload, register_handler
 from server.models import (
     Command,
+    DOCKING_TYPES,
     EJECT_ALLOWED_CLASSES,
     EventType,
     HULL_POINT_COSTS,
@@ -25,7 +26,7 @@ from server.models import (
     SOLARION_EXCLUSIVE_MODULES,
     VOIDBORN_EXCLUSIVE_MODULES,
 )
-from server.research import get_completed_tech_ids, is_module_unlocked, ResearchProgress
+from server.research import is_module_unlocked
 
 
 @register_handler("claim_ship")
@@ -72,7 +73,7 @@ async def handle_claim_ship(ctx: TickContext, cmd: Command) -> None:
         )
         mothership = None
         for ms in ms_result.all():
-            if any(m.module_type == ModuleType.docking_bay for m in ms.modules):
+            if any(m.module_type.value in DOCKING_TYPES for m in ms.modules):
                 mothership = ms
                 break
         if mothership is None:
@@ -134,12 +135,7 @@ async def handle_claim_ship(ctx: TickContext, cmd: Command) -> None:
         )
 
     # Get team research for module unlocking
-    completed_techs = set()
-    if user.team_id is not None:
-        research_result = await ctx.session.exec(
-            select(ResearchProgress).where(ResearchProgress.team_id == user.team_id)
-        )
-        completed_techs = get_completed_tech_ids(research_result.all())
+    completed_techs = await ctx.get_completed_techs(cmd.user_id)
 
     # Determine faction for module validation
     faction = None
@@ -176,9 +172,8 @@ async def handle_claim_ship(ctx: TickContext, cmd: Command) -> None:
         mod_cost = MODULE_POINT_COSTS.get(mod_type, 0)
         total_module_cost += mod_cost
 
-        # Track volume (use fixed volume if applicable)
-        fixed_vol = MODULE_FIXED_VOLUMES.get(mod_type)
-        actual_vol = fixed_vol if fixed_vol is not None else mod_vol
+        # All modules are fixed-size — get volume from MODULE_FIXED_VOLUMES
+        actual_vol = MODULE_FIXED_VOLUMES.get(mod_type, 0)
         total_module_vol += actual_vol
 
         module_specs.append((mt, actual_vol, mod_cost))

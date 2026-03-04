@@ -3,6 +3,12 @@ Production system.
 
 Handles factory build queues, ore consumption at build start, capacitor drain
 per tick, pausing/resuming on cap depletion, and new ship spawning.
+
+Factory presets have two independent multiplier stats:
+- **Speed**: factory_speed_mult (<1 = faster, >1 = slower)
+- **Efficiency**: factory_efficiency_mult (<1 = cheaper, >1 = more ore)
+
+Docking bay class gates *what* can be built (bay must accept the ship class).
 """
 
 from __future__ import annotations
@@ -15,11 +21,13 @@ if TYPE_CHECKING:
 
 from server.models import (
     BUILD_COSTS,
+    DOCKING_CLASS_INDEX,
+    FACTORY_TYPES,
     FACTION_BUILD_MODIFIERS,
     FACTION_SHIP_NAMES,
-    FACTORY_REQUIREMENTS,
     CLASS_ORDER,
     BuildStatus,
+    ModuleType,
     ShipClass,
     spawn_new_ship,
 )
@@ -28,6 +36,33 @@ logger = logging.getLogger(__name__)
 
 # Factory capacitor drain per tick (while building)
 FACTORY_CAP_PER_TICK: float = 100.0
+
+# Clamps for factory multipliers
+SPEED_MULT_MIN = 0.5    # max 2x faster than base
+SPEED_MULT_MAX = 3.0    # max 3x slower than base
+EFFICIENCY_MULT_MIN = 0.75  # max 25% cheaper than base
+EFFICIENCY_MULT_MAX = 2.0   # max 2x more expensive
+
+
+# ---------------------------------------------------------------------------
+# Factory multiplier helpers
+# ---------------------------------------------------------------------------
+
+
+def factory_speed_multiplier(factory_module: "ShipModule") -> float:
+    """
+    Build time multiplier from the factory module's preset.
+    < 1.0 = faster, > 1.0 = slower.
+    """
+    return max(SPEED_MULT_MIN, min(SPEED_MULT_MAX, factory_module.factory_speed_mult))
+
+
+def factory_efficiency_multiplier(factory_module: "ShipModule") -> float:
+    """
+    Ore cost multiplier from the factory module's preset.
+    < 1.0 = cheaper, > 1.0 = more expensive.
+    """
+    return max(EFFICIENCY_MULT_MIN, min(EFFICIENCY_MULT_MAX, factory_module.factory_efficiency_mult))
 
 
 # ---------------------------------------------------------------------------
@@ -59,31 +94,68 @@ def get_faction_adjusted_cost(
     return {"ore": ore_cost, "ticks": ticks}
 
 
+def get_factory_adjusted_cost(
+    blueprint: ShipClass,
+    factory_module: "ShipModule",
+    faction: Optional[str] = None,
+) -> dict:
+    """
+    Return build cost adjusted for both faction AND factory preset multipliers.
+    Factory speed/efficiency are independent multipliers on top of faction mods.
+    """
+    cost = get_faction_adjusted_cost(blueprint, faction)
+    if not cost:
+        return {}
+
+    speed_mult = factory_speed_multiplier(factory_module)
+    eff_mult = factory_efficiency_multiplier(factory_module)
+
+    return {
+        "ore": max(1, int(cost["ore"] * eff_mult)),
+        "ticks": max(1, int(cost["ticks"] * speed_mult)),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
 
 
-def can_factory_build(factory_module: "ShipModule", blueprint: ShipClass) -> tuple[bool, str]:
+def can_factory_build(
+    ship: "Spaceship",
+    factory_module: "ShipModule",
+    blueprint: ShipClass,
+) -> tuple[bool, str]:
     """
-    Check whether ``factory_module`` is capable of building ``blueprint``.
+    Check whether the ship can build this blueprint.
 
-    Returns (ok, reason).  ``reason`` is empty when ok is True.
+    - Module must be a factory type.
+    - Factory's max_class must cover the blueprint.
+    - Ship must have a docking bay that can accept the built ship class.
+
+    Returns (ok, reason).
     """
-    from server.models import ModuleType  # local import
-
-    if factory_module.module_type != ModuleType.factory:
+    if factory_module.module_type.value not in FACTORY_TYPES:
         return False, "module is not a factory"
 
-    required_vol = FACTORY_REQUIREMENTS.get(blueprint.value)
-    if required_vol is None:
-        return False, f"no build cost defined for {blueprint.value}"
-
-    if factory_module.volume < required_vol:
+    # Factory class gate
+    factory_max = factory_module.factory_max_class
+    if factory_max is None:
+        return False, "factory has no max_class set"
+    factory_idx = DOCKING_CLASS_INDEX.get(factory_max, -1)
+    blueprint_idx = DOCKING_CLASS_INDEX.get(blueprint.value, 999)
+    if factory_idx < blueprint_idx:
         return (
             False,
-            f"factory volume {factory_module.volume} m³ is below minimum "
-            f"{required_vol} m³ required for {blueprint.value}",
+            f"factory can only build up to {factory_max}, "
+            f"cannot build {blueprint.value}",
+        )
+
+    # Docking bay class gate
+    if not ship.can_dock_ship_class(blueprint.value):
+        return (
+            False,
+            f"no docking bay can accept {blueprint.value} class ships",
         )
 
     return True, ""
@@ -96,18 +168,15 @@ def can_ship_build(
     faction: Optional[str] = None,
 ) -> tuple[bool, str]:
     """
-    Comprehensive check: does the ship have the ore and a capable factory?
+    Comprehensive check: factory can build class, docking bay accepts class, enough ore?
 
-    If ``faction`` is provided, faction-adjusted build costs are used for
-    the ore sufficiency check.
-
-    Returns (ok, reason).
+    Ore cost accounts for factory efficiency.
     """
-    ok, reason = can_factory_build(factory_module, blueprint)
+    ok, reason = can_factory_build(ship, factory_module, blueprint)
     if not ok:
         return False, reason
 
-    cost = get_faction_adjusted_cost(blueprint, faction)
+    cost = get_factory_adjusted_cost(blueprint, factory_module, faction)
     if not cost:
         return False, f"no build cost defined for {blueprint.value}"
 
@@ -134,8 +203,8 @@ def start_build(
     """
     Create a BuildOrder and deduct ore immediately.
 
-    If ``faction`` is provided, faction-adjusted build costs are applied
-    (modified ore cost and build time).
+    Build time and ore cost are adjusted for factory size (speed & efficiency).
+    If ``faction`` is provided, faction modifiers are applied first.
 
     Does NOT add the order to the session — caller must do that.
     Raises ValueError if preconditions are not met.
@@ -146,7 +215,7 @@ def start_build(
     if not ok:
         raise ValueError(reason)
 
-    cost = get_faction_adjusted_cost(blueprint, faction)
+    cost = get_factory_adjusted_cost(blueprint, factory_module, faction)
     ship.ore -= cost["ore"]  # ore consumed immediately
 
     order = BuildOrder(

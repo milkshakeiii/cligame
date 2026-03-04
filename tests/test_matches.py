@@ -405,7 +405,7 @@ async def test_mothership_loadout(db_session: AsyncSession):
     # Verify modules installed
     assert len(ms.modules) == len(MATCH_MOTHERSHIP_LOADOUT)
     module_types = [m.module_type.value for m in ms.modules]
-    for expected_type, _ in MATCH_MOTHERSHIP_LOADOUT:
+    for expected_type in MATCH_MOTHERSHIP_LOADOUT:
         assert expected_type in module_types
 
 
@@ -1857,7 +1857,7 @@ async def test_full_match_lifecycle_creation_to_victory(client: AsyncClient):
     # -----------------------------------------------------------------------
     # 7. Verify motherships have correct module loadout
     # -----------------------------------------------------------------------
-    expected_module_types = [mt for mt, _ in MATCH_MOTHERSHIP_LOADOUT]
+    expected_module_types = list(MATCH_MOTHERSHIP_LOADOUT)
     ship1_modules = ship1.get("modules", [])
     ship2_modules = ship2.get("modules", [])
     assert len(ship1_modules) == len(MATCH_MOTHERSHIP_LOADOUT), (
@@ -2031,7 +2031,7 @@ async def test_full_match_with_win_condition_db(db_session: AsyncSession):
     assert len(ms1.modules) == len(MATCH_MOTHERSHIP_LOADOUT)
     assert len(ms2.modules) == len(MATCH_MOTHERSHIP_LOADOUT)
     ms1_mod_types = sorted([m.module_type.value for m in ms1.modules])
-    expected_sorted = sorted([mt for mt, _ in MATCH_MOTHERSHIP_LOADOUT])
+    expected_sorted = sorted(list(MATCH_MOTHERSHIP_LOADOUT))
     assert ms1_mod_types == expected_sorted
 
     # Verify derived stats

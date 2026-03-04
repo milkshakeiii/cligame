@@ -349,12 +349,13 @@ class TestFactionAwareProduction:
     def test_can_ship_build_with_faction_adjusted_cost(self):
         """can_ship_build should use faction-adjusted costs."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1  # ensure ID is set
         factory.id = 1
 
-        # Solarion frigate cost: int(200 * 0.9) = 180 ore for strike_craft
-        solarion_cost = get_faction_adjusted_cost(ShipClass.strike_craft, faction="solarion")
+        from server.production import get_factory_adjusted_cost
+        solarion_cost = get_factory_adjusted_cost(ShipClass.strike_craft, factory, faction="solarion")
 
         # Enough ore for solarion but not base
         ship.ore = float(solarion_cost["ore"])
@@ -364,7 +365,8 @@ class TestFactionAwareProduction:
     def test_can_ship_build_insufficient_ore_with_faction(self):
         """Should fail when ore is below faction-adjusted cost."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1
         factory.id = 1
 
@@ -376,11 +378,13 @@ class TestFactionAwareProduction:
     def test_start_build_with_solarion_faction(self):
         """start_build with faction should use adjusted costs."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1
         factory.id = 1
 
-        solarion_cost = get_faction_adjusted_cost(ShipClass.strike_craft, faction="solarion")
+        from server.production import get_factory_adjusted_cost
+        solarion_cost = get_factory_adjusted_cost(ShipClass.strike_craft, factory, faction="solarion")
         ship.ore = float(solarion_cost["ore"]) + 100.0  # enough
 
         order = start_build(ship, factory, ShipClass.strike_craft, faction="solarion")
@@ -393,11 +397,13 @@ class TestFactionAwareProduction:
     def test_start_build_with_voidborn_faction(self):
         """start_build with voidborn should use adjusted costs."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1
         factory.id = 1
 
-        voidborn_cost = get_faction_adjusted_cost(ShipClass.strike_craft, faction="voidborn")
+        from server.production import get_factory_adjusted_cost
+        voidborn_cost = get_factory_adjusted_cost(ShipClass.strike_craft, factory, faction="voidborn")
         ship.ore = float(voidborn_cost["ore"]) + 100.0
 
         order = start_build(ship, factory, ShipClass.strike_craft, faction="voidborn")
@@ -1079,8 +1085,8 @@ class TestGatingHelpers:
 
     def test_base_module_always_unlocked(self):
         """Modules not in RESEARCH_GATED_MODULES are always available."""
-        assert is_module_unlocked("engine", set()) is True
-        assert is_module_unlocked("reactor", set()) is True
+        assert is_module_unlocked("small_standard_engine", set()) is True
+        assert is_module_unlocked("small_standard_reactor", set()) is True
         assert is_module_unlocked("mining_laser", set()) is True
 
     def test_gated_module_locked_without_research(self):
@@ -1128,7 +1134,8 @@ class TestProductionTickWithFaction:
     def test_tick_build_advances_with_cap(self):
         """Build order should advance when ship has capacitor."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1
         factory.id = 1
         ship.ore = 1000.0
@@ -1145,7 +1152,8 @@ class TestProductionTickWithFaction:
     def test_tick_build_completes(self):
         """Build should complete when ticks_remaining reaches 0."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1
         factory.id = 1
         ship.ore = 1000.0
@@ -1164,7 +1172,8 @@ class TestProductionTickWithFaction:
     def test_tick_build_pauses_on_low_cap(self):
         """Build should pause when capacitor is depleted."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1
         factory.id = 1
         ship.ore = 1000.0
@@ -1180,7 +1189,8 @@ class TestProductionTickWithFaction:
     def test_new_ship_inherits_team_id_from_builder(self):
         """Completed build should produce a ship with the builder's team_id."""
         ship = make_test_ship(ShipClass.frigate)
-        factory = add_module_to_ship(ship, ModuleType.factory, 500)
+        add_module_to_ship(ship, ModuleType.tiny_docking_bay, 0)
+        factory = add_module_to_ship(ship, ModuleType.starter_factory, 0)
         ship.id = 1
         factory.id = 1
         ship.team_id = 42
@@ -1469,7 +1479,7 @@ class TestResearchStartWithTeam:
         db_session.add(ship)
         await db_session.flush()
 
-        module = make_module(ModuleType.engine, 1000)
+        module = make_module(ModuleType.medium_standard_engine, 0)
         module.ship_id = ship.id
         db_session.add(module)
         await db_session.flush()

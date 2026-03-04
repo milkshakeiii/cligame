@@ -22,6 +22,7 @@ from server.models import (
     Spaceship,
     User,
 )
+from server.physics import vec_distance
 from server.routes.common import get_owned_ship as _get_owned_ship_common
 from server.scanning import (
     DETAIL_CLASSIFICATION,
@@ -66,12 +67,6 @@ class ContactOut(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _dist(ax, ay, az, bx, by, bz) -> float:
-    import math
-    dx, dy, dz = ax - bx, ay - by, az - bz
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
 async def _get_owned_ship(ship_id: int, user: User, session) -> Spaceship:
@@ -151,8 +146,10 @@ async def _nearby_logic(
         if other.is_docked():
             continue
 
-        dist = _dist(ship.pos_x, ship.pos_y, ship.pos_z,
-                     other.pos_x, other.pos_y, other.pos_z)
+        dist = vec_distance(
+            (ship.pos_x, ship.pos_y, ship.pos_z),
+            (other.pos_x, other.pos_y, other.pos_z),
+        )
 
         # Best detail from default visibility
         detail = default_visibility_level(dist)
@@ -190,8 +187,10 @@ async def _nearby_logic(
 
     # Celestial objects
     for obj in all_objects:
-        dist = _dist(ship.pos_x, ship.pos_y, ship.pos_z,
-                     obj.pos_x, obj.pos_y, obj.pos_z)
+        dist = vec_distance(
+            (ship.pos_x, ship.pos_y, ship.pos_z),
+            (obj.pos_x, obj.pos_y, obj.pos_z),
+        )
 
         detail = default_visibility_level(dist)
 

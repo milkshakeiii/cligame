@@ -113,16 +113,10 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)
     """
     result = await session.exec(select(User).where(User.username == body.username))
     user = result.first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No account found for username '{body.username}'",
-        )
-
-    if not _verify_password(body.password, user.password_hash):
+    if user is None or not _verify_password(body.password, user.password_hash or ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect password",
+            detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

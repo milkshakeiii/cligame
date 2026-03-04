@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import select
 
@@ -32,7 +32,7 @@ async def send_chat(
 ):
     """Send a team chat message."""
     if current_user.team_id is None:
-        return {"error": "You must be on a team to chat"}
+        raise HTTPException(status_code=409, detail="You must be on a team to chat")
 
     gs_result = await session.exec(select(GameState))
     gs = gs_result.first()

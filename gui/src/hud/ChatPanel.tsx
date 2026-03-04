@@ -18,6 +18,8 @@ export default function ChatPanel() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [lastSeenCount, setLastSeenCount] = useState(0);
+  const [panelW, setPanelW] = useState(240);
+  const [panelH, setPanelH] = useState(200);
 
   // Accumulate messages locally so they don't vanish when the server window moves
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
@@ -25,6 +27,36 @@ export default function ChatPanel() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Resize drag state
+  const resizing = useRef(false);
+  const startX = useRef(0);
+  const startY = useRef(0);
+  const startW = useRef(panelW);
+  const startH = useRef(panelH);
+
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizing.current = true;
+    startX.current = e.clientX;
+    startY.current = e.clientY;
+    startW.current = panelW;
+    startH.current = panelH;
+    const onMove = (ev: MouseEvent) => {
+      if (!resizing.current) return;
+      const dx = ev.clientX - startX.current;
+      const dy = startY.current - ev.clientY; // dragging up = bigger
+      setPanelW(Math.max(200, Math.min(500, startW.current + dx)));
+      setPanelH(Math.max(150, Math.min(600, startH.current + dy)));
+    };
+    const onUp = () => {
+      resizing.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [panelW, panelH]);
 
   // Merge incoming server messages into local buffer
   useEffect(() => {
@@ -114,8 +146,19 @@ export default function ChatPanel() {
   }
 
   return (
-    <div className="bg-space-panel/80 border border-space-border rounded backdrop-blur-sm w-60 flex flex-col"
-         style={{ maxHeight: "200px" }}>
+    <div className="bg-space-panel/80 border border-space-border rounded backdrop-blur-sm flex flex-col relative"
+         style={{ width: panelW, height: panelH }}>
+      {/* Resize handle (top-right corner — drag up/right to grow) */}
+      <div
+        onMouseDown={onResizeStart}
+        className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize z-10"
+        title="Drag to resize"
+      >
+        <svg viewBox="0 0 10 10" className="w-full h-full text-text-secondary/40 hover:text-text-secondary">
+          <path d="M10 0L0 10M10 4L4 10M10 8L8 10" stroke="currentColor" strokeWidth="1.5" fill="none" />
+        </svg>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-1 border-b border-space-border flex-shrink-0">
         <span className="text-xs font-bold uppercase tracking-wider text-text-secondary">

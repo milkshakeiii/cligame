@@ -30,9 +30,12 @@ from server.models import (
     EventType,
     LeechDebuff,
     PendingMissile,
+    ResearchProgress,
     Spaceship,
+    User,
     WeaponAssignment,
 )
+from server.research import get_completed_tech_ids
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +87,26 @@ class TickContext:
         if ship is None:
             raise CommandRejected(f"Ship #{ship_id} not found or destroyed")
         return ship
+
+    async def get_completed_techs(self, user_id: int) -> set[str]:
+        """Fetch completed research tech IDs for a user and their team."""
+        user_result = await self.session.exec(select(User).where(User.id == user_id))
+        user = user_result.first()
+        if user is None:
+            raise CommandRejected("User not found")
+
+        if user.team_id is not None:
+            rp_result = await self.session.exec(
+                select(ResearchProgress).where(
+                    (ResearchProgress.user_id == user_id)
+                    | (ResearchProgress.team_id == user.team_id)
+                )
+            )
+        else:
+            rp_result = await self.session.exec(
+                select(ResearchProgress).where(ResearchProgress.user_id == user_id)
+            )
+        return get_completed_tech_ids(rp_result.all())
 
     def emit(
         self,
