@@ -191,11 +191,11 @@ async def list_ship_classes():
     """Return ship class definitions (no auth required)."""
     return {
         name: {
-            "total_volume": data["total_volume"],
-            "base_hull": data["base_hull"],
+            "total_volume": data["volume"],
             "base_shield": data["base_shield"],
             "base_armor": data["base_armor"],
-            "base_capacitor": data["base_capacitor"],
+            "base_capacitor": data["base_cap"],
+            "signature": data["signature"],
             "hull_cost": HULL_POINT_COSTS.get(name, 0),
         }
         for name, data in SHIP_CLASSES.items()

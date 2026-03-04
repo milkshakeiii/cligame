@@ -177,8 +177,10 @@ class TestMakeModule:
         mod = make_module(ModuleType.passive_detector, 999)
         assert mod.volume == 100
         assert mod.detection_range == pytest.approx(50_000.0)
-        assert mod.cycle_time == 5
-        assert mod.capacitor_per_cycle == pytest.approx(5.0)
+        # Passive detectors are truly passive — no cycling, no cap drain
+        assert mod.cycle_time == 0
+        assert mod.capacitor_per_cycle == 0.0
+        assert mod.active is True
 
     def test_dropoff_fixed_volume(self):
         mod = make_module(ModuleType.dropoff, 999)

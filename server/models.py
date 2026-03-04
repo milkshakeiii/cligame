@@ -1127,7 +1127,7 @@ MODULE_REGISTRY: dict[str, ModuleSpec] = {
     "dropoff":           ModuleSpec("utility", 500),
     "mining_laser":      ModuleSpec("utility", 200, cycle_time=10, cap_per_cycle=50, mining_yield=10, mining_range=500),
     "scanner":           ModuleSpec("utility", 500, point_cost=100, cycle_time=30, cap_per_cycle=200, scan_range=200_000),
-    "passive_detector":  ModuleSpec("utility", 100, point_cost=50, cycle_time=5, cap_per_cycle=5, detection_range=50_000),
+    "passive_detector":  ModuleSpec("utility", 100, point_cost=50, detection_range=50_000),
     "research_module":   ModuleSpec("utility", 5_000, point_cost=100, cycle_time=1, cap_per_cycle=50),
     "strip_miner":       ModuleSpec("utility", 1_000, point_cost=300, cycle_time=15, cap_per_cycle=150, mining_yield=50, mining_range=1_000),
     "fortress":          ModuleSpec("utility", 50_000, point_cost=4_000, cycle_time=1, cap_per_cycle=500),
@@ -1137,7 +1137,7 @@ MODULE_REGISTRY: dict[str, ModuleSpec] = {
     "starter_mining_laser":      ModuleSpec("utility", 20, cycle_time=10, cap_per_cycle=10, mining_yield=2, mining_range=500),
     "starter_shield_extender":   ModuleSpec("defensive", 15, shield_bonus=15, sig_radius_bonus=2),
     "starter_armor_plate":       ModuleSpec("defensive", 15, armor_bonus=25, speed_penalty=0.03),
-    "starter_passive_detector":  ModuleSpec("utility", 10, cycle_time=10, cap_per_cycle=2, detection_range=10_000),
+    "starter_passive_detector":  ModuleSpec("utility", 10, detection_range=10_000),
 
     # ── Turrets ──────────────────────────────────────────────────────────
     "small_turret_kinetic":  ModuleSpec("turret", 50, point_cost=50, cycle_time=5, cap_per_cycle=10, damage=15, damage_type="kinetic", optimal_range=5_000, falloff=3_000, tracking_speed=0.08, sig_resolution=40),
@@ -1979,8 +1979,10 @@ def recalculate_max_armor(ship: Spaceship) -> None:
 def make_module(module_type: ModuleType, volume: int = 0) -> ShipModule:
     """Create a ShipModule from MODULE_REGISTRY.  The ``volume`` arg is ignored."""
     spec = MODULE_REGISTRY[module_type.value]
+    # Passive detectors are always-on by default
+    starts_active = module_type in (ModuleType.passive_detector, ModuleType.starter_passive_detector)
     return ShipModule(
-        module_type=module_type, volume=spec.volume, active=False,
+        module_type=module_type, volume=spec.volume, active=starts_active,
         cycle_time=spec.cycle_time, ticks_until_cycle=spec.cycle_time,
         capacitor_per_cycle=spec.cap_per_cycle,
         # Engine

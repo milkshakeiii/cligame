@@ -74,9 +74,9 @@ function ClaimMode({ hullClass, shipId }: { hullClass: string; shipId: number | 
   function applyQuickFit() {
     const loadout = QUICK_FITS[hullClass];
     if (!loadout) return;
-    const modules: FittedModule[] = loadout.map((m) => {
-      const def = MODULES.find((d) => d.type === m.type);
-      return { key: nextKey++, type: m.type, volume: m.volume ?? def?.fixedVolume ?? 0 };
+    const modules: FittedModule[] = loadout.map((modType) => {
+      const def = MODULES.find((d) => d.type === modType);
+      return { key: nextKey++, type: modType, volume: def?.fixedVolume ?? 0 };
     });
     setFitted(modules);
   }
@@ -131,7 +131,7 @@ function ClaimMode({ hullClass, shipId }: { hullClass: string; shipId: number | 
       onAddModule={addModule}
       onRemoveModule={removeModule}
       quickFit={QUICK_FITS[hullClass] ? applyQuickFit : undefined}
-      quickFitLabel={QUICK_FITS[hullClass] ? `Quick Fit (${QUICK_FITS[hullClass].reduce((a, m) => { const d = MODULES.find((x) => x.type === m.type); return a + (m.volume ?? d?.fixedVolume ?? 0); }, 0)} m³)` : undefined}
+      quickFitLabel={QUICK_FITS[hullClass] ? `Quick Fit (${QUICK_FITS[hullClass].reduce((a, modType) => { const d = MODULES.find((x) => x.type === modType); return a + (d?.fixedVolume ?? 0); }, 0)} m³)` : undefined}
       error={lastError}
       actionLabel={launching ? "Launching..." : "Launch"}
       actionDisabled={launching || fitted.length === 0}
@@ -209,10 +209,8 @@ function RefitMode({ shipId }: { shipId: number }) {
     const loadout = QUICK_FITS[ship.ship_class];
     if (!loadout) return;
     setBusy(true);
-    for (const mod of loadout) {
-      const payload: Record<string, unknown> = { module_type: mod.type };
-      if (mod.volume != null) payload.volume = mod.volume;
-      await sendCommand("install_module", shipId, payload, tick);
+    for (const modType of loadout) {
+      await sendCommand("install_module", shipId, { module_type: modType }, tick);
     }
     setBusy(false);
   }
@@ -280,31 +278,12 @@ function FittingLayout({
   onBack,
   busy,
 }: FittingLayoutProps) {
-  const [addingModule, setAddingModule] = useState<ModuleDef | null>(null);
-  const [volume, setVolume] = useState(10);
-
   function handleSelectModule(mod: ModuleDef) {
-    if (mod.fixedVolume != null) {
-      // Fixed-size: add immediately
-      onAddModule(mod.type, mod.fixedVolume);
-    } else {
-      // Variable-size: show volume picker
-      setAddingModule(mod);
-      setVolume(Math.min(Math.max(mod.minVolume ?? 10, 10), freeVolume));
-    }
-  }
-
-  function handleConfirmAdd() {
-    if (!addingModule) return;
-    onAddModule(addingModule.type, volume);
-    setAddingModule(null);
+    onAddModule(mod.type, mod.fixedVolume);
   }
 
   // Modules that fit in remaining volume
-  const fittable = MODULES.filter((m) => {
-    if (m.fixedVolume != null) return m.fixedVolume <= freeVolume;
-    return freeVolume >= (m.minVolume ?? 1);
-  });
+  const fittable = MODULES.filter((m) => m.fixedVolume <= freeVolume);
 
   const volumePercent = totalVolume > 0 ? (usedVolume / totalVolume) * 100 : 0;
 
@@ -358,56 +337,45 @@ function FittingLayout({
               Module Catalog
             </div>
 
-            {addingModule ? (
-              <VolumePicker
-                mod={addingModule}
-                freeVolume={freeVolume}
-                volume={volume}
-                setVolume={setVolume}
-                onConfirm={handleConfirmAdd}
-                onCancel={() => setAddingModule(null)}
-              />
-            ) : (
-              <div className="max-h-72 overflow-y-auto space-y-2">
-                {MODULE_CATEGORIES.map((cat) => {
-                  const mods = fittable.filter((m) => m.category === cat);
-                  if (mods.length === 0) return null;
-                  return (
-                    <div key={cat}>
-                      <div className="text-text-secondary text-[10px] uppercase tracking-wider mb-0.5">
-                        {cat}
-                      </div>
-                      <div className="space-y-0.5">
-                        {mods.map((mod) => (
-                          <button
-                            key={mod.type}
-                            onClick={() => handleSelectModule(mod)}
-                            disabled={busy}
-                            className="w-full flex justify-between items-center px-2 py-1.5 text-xs
-                                       bg-space-bg border border-space-border rounded
-                                       hover:bg-space-panel hover:border-friendly/30 transition
-                                       disabled:opacity-50"
-                          >
-                            <div className="text-left">
-                              <div className="text-text-primary text-xs">{mod.label}</div>
-                              <div className="text-text-secondary text-[10px]">{mod.description}</div>
-                            </div>
-                            <span className="text-text-secondary text-[10px] ml-2 whitespace-nowrap">
-                              {mod.fixedVolume != null ? `${mod.fixedVolume} m³` : "var"}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+            <div className="max-h-72 overflow-y-auto space-y-2">
+              {MODULE_CATEGORIES.map((cat) => {
+                const mods = fittable.filter((m) => m.category === cat);
+                if (mods.length === 0) return null;
+                return (
+                  <div key={cat}>
+                    <div className="text-text-secondary text-[10px] uppercase tracking-wider mb-0.5">
+                      {cat}
                     </div>
-                  );
-                })}
-                {fittable.length === 0 && (
-                  <div className="text-text-secondary text-xs text-center py-4">
-                    No modules fit in remaining volume.
+                    <div className="space-y-0.5">
+                      {mods.map((mod) => (
+                        <button
+                          key={mod.type}
+                          onClick={() => handleSelectModule(mod)}
+                          disabled={busy}
+                          className="w-full flex justify-between items-center px-2 py-1.5 text-xs
+                                     bg-space-bg border border-space-border rounded
+                                     hover:bg-space-panel hover:border-friendly/30 transition
+                                     disabled:opacity-50"
+                        >
+                          <div className="text-left">
+                            <div className="text-text-primary text-xs">{mod.label}</div>
+                            <div className="text-text-secondary text-[10px]">{mod.description}</div>
+                          </div>
+                          <span className="text-text-secondary text-[10px] ml-2 whitespace-nowrap">
+                            {mod.fixedVolume} m³
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
+                );
+              })}
+              {fittable.length === 0 && (
+                <div className="text-text-secondary text-xs text-center py-4">
+                  No modules fit in remaining volume.
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right: Fitted modules */}
@@ -456,7 +424,7 @@ function FittingLayout({
         <div className="flex gap-3">
           {quickFit && quickFitLabel && (
             <button
-              onClick={() => { setAddingModule(null); quickFit(); }}
+              onClick={quickFit}
               disabled={busy}
               className="flex-1 px-4 py-2.5 text-sm bg-[#d4a843]/20 border border-[#d4a843]/50
                          text-[#d4a843] rounded hover:bg-[#d4a843]/30 transition disabled:opacity-50 font-bold"
@@ -473,81 +441,6 @@ function FittingLayout({
             {actionLabel}
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Volume Picker (for variable-size modules)
-// ---------------------------------------------------------------------------
-
-function VolumePicker({
-  mod,
-  freeVolume,
-  volume,
-  setVolume,
-  onConfirm,
-  onCancel,
-}: {
-  mod: ModuleDef;
-  freeVolume: number;
-  volume: number;
-  setVolume: (v: number) => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const minVol = mod.minVolume ?? 1;
-
-  return (
-    <div className="bg-space-bg/50 border border-space-border rounded p-3">
-      <div className="text-text-primary text-sm mb-0.5">{mod.label}</div>
-      <div className="text-text-secondary text-[10px] mb-2">{mod.description}</div>
-
-      <div className="mb-2">
-        <div className="text-text-secondary text-[10px] mb-1">
-          Volume ({minVol}&ndash;{freeVolume} m&sup3;)
-        </div>
-        <input
-          type="range"
-          min={minVol}
-          max={freeVolume}
-          value={volume}
-          onChange={(e) => setVolume(Number(e.target.value))}
-          className="w-full h-1.5 accent-friendly"
-        />
-        <div className="flex justify-between items-center mt-1">
-          <input
-            type="number"
-            min={minVol}
-            max={freeVolume}
-            value={volume}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (v >= minVol && v <= freeVolume) setVolume(v);
-            }}
-            className="w-20 bg-space-bg border border-space-border rounded px-2 py-1
-                       text-text-primary text-xs text-center focus:border-friendly/50 focus:outline-none"
-          />
-          <span className="text-text-secondary text-xs">{volume} m&sup3;</span>
-        </div>
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          onClick={onCancel}
-          className="flex-1 px-3 py-1.5 text-xs border border-space-border
-                     text-text-secondary rounded hover:text-text-primary transition"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onConfirm}
-          className="flex-1 px-3 py-1.5 text-xs bg-friendly/20 border border-friendly/50
-                     text-friendly rounded hover:bg-friendly/30 transition"
-        >
-          Add
-        </button>
       </div>
     </div>
   );

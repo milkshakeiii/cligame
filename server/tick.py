@@ -611,6 +611,30 @@ def _find_nearest_asteroid(
     return best
 
 
+def _find_closest_asteroid(
+    ship: Spaceship,
+    asteroid_map: dict[int, CelestialObject],
+) -> Optional[CelestialObject]:
+    """Return the nearest non-depleted asteroid regardless of range, or None."""
+    from server.models import CelestialType
+
+    best: Optional[CelestialObject] = None
+    best_dist = float("inf")
+    for obj in asteroid_map.values():
+        if obj.object_type != CelestialType.asteroid:
+            continue
+        if obj.ore_remaining <= 0.0:
+            continue
+        dist = vec_distance(
+            (ship.pos_x, ship.pos_y, ship.pos_z),
+            (obj.pos_x, obj.pos_y, obj.pos_z),
+        )
+        if dist < best_dist:
+            best = obj
+            best_dist = dist
+    return best
+
+
 def _process_mining(
     ship: Spaceship,
     asteroid_map: dict[int, CelestialObject],
@@ -647,9 +671,22 @@ def _process_mining(
             if module.id not in ship_oor_set:
                 ship_oor_set.add(module.id)
                 if ship.user_id is not None:
+                    # Find the closest asteroid (even out of range) for a helpful message
+                    closest = _find_closest_asteroid(ship, asteroid_map)
+                    if closest is not None:
+                        dist = vec_distance(
+                            (ship.pos_x, ship.pos_y, ship.pos_z),
+                            (closest.pos_x, closest.pos_y, closest.pos_z),
+                        )
+                        msg = (
+                            f"Mining Laser: nearest asteroid #{closest.id} is "
+                            f"{dist:.0f}m away (laser range {module.mining_range:.0f}m)"
+                        )
+                    else:
+                        msg = "Mining Laser: no asteroids nearby"
                     emit(
                         EventType.mining,
-                        "Mining Laser: no asteroid within range",
+                        msg,
                         user_id=ship.user_id,
                         ship_id=ship.id,
                     )
@@ -1009,8 +1046,7 @@ def _process_detection(
 
         # Passive detector — fires when its module ID is in fired_module_ids
         if module.module_type in (ModuleType.passive_detector, ModuleType.starter_passive_detector):
-            if module.id not in fired_module_ids:
-                continue  # not a cycle-fire tick
+            # Passive detectors run every tick (no cycle/cap gating)
             result = tick_passive_detector(ship, module, all_ships, all_objects)
 
             # BUG-04: build the set of contact keys seen this cycle, then only

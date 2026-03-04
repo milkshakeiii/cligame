@@ -1656,14 +1656,14 @@ class TestModuleActivation:
         """Activate a module via command, then deactivate it."""
         headers1, auth1, headers2, auth2, match_id = await _setup_match(client)
 
-        # Claim a strike craft with a mining laser
+        # Claim a strike craft with a scanner (non-mining module for activate/deactivate test)
         await _send_raw_command(
             client, headers1, "claim_ship",
             payload={
                 "ship_class": "strike_craft",
                 "modules": [
                     {"module_type": "starter_engine"},
-                    {"module_type": "starter_mining_laser"},
+                    {"module_type": "starter_shield_extender"},
                 ],
             },
         )
@@ -1677,16 +1677,16 @@ class TestModuleActivation:
         resp = await client.get(f"/api/ships/{craft['id']}/modules", headers=headers1)
         assert resp.status_code == 200
         modules = resp.json()
-        laser = next(
-            (m for m in modules if "mining_laser" in m["module_type"]),
+        shield = next(
+            (m for m in modules if "shield_extender" in m["module_type"]),
             None,
         )
-        assert laser is not None
+        assert shield is not None
 
-        # Activate the mining laser
+        # Activate the shield extender
         await _send_raw_command(
             client, headers1, "activate_module",
-            payload={"module_id": laser["id"]},
+            payload={"module_id": shield["id"]},
             cmd_ship_id=craft["id"],
         )
         await _process(client)
@@ -1696,10 +1696,10 @@ class TestModuleActivation:
         activate_rejects = [r for r in rejected if r.get("type") == "activate_module"]
         assert len(activate_rejects) == 0, f"Activate rejected: {activate_rejects}"
 
-        # Deactivate the mining laser
+        # Deactivate the shield extender
         await _send_raw_command(
             client, headers1, "deactivate_module",
-            payload={"module_id": laser["id"]},
+            payload={"module_id": shield["id"]},
             cmd_ship_id=craft["id"],
         )
         await _process(client)

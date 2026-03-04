@@ -57,6 +57,35 @@ async def handle_activate_module(ctx: TickContext, cmd: Command) -> None:
         module.lance_charge_remaining = MODULE_REGISTRY["solar_lance"].lance_charge_time
         module.lance_target_ship_id = target_id
 
+    # Mining lasers: reject activation if no asteroid in range
+    from server.models import CelestialObject, CelestialType, ModuleType
+    from server.physics import vec_distance
+    mining_types = (ModuleType.mining_laser, ModuleType.strip_miner, ModuleType.starter_mining_laser)
+    if module.module_type in mining_types:
+        asteroids = await ctx.session.exec(
+            select(CelestialObject).where(
+                CelestialObject.object_type == CelestialType.asteroid,
+                CelestialObject.ore_remaining > 0,
+            )
+        )
+        best_dist = float("inf")
+        best_ast = None
+        for ast in asteroids.all():
+            d = vec_distance(
+                (ship.pos_x, ship.pos_y, ship.pos_z),
+                (ast.pos_x, ast.pos_y, ast.pos_z),
+            )
+            if d < best_dist:
+                best_dist = d
+                best_ast = ast
+        if best_ast is None:
+            raise CommandRejected("No asteroids nearby")
+        if best_dist > module.mining_range:
+            raise CommandRejected(
+                f"Nearest asteroid #{best_ast.id} is {best_dist:.0f}m away "
+                f"(laser range {module.mining_range:.0f}m)"
+            )
+
     module.active = True
     if module.cycle_time > 0:
         module.ticks_until_cycle = module.cycle_time

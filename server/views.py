@@ -314,7 +314,9 @@ async def compute_player_view(
         EventType.ship_destroyed.value,           # a ship went down
         EventType.asteroid_depleted.value,        # resource gone
     ]
-    event_since = since_tick if since_tick is not None else max(0, current_tick - 20)
+    # Always look back at least 30 ticks for events, regardless of since_tick,
+    # so short-lived events (command rejections etc.) aren't missed by polling.
+    event_since = max(0, current_tick - 30)
     team_ship_ids = [s.id for s in ships]
     if on_team and team_ship_ids:
         event_owner_filter = or_(
